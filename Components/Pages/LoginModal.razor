@@ -1,0 +1,145 @@
+@inject ILdapAuthService LdapAuth
+@inject UserSessionState SessionState
+@inject IAuditService AuditService
+
+@if (IsOpen)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content shadow-lg border-0">
+                <div class="modal-header bg-dark text-white">
+                    <h5 class="modal-title d-flex align-items-center gap-2">
+                        <i class="bi bi-shield-lock text-primary"></i>
+                        <span>Admin Login</span>
+                    </h5>
+                    @if (CanClose)
+                    {
+                        <button type="button" class="btn-close btn-close-white" @onclick="Close"></button>
+                    }
+                </div>
+                <div class="modal-body p-4">
+                    <p class="text-muted small mb-3">
+                        เข้าสู่ระบบด้วยบัญชี <strong>Active Directory (Domain)</strong> หรือ <strong>Local Admin</strong> เพื่อจัดการ SFTP Server
+                    </p>
+
+                    @if (!string.IsNullOrEmpty(errorMessage))
+                    {
+                        <div class="alert alert-danger py-2 small d-flex align-items-center gap-2">
+                            <i class="bi bi-exclamation-triangle-fill"></i>
+                            <span>@errorMessage</span>
+                        </div>
+                    }
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold small">Username</label>
+                        <div class="input-group">
+                            <span class="input-group-text"><i class="bi bi-person"></i></span>
+                            <input type="text" class="form-control" @bind="username" @bind:event="oninput" placeholder="admin หรือ domain\user" autofocus />
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold small">Password</label>
+                        <div class="input-group">
+                            <span class="input-group-text"><i class="bi bi-key"></i></span>
+                            <input type="password" class="form-control" @bind="password" @bind:event="oninput" @onkeyup="HandleKeyUp" placeholder="••••••••" />
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer bg-light">
+                    @if (CanClose)
+                    {
+                        <button type="button" class="btn btn-outline-secondary" @onclick="Close">ยกเลิก</button>
+                    }
+                    <button type="button" class="btn btn-primary d-flex align-items-center gap-2" @onclick="PerformLogin" disabled="@isLoading">
+                        @if (isLoading)
+                        {
+                            <span class="spinner-border spinner-border-sm"></span>
+                            <span>กำลังตรวจสอบ...</span>
+                        }
+                        else
+                        {
+                            <i class="bi bi-box-arrow-in-right"></i>
+                            <span>เข้าสู่ระบบ</span>
+                        }
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public bool IsOpen { get; set; }
+    [Parameter] public bool CanClose { get; set; } = true;
+    [Parameter] public EventCallback<bool> OnLoginCompleted { get; set; }
+
+    private string username = "";
+    private string password = "";
+    private string? errorMessage;
+    private bool isLoading;
+
+    private async Task HandleKeyUp(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await PerformLogin();
+        }
+    }
+
+    private async Task PerformLogin()
+    {
+        if (string.IsNullOrWhiteSpace(username) || string.IsNullOrWhiteSpace(password))
+        {
+            errorMessage = "กรุณากรอก Username และ Password";
+            return;
+        }
+
+        isLoading = true;
+        errorMessage = null;
+
+        try
+        {
+            var result = await LdapAuth.AuthenticateAsync(username.Trim(), password);
+            if (result.IsSuccess && result.IsAdmin)
+            {
+                SessionState.SetUser(result.Username, result.DisplayName, result.IsAdmin);
+                await AuditService.LogAsync("ADMIN_LOGIN", $"Admin login successful for '{result.Username}'", true, result.Username);
+                IsOpen = false;
+                await OnLoginCompleted.InvokeAsync(true);
+            }
+            else
+            {
+                errorMessage = result.ErrorMessage ?? "การยืนยันตัวตนล้มเหลว ตรวจสอบชื่อผู้ใช้หรือรหัสผ่าน";
+                await AuditService.LogAsync("ADMIN_LOGIN_FAIL", $"Failed login attempt for '{username}': {errorMessage}", false, username);
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = ex.Message;
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    public void Open()
+    {
+        IsOpen = true;
+        errorMessage = null;
+        password = "";
+        StateHasChanged();
+    }
+
+    public void Close()
+    {
+        if (CanClose)
+        {
+            IsOpen = false;
+            errorMessage = null;
+            password = "";
+            StateHasChanged();
+        }
+    }
+}

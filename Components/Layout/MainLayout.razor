@@ -1,0 +1,250 @@
+@inherits LayoutComponentBase
+@inject IOpenSshServiceManager SshManager
+@inject UserSessionState SessionState
+@inject ILdapAuthService LdapAuth
+@inject IAuditService AuditService
+@inject NavigationManager Navigation
+@implements IDisposable
+
+@if (!SessionState.IsAuthenticated || !SessionState.IsAdmin)
+{
+    <!-- Unauthenticated State: Mandatory Center Login Screen -->
+    <div class="login-wrapper d-flex align-items-center justify-content-center">
+        <div class="card shadow-lg border-0 rounded-4 overflow-hidden" style="max-width: 440px; width: 100%;">
+            <div class="card-header bg-dark text-white text-center py-4 border-0">
+                <div class="d-inline-flex align-items-center justify-content-center bg-primary bg-opacity-25 text-primary rounded-circle mb-3 p-3">
+                    <i class="bi bi-shield-lock-fill fs-1 text-white"></i>
+                </div>
+                <h4 class="fw-bold mb-1">OpenSSH SFTP Admin</h4>
+                <p class="text-light text-opacity-75 small mb-0">ระบบบริหารจัดการ SFTP และ Windows Host</p>
+            </div>
+
+            <div class="card-body p-4 bg-white">
+                <form @onsubmit="PerformLogin" @onsubmit:preventDefault="true">
+                    <div class="alert alert-warning py-2 small d-flex align-items-center gap-2 mb-3">
+                        <i class="bi bi-exclamation-shield-fill flex-shrink-0 text-warning fs-5"></i>
+                        <div>ระบบมีสิทธิ์ระดับระบบปฏิบัติการ กรุณายืนยันตัวตนก่อนเข้าใช้งาน</div>
+                    </div>
+
+                    @if (!string.IsNullOrEmpty(loginErrorMessage))
+                    {
+                        <div class="alert alert-danger py-2 small d-flex align-items-center gap-2 mb-3">
+                            <i class="bi bi-exclamation-triangle-fill flex-shrink-0"></i>
+                            <div>@loginErrorMessage</div>
+                        </div>
+                    }
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold small text-secondary">Username</label>
+                        <div class="input-group">
+                            <span class="input-group-text bg-light text-muted"><i class="bi bi-person"></i></span>
+                            <input type="text" class="form-control" @bind="loginUsername" @bind:event="oninput"
+                                   placeholder="admin หรือ domain\user" autofocus />
+                        </div>
+                    </div>
+
+                    <div class="mb-4">
+                        <label class="form-label fw-bold small text-secondary">Password</label>
+                        <div class="input-group">
+                            <span class="input-group-text bg-light text-muted"><i class="bi bi-key"></i></span>
+                            <input type="@(showPassword ? "text" : "password")" class="form-control" @bind="loginPassword" @bind:event="oninput"
+                                   placeholder="••••••••" />
+                            <button class="btn btn-outline-secondary" type="button" @onclick="() => showPassword = !showPassword" tabindex="-1" title="แสดง/ซ่อนรหัสผ่าน">
+                                <i class="bi @(showPassword ? "bi-eye-slash" : "bi-eye")"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <button type="submit" class="btn btn-primary w-100 py-2 fw-semibold d-flex align-items-center justify-content-center gap-2 shadow-sm"
+                            disabled="@isLoggingIn">
+                        @if (isLoggingIn)
+                        {
+                            <span class="spinner-border spinner-border-sm"></span>
+                            <span>กำลังยืนยันตัวตน...</span>
+                        }
+                        else
+                        {
+                            <i class="bi bi-box-arrow-in-right"></i>
+                            <span>เข้าสู่ระบบจัดการ SFTP</span>
+                        }
+                    </button>
+                </form>
+
+                <div class="mt-4 pt-3 border-top text-center text-muted small d-flex align-items-center justify-content-center gap-1" style="font-size: 0.8rem;">
+                    <i class="bi bi-info-circle"></i>
+                    <span>รองรับทั้งบัญชี Active Directory และ Fallback Local Admin</span>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+else
+{
+    <!-- Authenticated State: Full Dashboard & Protected Operations -->
+    <div class="page">
+        <div class="sidebar">
+            <NavMenu />
+        </div>
+
+        <main>
+            <div class="top-row px-4 d-flex justify-content-between align-items-center bg-white border-bottom shadow-sm">
+                <div class="d-flex align-items-center gap-2">
+                    <span class="fw-semibold text-secondary small d-none d-md-inline-flex align-items-center gap-1">
+                        <i class="bi bi-hdd-rack text-primary"></i>
+                        <span>OpenSSH Host</span>
+                    </span>
+                    <span class="action-divider d-none d-md-inline-block"></span>
+                    @if (serviceInfo != null)
+                    {
+                        @if (serviceInfo.Status == "Running")
+                        {
+                            <span class="badge bg-success-subtle text-success border border-success-subtle px-2.5 py-1"
+                                  role="button" title="คลิกเพื่อจัดการ OpenSSH Service"
+                                  @onclick='() => Navigation.NavigateTo("service")'>
+                                <i class="bi bi-check-circle-fill"></i>
+                                <span>sshd: Running</span>
+                            </span>
+                        }
+                        else
+                        {
+                            <span class="badge bg-danger-subtle text-danger border border-danger-subtle px-2.5 py-1"
+                                  role="button" title="คลิกเพื่อจัดการ OpenSSH Service"
+                                  @onclick='() => Navigation.NavigateTo("service")'>
+                                <i class="bi bi-exclamation-circle-fill"></i>
+                                <span>sshd: @serviceInfo.Status</span>
+                            </span>
+                        }
+
+                        @if (serviceInfo.HasZeroConfigBlock)
+                        {
+                            <span class="badge bg-primary-subtle text-primary border border-primary-subtle px-2.5 py-1 small" title="Zero-Config Reload Active">
+                                <i class="bi bi-lightning-charge-fill"></i>
+                                <span>Zero-Config Active</span>
+                            </span>
+                        }
+                    }
+                    <button class="btn btn-sm btn-outline-secondary py-0.5 px-2" title="รีเฟรชสถานะ Service" @onclick="RefreshServiceStatus">
+                        <i class="bi bi-arrow-clockwise"></i>
+                    </button>
+                </div>
+
+                <div class="d-flex align-items-center gap-2">
+                    <div class="d-flex align-items-center gap-2 pe-2">
+                        <i class="bi bi-person-circle fs-5 text-primary"></i>
+                        <div class="d-flex flex-column text-end">
+                            <span class="fw-bold small lh-1">@SessionState.DisplayName</span>
+                            <span class="text-muted" style="font-size: 0.75rem;">@SessionState.CurrentUsername</span>
+                        </div>
+                    </div>
+                    <span class="action-divider"></span>
+                    <button class="btn btn-sm btn-outline-danger" @onclick="Logout" title="ออกจากระบบผู้ดูแล">
+                        <i class="bi bi-box-arrow-right"></i>
+                        <span>ออกจากระบบ</span>
+                    </button>
+                </div>
+            </div>
+
+            <article class="content px-4 py-3">
+                @Body
+            </article>
+        </main>
+    </div>
+}
+
+<div id="blazor-error-ui">
+    <span>เกิดข้อผิดพลาดที่ไม่คาดคิดในระบบ (An unhandled error has occurred.)</span>
+    <a href="" class="reload ms-2">โหลดหน้านี้ใหม่</a>
+    <a class="dismiss" title="ปิดข้อความแจ้งเตือน"><i class="bi bi-x-lg"></i></a>
+</div>
+
+@code {
+    private ServiceStatusInfo? serviceInfo;
+    private string loginUsername = "";
+    private string loginPassword = "";
+    private string? loginErrorMessage;
+    private bool isLoggingIn = false;
+    private bool showPassword = false;
+
+    protected override void OnInitialized()
+    {
+        SessionState.OnChange += StateHasChanged;
+        if (SessionState.IsAuthenticated)
+        {
+            RefreshServiceStatus();
+        }
+    }
+
+    private void RefreshServiceStatus()
+    {
+        if (!SessionState.IsAuthenticated) return;
+
+        try
+        {
+            serviceInfo = SshManager.GetStatus();
+        }
+        catch
+        {
+            serviceInfo = new ServiceStatusInfo { Status = "Unknown" };
+        }
+    }
+
+    private async Task HandleLoginKeyUp(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await PerformLogin();
+        }
+    }
+
+    private async Task PerformLogin()
+    {
+        if (string.IsNullOrWhiteSpace(loginUsername) || string.IsNullOrWhiteSpace(loginPassword))
+        {
+            loginErrorMessage = "กรุณากรอก Username และ Password";
+            return;
+        }
+
+        isLoggingIn = true;
+        loginErrorMessage = null;
+
+        try
+        {
+            var result = await LdapAuth.AuthenticateAsync(loginUsername.Trim(), loginPassword);
+            if (result.IsSuccess && result.IsAdmin)
+            {
+                SessionState.SetUser(result.Username, result.DisplayName, result.IsAdmin);
+                await AuditService.LogAsync("ADMIN_LOGIN", $"Admin login successful for '{result.Username}'", true, result.Username);
+
+                loginPassword = "";
+                loginErrorMessage = null;
+                RefreshServiceStatus();
+            }
+            else
+            {
+                loginErrorMessage = result.ErrorMessage ?? "การยืนยันตัวตนล้มเหลว ตรวจสอบชื่อผู้ใช้หรือรหัสผ่าน";
+                await AuditService.LogAsync("ADMIN_LOGIN_FAIL", $"Failed login attempt for '{loginUsername}': {loginErrorMessage}", false, loginUsername);
+            }
+        }
+        catch (Exception ex)
+        {
+            loginErrorMessage = ex.Message;
+        }
+        finally
+        {
+            isLoggingIn = false;
+        }
+    }
+
+    private void Logout()
+    {
+        SessionState.Logout();
+        serviceInfo = null;
+        loginPassword = "";
+        loginErrorMessage = null;
+    }
+
+    public void Dispose()
+    {
+        SessionState.OnChange -= StateHasChanged;
+    }
+}

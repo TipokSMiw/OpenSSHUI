@@ -1,0 +1,774 @@
+@page "/groups"
+@rendermode InteractiveServer
+@inject ISftpGroupService GroupService
+@inject ISftpUserService UserService
+@inject UserSessionState SessionState
+@inject NavigationManager Navigation
+
+<PageTitle>SFTP Groups - OpensshUI</PageTitle>
+
+<div class="container-fluid p-0">
+    <!-- Standardized Page Header -->
+    <div class="page-header">
+        <div>
+            <h3 class="page-title">
+                <i class="bi bi-collection-fill text-primary"></i>
+                <span>จัดการกลุ่มผู้ใช้งาน SFTP (SFTP Groups)</span>
+            </h3>
+            <p class="text-muted small mb-0">กำหนดโฟลเดอร์แชร์ร่วมกัน (Shared Folders), สิทธิ์ NTFS ACL, NTFS Directory Junctions และสมาชิกในกลุ่ม</p>
+        </div>
+        <div class="d-flex align-items-center gap-2">
+            <button class="btn btn-outline-secondary btn-sm" @onclick="LoadData">
+                <i class="bi bi-arrow-clockwise"></i>
+                <span>รีเฟรช</span>
+            </button>
+            <button class="btn btn-primary btn-sm" @onclick="OpenCreateModal">
+                <i class="bi bi-plus-circle-fill"></i>
+                <span>สร้างกลุ่มใหม่</span>
+            </button>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrEmpty(_statusMessage))
+    {
+        <div class="alert @(_isSuccessStatus ? "alert-success" : "alert-danger") alert-dismissible fade show py-2 small d-flex align-items-center gap-2" role="alert">
+            <i class="bi @(_isSuccessStatus ? "bi-check-circle-fill" : "bi-exclamation-triangle-fill") flex-shrink-0"></i>
+            <div>@_statusMessage</div>
+            <button type="button" class="btn-close" @onclick="() => _statusMessage = null"></button>
+        </div>
+    }
+
+    <!-- Search & Filter Bar -->
+    <div class="card border-0 shadow-sm rounded-3 mb-3">
+        <div class="card-body py-2.5 px-3">
+            <div class="row g-2 align-items-center">
+                <div class="col-md-5">
+                    <div class="input-group input-group-sm">
+                        <span class="input-group-text bg-white border-end-0 text-muted"><i class="bi bi-search"></i></span>
+                        <input type="text" class="form-control border-start-0" placeholder="ค้นหาชื่อกลุ่ม หรือ Shared Root Path..." @bind="_searchTerm" @bind:event="oninput" />
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <select class="form-select form-select-sm" @bind="_modeFilter">
+                        <option value="">ทุกโหมดการเข้าถึง (Access Modes)</option>
+                        <option value="VirtualFolder">Virtual Folder</option>
+                        <option value="DirectChroot">Direct Chroot</option>
+                    </select>
+                </div>
+                <div class="col-md-4 d-flex justify-content-end align-items-center gap-2">
+                    @if (!string.IsNullOrWhiteSpace(_searchTerm) || !string.IsNullOrWhiteSpace(_modeFilter))
+                    {
+                        <button class="btn btn-outline-secondary btn-sm py-0.5 px-2" title="ล้างตัวกรองทั้งหมด" @onclick="ClearFilters">
+                            <i class="bi bi-x-circle"></i>
+                            <span>ล้าง</span>
+                        </button>
+                    }
+                    <span class="text-muted small text-nowrap">
+                        แสดง <strong>@FilteredGroups.Count</strong> รายการ
+                    </span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Groups Table -->
+    <div class="card border-0 shadow-sm rounded-3">
+        <div class="card-body p-0">
+            @if (_loading)
+            {
+                <div class="text-center py-5">
+                    <span class="spinner-border spinner-border-sm text-primary"></span>
+                    <p class="text-muted small mt-2 mb-0">กำลังโหลดข้อมูลกลุ่มผู้ใช้งาน...</p>
+                </div>
+            }
+            else if (FilteredGroups.Count == 0)
+            {
+                <div class="text-center py-5 text-muted">
+                    <i class="bi bi-collection fs-1 d-block mb-2"></i>
+                    <p class="mb-0">ไม่พบกลุ่มผู้ใช้งาน SFTP คลิกปุ่ม <strong>สร้างกลุ่มใหม่</strong> เพื่อเริ่มต้นใช้งาน</p>
+                </div>
+            }
+            else
+            {
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0">
+                        <thead class="table-light small text-muted">
+                            <tr>
+                                <th class="ps-3">ชื่อกลุ่ม (GROUP)</th>
+                                <th>SHARED ROOT PATH</th>
+                                <th>ACCESS MODE</th>
+                                <th>ระดับสิทธิ์</th>
+                                <th>สมาชิก</th>
+                                <th>วันที่สร้าง</th>
+                                <th class="text-end pe-3">การจัดการ (ACTIONS)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var grp in FilteredGroups)
+                            {
+                                <tr>
+                                    <td class="ps-3">
+                                        <div class="fw-bold d-flex align-items-center gap-1.5">
+                                            <i class="bi bi-collection text-primary"></i>
+                                            <span>@grp.Name</span>
+                                        </div>
+                                        @if (!string.IsNullOrEmpty(grp.Description))
+                                        {
+                                            <small class="text-muted">@grp.Description</small>
+                                        }
+                                    </td>
+                                    <td>
+                                        <div class="path-badge path-badge-default text-wrap" title="โฟลเดอร์หลักของกลุ่ม: @grp.RootPath">
+                                            <i class="bi bi-folder2-open"></i>
+                                            <span class="path-text">@grp.RootPath</span>
+                                        </div>
+                                    </td>
+                                    <td>
+                                        @if (grp.AccessMode == SftpAccessMode.VirtualFolder)
+                                        {
+                                            <span class="badge bg-info-subtle text-info-emphasis border border-info-subtle" title="ปรากฏเป็นโฟลเดอร์ย่อยภายใน Home ของผู้ใช้">
+                                                <i class="bi bi-folder-symlink"></i>
+                                                <span>Virtual Folder</span>
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                            <span class="badge bg-primary-subtle text-primary border border-primary-subtle" title="เข้าถึงโฟลเดอร์กลุ่มเป็น Chroot หลักโดยตรง">
+                                                <i class="bi bi-box-arrow-in-down-right"></i>
+                                                <span>Direct Chroot</span>
+                                            </span>
+                                        }
+                                    </td>
+                                    <td>
+                                        @if (grp.PermissionType == SftpPermissionType.ReadWrite)
+                                        {
+                                            <span class="badge bg-success-subtle text-success border border-success-subtle">
+                                                <i class="bi bi-pencil-square"></i>
+                                                <span>Read & Write</span>
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                            <span class="badge bg-secondary-subtle text-secondary-emphasis border border-secondary-subtle">
+                                                <i class="bi bi-eye"></i>
+                                                <span>Read-Only</span>
+                                            </span>
+                                        }
+                                    </td>
+                                    <td>
+                                        <button class="btn btn-sm btn-outline-primary py-0.5 px-2.5 rounded-pill" title="คลิกเพื่อดูและจัดการสมาชิกในกลุ่ม" @onclick="() => OpenMembersModal(grp)">
+                                            <i class="bi bi-people-fill"></i>
+                                            <span>@grp.Members.Count คน</span>
+                                        </button>
+                                    </td>
+                                    <td class="small text-muted text-nowrap font-monospace">
+                                        @grp.CreatedAt.ToLocalTime().ToString("dd/MM/yyyy")
+                                    </td>
+                                    <td class="text-end pe-3">
+                                        <div class="action-bar">
+                                            <button class="btn btn-sm btn-outline-primary" title="เปิดดูและจัดการไฟล์ของกลุ่มนี้ใน Web File Browser" @onclick='() => Navigation.NavigateTo($"files/group/{grp.Name}")'>
+                                                <i class="bi bi-folder2-open"></i>
+                                                <span>ไฟล์</span>
+                                            </button>
+                                            <span class="action-divider"></span>
+                                            <button class="btn btn-sm btn-outline-secondary" title="แก้ไขการตั้งค่ากลุ่มและสมาชิก" @onclick="() => OpenEditModal(grp)">
+                                                <i class="bi bi-pencil-square"></i>
+                                                <span>แก้ไข</span>
+                                            </button>
+                                            <span class="action-divider"></span>
+                                            <button class="btn btn-sm btn-outline-danger" title="ลบกลุ่มผู้ใช้งาน" @onclick="() => OpenDeleteModal(grp)">
+                                                <i class="bi bi-trash3"></i>
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+<!-- Modal: Create Group -->
+@if (_showCreateModal)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+        <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+            <div class="modal-content shadow-lg border-0">
+                <div class="modal-header bg-dark text-white">
+                    <h5 class="modal-title d-flex align-items-center gap-2">
+                        <i class="bi bi-collection-fill text-primary"></i>
+                        <span>สร้างกลุ่มผู้ใช้งาน SFTP ใหม่</span>
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" @onclick="CloseModals"></button>
+                </div>
+                <div class="modal-body p-4">
+                    @if (!string.IsNullOrEmpty(_modalError))
+                    {
+                        <div class="alert alert-danger py-2 small d-flex align-items-center gap-2">
+                            <i class="bi bi-exclamation-triangle-fill flex-shrink-0"></i>
+                            <div>@_modalError</div>
+                        </div>
+                    }
+
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label small fw-bold">ชื่อกลุ่ม (Group Name) <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control form-control-sm" placeholder="เช่น Marketing, FinanceTeam" @bind="_createRequest.Name" />
+                            <div class="form-text small">ระบบจะสร้าง Windows Local Group ที่ขึ้นต้นด้วย <code>SFTP-</code> อัตโนมัติ</div>
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label small fw-bold">คำอธิบาย (Description)</label>
+                            <input type="text" class="form-control form-control-sm" placeholder="รายละเอียดเพิ่มเติมเกี่ยวกับกลุ่มนี้" @bind="_createRequest.Description" />
+                        </div>
+
+                        <div class="col-12">
+                            <label class="form-label small fw-bold">โฟลเดอร์หลักของกลุ่ม (Shared Root Path) <span class="text-danger">*</span></label>
+                            <div class="input-group input-group-sm">
+                                <input type="text" class="form-control font-monospace" placeholder="เช่น D:\SFTPShare\Marketing" @bind="_createRequest.RootPath" />
+                                <button class="btn btn-outline-secondary" type="button" @onclick="OpenFolderBrowserForCreate">
+                                    <i class="bi bi-folder2-open"></i>
+                                    <span>เลือกโฟลเดอร์...</span>
+                                </button>
+                            </div>
+                            <div class="form-text small">หากโฟลเดอร์ยังไม่มีอยู่ ระบบจะสร้างและกำหนดสิทธิ์ NTFS ACL ให้อัตโนมัติ</div>
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label small fw-bold">โหมดการเข้าถึง (Access Mode)</label>
+                            <select class="form-select form-select-sm" @bind="_createRequest.AccessMode">
+                                <option value="@SftpAccessMode.VirtualFolder">Virtual Folder (ปรากฏเป็นโฟลเดอร์ย่อยใน Home)</option>
+                                <option value="@SftpAccessMode.DirectChroot">Direct Chroot (ใช้โฟลเดอร์กลุ่มเป็น Root โดยตรง)</option>
+                            </select>
+                            <div class="form-text small">โหมด Virtual Folder ช่วยให้ผู้ใช้อยู่ได้หลายกลุ่มพร้อมกันผ่าน NTFS Junction</div>
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label small fw-bold">ระดับสิทธิ์ (Permission Level)</label>
+                            <select class="form-select form-select-sm" @bind="_createRequest.PermissionType">
+                                <option value="@SftpPermissionType.ReadWrite">Read & Write (อัปโหลด แก้ไข และลบไฟล์ได้)</option>
+                                <option value="@SftpPermissionType.ReadOnly">Read-Only (ดาวน์โหลดและเปิดดูได้อย่างเดียว)</option>
+                            </select>
+                        </div>
+
+                        <div class="col-12">
+                            <label class="form-label small fw-bold">เลือกสมาชิกเริ่มต้น (Initial Members)</label>
+                            <div class="border rounded p-2.5 bg-white" style="max-height: 160px; overflow-y: auto;">
+                                @if (_allUsers.Count == 0)
+                                {
+                                    <span class="text-muted small">ยังไม่มีผู้ใช้งานในระบบ</span>
+                                }
+                                else
+                                {
+                                    <div class="row row-cols-2 g-2">
+                                        @foreach (var user in _allUsers)
+                                        {
+                                            <div class="col">
+                                                <div class="form-check">
+                                                    <input class="form-check-input" type="checkbox" id="chk_user_@user.Username"
+                                                           checked="@_createRequest.InitialMembers.Contains(user.Username)"
+                                                           @onchange="(e) => ToggleMemberSelection(_createRequest.InitialMembers, user.Username, e.Value)" />
+                                                    <label class="form-check-label small" for="chk_user_@user.Username">
+                                                        <strong>@user.Username</strong>
+                                                        @if (!string.IsNullOrEmpty(user.DisplayName) && user.DisplayName != user.Username)
+                                                        {
+                                                            <span class="text-muted">(@user.DisplayName)</span>
+                                                        }
+                                                    </label>
+                                                </div>
+                                            </div>
+                                        }
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer bg-light">
+                    <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="CloseModals">ยกเลิก</button>
+                    <button type="button" class="btn btn-primary btn-sm" @onclick="SaveCreateGroup" disabled="@_saving">
+                        @if (_saving)
+                        {
+                            <span class="spinner-border spinner-border-sm"></span>
+                            <span>กำลังสร้าง...</span>
+                        }
+                        else
+                        {
+                            <i class="bi bi-check-lg"></i>
+                            <span>บันทึกและสร้างกลุ่ม</span>
+                        }
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Modal: Edit Group -->
+@if (_showEditModal && _selectedGroup != null)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+        <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+            <div class="modal-content shadow-lg border-0">
+                <div class="modal-header bg-dark text-white">
+                    <h5 class="modal-title d-flex align-items-center gap-2">
+                        <i class="bi bi-pencil-square text-primary"></i>
+                        <span>แก้ไขกลุ่มผู้ใช้งาน: @_selectedGroup.Name</span>
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" @onclick="CloseModals"></button>
+                </div>
+                <div class="modal-body p-4">
+                    @if (!string.IsNullOrEmpty(_modalError))
+                    {
+                        <div class="alert alert-danger py-2 small d-flex align-items-center gap-2">
+                            <i class="bi bi-exclamation-triangle-fill flex-shrink-0"></i>
+                            <div>@_modalError</div>
+                        </div>
+                    }
+
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label class="form-label small fw-bold">ชื่อกลุ่ม (Group Name)</label>
+                            <input type="text" class="form-control form-control-sm" value="@_selectedGroup.Name" disabled />
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label small fw-bold">คำอธิบาย (Description)</label>
+                            <input type="text" class="form-control form-control-sm" @bind="_editRequest.Description" />
+                        </div>
+
+                        <div class="col-12">
+                            <label class="form-label small fw-bold">โฟลเดอร์หลักของกลุ่ม (Shared Root Path) <span class="text-danger">*</span></label>
+                            <div class="input-group input-group-sm">
+                                <input type="text" class="form-control font-monospace" @bind="_editRequest.RootPath" />
+                                <button class="btn btn-outline-secondary" type="button" @onclick="OpenFolderBrowserForEdit">
+                                    <i class="bi bi-folder2-open"></i>
+                                    <span>เลือกโฟลเดอร์...</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label small fw-bold">โหมดการเข้าถึง (Access Mode)</label>
+                            <select class="form-select form-select-sm" @bind="_editRequest.AccessMode">
+                                <option value="@SftpAccessMode.VirtualFolder">Virtual Folder (ปรากฏเป็นโฟลเดอร์ย่อยใน Home)</option>
+                                <option value="@SftpAccessMode.DirectChroot">Direct Chroot (ใช้โฟลเดอร์กลุ่มเป็น Root โดยตรง)</option>
+                            </select>
+                        </div>
+
+                        <div class="col-md-6">
+                            <label class="form-label small fw-bold">ระดับสิทธิ์ (Permission Level)</label>
+                            <select class="form-select form-select-sm" @bind="_editRequest.PermissionType">
+                                <option value="@SftpPermissionType.ReadWrite">Read & Write (อ่านและเขียนไฟล์ได้)</option>
+                                <option value="@SftpPermissionType.ReadOnly">Read-Only (อ่านไฟล์ได้อย่างเดียว)</option>
+                            </select>
+                        </div>
+
+                        <div class="col-12">
+                            <label class="form-label small fw-bold">สมาชิกในกลุ่ม (Group Members)</label>
+                            <div class="border rounded p-2.5 bg-white" style="max-height: 180px; overflow-y: auto;">
+                                <div class="row row-cols-2 g-2">
+                                    @foreach (var user in _allUsers)
+                                    {
+                                        <div class="col">
+                                            <div class="form-check">
+                                                <input class="form-check-input" type="checkbox" id="chk_edit_user_@user.Username"
+                                                       checked="@_editRequest.Members.Contains(user.Username)"
+                                                       @onchange="(e) => ToggleMemberSelection(_editRequest.Members, user.Username, e.Value)" />
+                                                <label class="form-check-label small" for="chk_edit_user_@user.Username">
+                                                    <strong>@user.Username</strong>
+                                                    @if (!string.IsNullOrEmpty(user.DisplayName) && user.DisplayName != user.Username)
+                                                    {
+                                                        <span class="text-muted">(@user.DisplayName)</span>
+                                                    }
+                                                </label>
+                                            </div>
+                                        </div>
+                                    }
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer bg-light">
+                    <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="CloseModals">ยกเลิก</button>
+                    <button type="button" class="btn btn-primary btn-sm" @onclick="SaveEditGroup" disabled="@_saving">
+                        @if (_saving)
+                        {
+                            <span class="spinner-border spinner-border-sm"></span>
+                            <span>กำลังบันทึก...</span>
+                        }
+                        else
+                        {
+                            <i class="bi bi-check-lg"></i>
+                            <span>บันทึกการแก้ไข</span>
+                        }
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Modal: View Members -->
+@if (_showMembersModal && _selectedGroup != null)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content shadow-lg border-0">
+                <div class="modal-header bg-dark text-white">
+                    <h5 class="modal-title d-flex align-items-center gap-2">
+                        <i class="bi bi-people-fill text-primary"></i>
+                        <span>สมาชิกในกลุ่ม: @_selectedGroup.Name</span>
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" @onclick="CloseModals"></button>
+                </div>
+                <div class="modal-body p-0">
+                    @if (_selectedGroup.Members.Count == 0)
+                    {
+                        <div class="text-center py-4 text-muted small">ยังไม่มีสมาชิกสังกัดในกลุ่มนี้</div>
+                    }
+                    else
+                    {
+                        <ul class="list-group list-group-flush">
+                            @foreach (var member in _selectedGroup.Members)
+                            {
+                                <li class="list-group-item d-flex justify-content-between align-items-center py-2.5 px-3">
+                                    <div class="d-flex align-items-center gap-2">
+                                        <i class="bi bi-person-badge text-primary"></i>
+                                        <span class="fw-bold">@member.Username</span>
+                                    </div>
+                                    <span class="small text-muted font-monospace">เข้าร่วม: @member.JoinedAt.ToLocalTime().ToString("dd/MM/yyyy")</span>
+                                </li>
+                            }
+                        </ul>
+                    }
+                </div>
+                <div class="modal-footer bg-light py-2">
+                    <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="CloseModals">ปิด</button>
+                    <button type="button" class="btn btn-primary btn-sm" @onclick="() => { var g = _selectedGroup; CloseModals(); if (g != null) OpenEditModal(g); }">
+                        <i class="bi bi-person-gear"></i>
+                        <span>จัดการสมาชิก</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Modal: Delete Confirmation -->
+@if (_showDeleteModal && _selectedGroup != null)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content shadow-lg border-0">
+                <div class="modal-header bg-danger text-white">
+                    <h5 class="modal-title d-flex align-items-center gap-2">
+                        <i class="bi bi-exclamation-triangle-fill"></i>
+                        <span>ยืนยันการลบกลุ่ม: @_selectedGroup.Name</span>
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" @onclick="CloseModals"></button>
+                </div>
+                <div class="modal-body p-4">
+                    <p class="mb-3">คุณแน่ใจหรือไม่ว่าต้องการลบกลุ่มผู้ใช้งาน <strong>@_selectedGroup.Name</strong>?</p>
+                    <div class="alert alert-info py-2.5 small mb-0 d-flex align-items-start gap-2">
+                        <i class="bi bi-shield-check fs-5 flex-shrink-0 mt-0.5"></i>
+                        <div>
+                            <strong>การคุ้มครองข้อมูล (Data Protection):</strong> โฟลเดอร์แชร์ <code>@_selectedGroup.RootPath</code> และไฟล์ทั้งหมดภายในจะ<strong>ไม่ถูกลบ</strong> ระบบจะถอนเฉพาะสิทธิ์การเข้าถึงและ NTFS Junction เท่านั้น
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer bg-light">
+                    <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="CloseModals">ยกเลิก</button>
+                    <button type="button" class="btn btn-danger btn-sm" @onclick="ConfirmDeleteGroup" disabled="@_saving">
+                        @if (_saving)
+                        {
+                            <span class="spinner-border spinner-border-sm"></span>
+                            <span>กำลังลบ...</span>
+                        }
+                        else
+                        {
+                            <i class="bi bi-trash3"></i>
+                            <span>ยืนยันการลบกลุ่ม</span>
+                        }
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Shared Folder Browser Modal -->
+<FolderPickerModal IsOpen="_showFolderBrowser"
+                   CurrentPath="_targetBrowserPath"
+                   OnFolderSelected="HandleFolderSelected"
+                   OnClosed="() => _showFolderBrowser = false" />
+
+@code {
+    private List<SftpGroup> _groups = new();
+    private List<SftpUser> _allUsers = new();
+    private bool _loading = true;
+    private bool _saving = false;
+    private string? _statusMessage;
+    private bool _isSuccessStatus;
+    private string? _modalError;
+
+    private string _searchTerm = string.Empty;
+    private string _modeFilter = string.Empty;
+
+    // Modals state
+    private bool _showCreateModal = false;
+    private bool _showEditModal = false;
+    private bool _showMembersModal = false;
+    private bool _showDeleteModal = false;
+    private bool _showFolderBrowser = false;
+    private string _folderBrowserTarget = string.Empty; // "create" or "edit"
+    private string _targetBrowserPath = string.Empty;
+
+    private SftpGroup? _selectedGroup;
+    private CreateGroupRequest _createRequest = new();
+    private UpdateGroupRequest _editRequest = new();
+
+    private void ClearFilters()
+    {
+        _searchTerm = string.Empty;
+        _modeFilter = string.Empty;
+    }
+
+    private List<SftpGroup> FilteredGroups
+    {
+        get
+        {
+            var query = _groups.AsEnumerable();
+            if (!string.IsNullOrWhiteSpace(_searchTerm))
+            {
+                var term = _searchTerm.Trim();
+                query = query.Where(g => g.Name.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                                         g.RootPath.Contains(term, StringComparison.OrdinalIgnoreCase));
+            }
+            if (!string.IsNullOrWhiteSpace(_modeFilter))
+            {
+                if (Enum.TryParse<SftpAccessMode>(_modeFilter, out var mode))
+                {
+                    query = query.Where(g => g.AccessMode == mode);
+                }
+            }
+            return query.ToList();
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        _loading = true;
+        try
+        {
+            _groups = await GroupService.GetAllGroupsAsync();
+            _allUsers = await UserService.GetAllUsersAsync();
+        }
+        catch (Exception ex)
+        {
+            _statusMessage = $"เกิดข้อผิดพลาดในการโหลดข้อมูล: {ex.Message}";
+            _isSuccessStatus = false;
+        }
+        finally
+        {
+            _loading = false;
+        }
+    }
+
+    private void OpenCreateModal()
+    {
+        _createRequest = new CreateGroupRequest
+        {
+            AccessMode = SftpAccessMode.VirtualFolder,
+            PermissionType = SftpPermissionType.ReadWrite
+        };
+        _modalError = null;
+        _showCreateModal = true;
+    }
+
+    private void OpenEditModal(SftpGroup group)
+    {
+        _selectedGroup = group;
+        _editRequest = new UpdateGroupRequest
+        {
+            Id = group.Id,
+            Description = group.Description,
+            RootPath = group.RootPath,
+            PermissionType = group.PermissionType,
+            AccessMode = group.AccessMode,
+            Members = group.Members.Select(m => m.Username).ToList()
+        };
+        _modalError = null;
+        _showEditModal = true;
+    }
+
+    private void OpenMembersModal(SftpGroup group)
+    {
+        _selectedGroup = group;
+        _showMembersModal = true;
+    }
+
+    private void OpenDeleteModal(SftpGroup group)
+    {
+        _selectedGroup = group;
+        _showDeleteModal = true;
+    }
+
+    private void CloseModals()
+    {
+        _showCreateModal = false;
+        _showEditModal = false;
+        _showMembersModal = false;
+        _showDeleteModal = false;
+        _selectedGroup = null;
+        _modalError = null;
+    }
+
+    private void OpenFolderBrowserForCreate()
+    {
+        _folderBrowserTarget = "create";
+        _targetBrowserPath = _createRequest.RootPath;
+        _showFolderBrowser = true;
+    }
+
+    private void OpenFolderBrowserForEdit()
+    {
+        _folderBrowserTarget = "edit";
+        _targetBrowserPath = _editRequest.RootPath;
+        _showFolderBrowser = true;
+    }
+
+    private void HandleFolderSelected(string path)
+    {
+        if (_folderBrowserTarget == "create")
+        {
+            _createRequest.RootPath = path;
+        }
+        else if (_folderBrowserTarget == "edit")
+        {
+            _editRequest.RootPath = path;
+        }
+        _showFolderBrowser = false;
+    }
+
+    private void ToggleMemberSelection(List<string> memberList, string username, object? isChecked)
+    {
+        if (isChecked is bool b && b)
+        {
+            if (!memberList.Contains(username)) memberList.Add(username);
+        }
+        else
+        {
+            memberList.Remove(username);
+        }
+    }
+
+    private async Task SaveCreateGroup()
+    {
+        if (string.IsNullOrWhiteSpace(_createRequest.Name))
+        {
+            _modalError = "กรุณาระบุชื่อกลุ่ม (Group Name)";
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(_createRequest.RootPath))
+        {
+            _modalError = "กรุณาระบุโฟลเดอร์หลัก (Shared Root Path)";
+            return;
+        }
+
+        _saving = true;
+        _modalError = null;
+        try
+        {
+            var op = string.IsNullOrEmpty(SessionState.CurrentUsername) ? "admin" : SessionState.CurrentUsername;
+            var (ok, msg, created) = await GroupService.CreateGroupAsync(_createRequest, op);
+            if (!ok)
+            {
+                _modalError = msg;
+                return;
+            }
+
+            _statusMessage = msg;
+            _isSuccessStatus = true;
+            CloseModals();
+            await LoadData();
+        }
+        catch (Exception ex)
+        {
+            _modalError = ex.Message;
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private async Task SaveEditGroup()
+    {
+        if (string.IsNullOrWhiteSpace(_editRequest.RootPath))
+        {
+            _modalError = "กรุณาระบุโฟลเดอร์หลัก (Shared Root Path)";
+            return;
+        }
+
+        _saving = true;
+        _modalError = null;
+        try
+        {
+            var op = string.IsNullOrEmpty(SessionState.CurrentUsername) ? "admin" : SessionState.CurrentUsername;
+            var (ok, msg) = await GroupService.UpdateGroupAsync(_editRequest, op);
+            if (!ok)
+            {
+                _modalError = msg;
+                return;
+            }
+
+            _statusMessage = msg;
+            _isSuccessStatus = true;
+            CloseModals();
+            await LoadData();
+        }
+        catch (Exception ex)
+        {
+            _modalError = ex.Message;
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private async Task ConfirmDeleteGroup()
+    {
+        if (_selectedGroup == null) return;
+
+        _saving = true;
+        try
+        {
+            var op = string.IsNullOrEmpty(SessionState.CurrentUsername) ? "admin" : SessionState.CurrentUsername;
+            var (ok, msg) = await GroupService.DeleteGroupAsync(_selectedGroup.Id, op);
+            _statusMessage = msg;
+            _isSuccessStatus = ok;
+            CloseModals();
+            await LoadData();
+        }
+        catch (Exception ex)
+        {
+            _statusMessage = ex.Message;
+            _isSuccessStatus = false;
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+}

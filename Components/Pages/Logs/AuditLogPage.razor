@@ -1,0 +1,253 @@
+@page "/audit"
+@rendermode InteractiveServer
+@inject IAuditService AuditService
+
+<PageTitle>Audit Logs - OpensshUI</PageTitle>
+
+<div class="container-fluid p-0">
+    <!-- Standardized Page Header -->
+    <div class="page-header">
+        <div>
+            <h3 class="page-title">
+                <i class="bi bi-journal-text text-primary"></i>
+                <span>บันทึกประวัติกิจกรรม (Audit Logs)</span>
+            </h3>
+            <p class="text-muted small mb-0">ตรวจสอบกิจกรรมของผู้ดูแลระบบและการเปลี่ยนแปลงสิทธิ์ทั้งหมดบนเซิร์ฟเวอร์</p>
+        </div>
+        <div class="d-flex align-items-center gap-2">
+            <button class="btn btn-outline-secondary btn-sm" @onclick="LoadLogs">
+                <i class="bi bi-arrow-clockwise"></i>
+                <span>รีเฟรชข้อมูล</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- Filters -->
+    <div class="card border-0 shadow-sm rounded-3 mb-3">
+        <div class="card-body py-2.5 px-3">
+            <div class="row g-2 align-items-end">
+                <div class="col-md-3">
+                    <label class="form-label small fw-bold mb-1">ค้นหาประเภท Action</label>
+                    <div class="input-group input-group-sm">
+                        <span class="input-group-text bg-white border-end-0 text-muted"><i class="bi bi-search"></i></span>
+                        <input type="text" class="form-control border-start-0" placeholder="เช่น USER_, GROUP_, SERVICE_..." @bind="filterAction" @bind:event="oninput" />
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label small fw-bold mb-1">ผู้ดำเนินการ (Operator)</label>
+                    <input type="text" class="form-control form-control-sm" placeholder="Username ผู้สั่งการ..." @bind="filterOperator" @bind:event="oninput" />
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label small fw-bold mb-1">ตั้งแต่วันที่</label>
+                    <input type="date" class="form-control form-control-sm" @bind="fromDate" />
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label small fw-bold mb-1">ถึงวันที่</label>
+                    <input type="date" class="form-control form-control-sm" @bind="toDate" />
+                </div>
+                <div class="col-md-2 d-flex align-items-center justify-content-end gap-1.5">
+                    @if (HasActiveFilter)
+                    {
+                        <button class="btn btn-outline-secondary btn-sm" title="ล้างตัวกรอง" @onclick="ClearFilters">
+                            <i class="bi bi-x-circle"></i>
+                        </button>
+                    }
+                    <button class="btn btn-primary btn-sm flex-grow-1 justify-content-center" @onclick="LoadLogs">
+                        <i class="bi bi-funnel-fill"></i>
+                        <span>กรองข้อมูล</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Logs Table -->
+    <div class="card border-0 shadow-sm rounded-3">
+        <div class="card-body p-0">
+            @if (logs == null)
+            {
+                <div class="text-center py-5">
+                    <span class="spinner-border spinner-border-sm text-primary"></span>
+                    <p class="text-muted small mt-2 mb-0">กำลังโหลดบันทึก Audit Logs...</p>
+                </div>
+            }
+            else if (logs.Count == 0)
+            {
+                <div class="text-center text-muted py-5">
+                    <i class="bi bi-journal-x fs-1 d-block mb-2"></i>
+                    <p class="mb-0">ไม่พบบันทึกประวัติการทำงานตามเงื่อนไขที่ระบุ</p>
+                </div>
+            }
+            else
+            {
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0 small">
+                        <thead class="table-light text-muted">
+                            <tr>
+                                <th class="ps-3" style="width: 170px;">วัน-เวลา (LOCAL)</th>
+                                <th style="width: 170px;">ACTION</th>
+                                <th style="width: 140px;">ผู้ดำเนินการ</th>
+                                <th>รายละเอียด (DETAILS)</th>
+                                <th style="width: 110px;">สถานะ</th>
+                                <th class="text-end pe-3" style="width: 110px;">การจัดการ</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var log in logs)
+                            {
+                                <tr>
+                                    <td class="ps-3 text-nowrap text-muted font-monospace">
+                                        @log.Timestamp.ToLocalTime().ToString("dd/MM/yyyy HH:mm:ss")
+                                    </td>
+                                    <td>
+                                        <span class="badge @GetActionBadgeClass(log.Action) font-monospace">@log.Action</span>
+                                    </td>
+                                    <td class="fw-semibold">@log.Operator</td>
+                                    <td class="text-truncate" style="max-width: 380px;" title="@log.Details">@log.Details</td>
+                                    <td>
+                                        @if (log.IsSuccess)
+                                        {
+                                            <span class="badge bg-success-subtle text-success border border-success-subtle">
+                                                <i class="bi bi-check-circle-fill"></i>
+                                                <span>สำเร็จ</span>
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                            <span class="badge bg-danger-subtle text-danger border border-danger-subtle">
+                                                <i class="bi bi-x-circle-fill"></i>
+                                                <span>ล้มเหลว</span>
+                                            </span>
+                                        }
+                                    </td>
+                                    <td class="text-end pe-3">
+                                        <div class="action-bar">
+                                            <button class="btn btn-outline-secondary btn-sm py-0.5 px-2" title="ดูรายละเอียดบันทึกนี้" @onclick="() => selectedLog = log">
+                                                <i class="bi bi-eye"></i>
+                                                <span>ดูข้อมูล</span>
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+<!-- Modal: Log Details -->
+@if (selectedLog != null)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content shadow-lg border-0">
+                <div class="modal-header bg-dark text-white">
+                    <h5 class="modal-title d-flex align-items-center gap-2">
+                        <i class="bi bi-journal-text text-primary"></i>
+                        <span>รายละเอียด Audit Log #@selectedLog.Id</span>
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" @onclick="() => selectedLog = null"></button>
+                </div>
+                <div class="modal-body p-4">
+                    <div class="mb-3">
+                        <span class="small text-muted d-block">วัน-เวลา (UTC / Local):</span>
+                        <strong class="font-monospace">@selectedLog.Timestamp.ToString("u")</strong>
+                        <span class="text-muted small font-monospace"> (@selectedLog.Timestamp.ToLocalTime().ToString("dd/MM/yyyy HH:mm:ss"))</span>
+                    </div>
+                    <div class="mb-3">
+                        <span class="small text-muted d-block mb-1">ประเภทคำสั่ง (Action):</span>
+                        <span class="badge @GetActionBadgeClass(selectedLog.Action) font-monospace">@selectedLog.Action</span>
+                    </div>
+                    <div class="mb-3">
+                        <span class="small text-muted d-block">ผู้ดำเนินการ (Operator & IP):</span>
+                        <strong>@selectedLog.Operator</strong>
+                        @if (!string.IsNullOrEmpty(selectedLog.ClientIp))
+                        {
+                            <span class="badge bg-light text-dark border ms-2 font-monospace">IP: @selectedLog.ClientIp</span>
+                        }
+                    </div>
+                    <div class="mb-3">
+                        <span class="small text-muted d-block mb-1">ผลลัพธ์ (Status):</span>
+                        @if (selectedLog.IsSuccess)
+                        {
+                            <span class="badge bg-success-subtle text-success border border-success-subtle">
+                                <i class="bi bi-check-circle-fill"></i>
+                                <span>สำเร็จ (Success)</span>
+                            </span>
+                        }
+                        else
+                        {
+                            <span class="badge bg-danger-subtle text-danger border border-danger-subtle">
+                                <i class="bi bi-x-circle-fill"></i>
+                                <span>ล้มเหลว (Failed)</span>
+                            </span>
+                        }
+                    </div>
+                    <div>
+                        <span class="small text-muted d-block mb-1">รายละเอียด (Details):</span>
+                        <pre class="bg-light border p-3 rounded text-break small mb-0 font-monospace">@selectedLog.Details</pre>
+                    </div>
+                </div>
+                <div class="modal-footer bg-light">
+                    <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="() => selectedLog = null">ปิดหน้าต่าง</button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<AuditLog>? logs;
+    private string filterAction = "";
+    private string filterOperator = "";
+    private DateTime? fromDate;
+    private DateTime? toDate;
+    private AuditLog? selectedLog;
+
+    private bool HasActiveFilter =>
+        !string.IsNullOrWhiteSpace(filterAction) ||
+        !string.IsNullOrWhiteSpace(filterOperator) ||
+        fromDate.HasValue ||
+        toDate.HasValue;
+
+    private async Task ClearFilters()
+    {
+        filterAction = "";
+        filterOperator = "";
+        fromDate = null;
+        toDate = null;
+        await LoadLogs();
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadLogs();
+    }
+
+    private async Task LoadLogs()
+    {
+        logs = await AuditService.QueryLogsAsync(
+            action: string.IsNullOrWhiteSpace(filterAction) ? null : filterAction.Trim(),
+            op: string.IsNullOrWhiteSpace(filterOperator) ? null : filterOperator.Trim(),
+            from: fromDate?.ToUniversalTime(),
+            to: toDate?.AddDays(1).ToUniversalTime());
+    }
+
+    private string GetActionBadgeClass(string action)
+    {
+        if (action.StartsWith("USER_") || action.StartsWith("GROUP_"))
+            return "bg-primary-subtle text-primary border border-primary-subtle";
+        if (action.StartsWith("KEY_"))
+            return "bg-warning-subtle text-warning-emphasis border border-warning-subtle";
+        if (action.StartsWith("SERVICE_") || action.StartsWith("ZEROCONFIG_"))
+            return "bg-info-subtle text-info-emphasis border border-info-subtle";
+        if (action.StartsWith("FILE_") || action.StartsWith("FOLDER_"))
+            return "bg-success-subtle text-success border border-success-subtle";
+        if (action.StartsWith("ADMIN_") || action.StartsWith("CONFIG_"))
+            return "bg-dark-subtle text-dark-emphasis border border-dark-subtle";
+        return "bg-secondary-subtle text-secondary-emphasis border border-secondary-subtle";
+    }
+}

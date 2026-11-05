@@ -1,0 +1,588 @@
+@page "/files"
+@page "/files/{SelectedUsername}"
+@page "/files/group/{SelectedGroupName}"
+@rendermode InteractiveServer
+@inject ISecureFileBrowserService FileBrowser
+@inject ISftpUserService UserService
+@inject ISftpGroupService GroupService
+@inject IAuditService AuditService
+@inject UserSessionState SessionState
+@inject IJSRuntime JS
+@inject NavigationManager Navigation
+
+<PageTitle>Web File Explorer - OpensshUI</PageTitle>
+
+<div class="container-fluid p-0">
+    <!-- Standardized Page Header -->
+    <div class="page-header">
+        <div>
+            <h3 class="page-title">
+                <i class="bi bi-folder2-open text-primary"></i>
+                <span>สำรวจและจัดการไฟล์ (Web File Browser)</span>
+            </h3>
+            <p class="text-muted small mb-0">ตรวจสอบ อัปโหลด และดาวน์โหลดไฟล์ภายในโฟลเดอร์ของผู้ใช้ (Chroot/Custom) และกลุ่มแชร์ไฟล์ (Group Share) อย่างปลอดภัย</p>
+        </div>
+        <div class="d-flex align-items-center gap-2">
+            <label class="small fw-bold text-secondary mb-0 d-inline-flex align-items-center gap-1">
+                <i class="bi @(IsGroupMode ? "bi-collection-fill text-primary" : "bi-person-badge text-primary")"></i>
+                <span>เลือกเป้าหมาย:</span>
+            </label>
+            <select class="form-select form-select-sm" style="min-width: 280px;" value="@SelectedTargetDropdownValue" @onchange="OnTargetChanged">
+                <option value="">-- เลือกผู้ใช้ หรือ กลุ่มแชร์ไฟล์ --</option>
+                @if (users != null && users.Count > 0)
+                {
+                    <optgroup label="👤 บัญชีผู้ใช้งาน (SFTP Users)">
+                        @foreach (var u in users)
+                        {
+                            <option value="user:@u.Username">@u.Username (@(string.IsNullOrEmpty(u.DisplayName) ? "No Display Name" : u.DisplayName))</option>
+                        }
+                    </optgroup>
+                }
+                @if (groups != null && groups.Count > 0)
+                {
+                    <optgroup label="👥 กลุ่มแชร์ไฟล์ (SFTP Groups)">
+                        @foreach (var g in groups)
+                        {
+                            <option value="group:@g.Name">@g.Name (@g.RootPath)</option>
+                        }
+                    </optgroup>
+                }
+            </select>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrEmpty(alertMessage))
+    {
+        <div class="alert @(isAlertSuccess ? "alert-success" : "alert-danger") alert-dismissible fade show py-2 small d-flex align-items-center gap-2" role="alert">
+            <i class="bi @(isAlertSuccess ? "bi-check-circle-fill" : "bi-exclamation-triangle-fill") flex-shrink-0"></i>
+            <div>@alertMessage</div>
+            <button type="button" class="btn-close" @onclick="() => alertMessage = null"></button>
+        </div>
+    }
+
+    @if (string.IsNullOrWhiteSpace(CurrentTargetName))
+    {
+        <div class="card border-0 shadow-sm rounded-3 text-center py-5">
+            <div class="card-body">
+                <i class="bi bi-folder-symlink fs-1 text-muted d-block mb-3"></i>
+                <h5 class="fw-bold">โปรดเลือกผู้ใช้งาน หรือกลุ่มแชร์ไฟล์เพื่อเปิดดูข้อมูล</h5>
+                <p class="text-muted small mb-0">เลือกบัญชีผู้ใช้หรือกลุ่มจากตัวเลือกมุมขวาบน หรือคลิกปุ่ม "สำรวจไฟล์" จากหน้าจัดการผู้ใช้/จัดการกลุ่ม</p>
+            </div>
+        </div>
+    }
+    else
+    {
+        <div class="card border-0 shadow-sm rounded-3">
+            <!-- Toolbar & Breadcrumb -->
+            <div class="card-header bg-white border-bottom p-3 d-flex flex-wrap justify-content-between align-items-center gap-2">
+                <!-- Breadcrumbs & Path Info -->
+                <div class="d-flex flex-column gap-1">
+                    <nav aria-label="breadcrumb">
+                        <ol class="breadcrumb mb-0 align-items-center">
+                            <li class="breadcrumb-item">
+                                <a href="javascript:void(0)" class="text-decoration-none fw-bold d-inline-flex align-items-center gap-1" @onclick='() => NavigateToPath("")'>
+                                    <i class="bi @(IsGroupMode ? "bi-collection-fill text-primary" : "bi-house-door-fill text-primary")"></i>
+                                    <span>@(IsGroupMode ? $"กลุ่ม: {SelectedGroupName}" : $"ผู้ใช้: {SelectedUsername}") (Root)</span>
+                                </a>
+                            </li>
+                            @if (!string.IsNullOrEmpty(currentSubPath))
+                            {
+                                var parts = currentSubPath.Split(new[] { '/', '\\' }, StringSplitOptions.RemoveEmptyEntries);
+                                string accumulated = "";
+                                for (int i = 0; i < parts.Length; i++)
+                                {
+                                    var part = parts[i];
+                                    accumulated = string.IsNullOrEmpty(accumulated) ? part : $"{accumulated}/{part}";
+                                    var target = accumulated;
+                                    bool isLast = (i == parts.Length - 1);
+                                    if (isLast)
+                                    {
+                                        <li class="breadcrumb-item active fw-semibold" aria-current="page">@part</li>
+                                    }
+                                    else
+                                    {
+                                        <li class="breadcrumb-item">
+                                            <a href="javascript:void(0)" class="text-decoration-none" @onclick="() => NavigateToPath(target)">@part</a>
+                                        </li>
+                                    }
+                                }
+                            }
+                        </ol>
+                    </nav>
+
+                    @if (!string.IsNullOrEmpty(physicalPathOnDisk))
+                    {
+                        <div class="d-flex align-items-center gap-2">
+                            <span class="badge @(IsGroupMode ? "bg-primary-subtle text-primary border border-primary-subtle" : "bg-info-subtle text-info-emphasis border border-info-subtle")">
+                                <i class="bi @(IsGroupMode ? "bi-collection-fill" : "bi-person-fill") me-1"></i>
+                                @(IsGroupMode ? "Shared Group" : "User Files")
+                            </span>
+                            <span class="badge bg-secondary-subtle text-secondary-emphasis border border-secondary-subtle font-monospace" title="ตำแหน่งโฟลเดอร์จริงบนดิสก์">
+                                <i class="bi bi-hdd me-1"></i>โฟลเดอร์จริง: @physicalPathOnDisk
+                            </span>
+                        </div>
+                    }
+                </div>
+
+                <!-- Actions: Refresh, New Folder & Upload -->
+                <div class="d-flex align-items-center gap-2">
+                    <button class="btn btn-sm btn-outline-secondary" title="รีเฟรชรายการไฟล์" @onclick="LoadDirectoryContents">
+                        <i class="bi bi-arrow-clockwise"></i>
+                        <span>รีเฟรช</span>
+                    </button>
+                    <button class="btn btn-sm btn-outline-primary" @onclick="() => isNewFolderModalOpen = true">
+                        <i class="bi bi-folder-plus"></i>
+                        <span>สร้างโฟลเดอร์</span>
+                    </button>
+                    <label class="btn btn-sm btn-primary mb-0" style="cursor: pointer;">
+                        <i class="bi bi-cloud-arrow-up-fill"></i>
+                        <span>อัปโหลดไฟล์</span>
+                        <InputFile OnChange="HandleFileUpload" class="d-none" multiple />
+                    </label>
+                </div>
+            </div>
+
+            <!-- Upload progress bar -->
+            @if (isUploading)
+            {
+                <div class="progress rounded-0" style="height: 4px;">
+                    <div class="progress-bar progress-bar-striped progress-bar-animated bg-primary" role="progressbar" style="width: 100%"></div>
+                </div>
+            }
+
+            <!-- File / Folder Table -->
+            <div class="card-body p-0">
+                @if (isLoadingFiles)
+                {
+                    <div class="text-center py-5">
+                        <span class="spinner-border spinner-border-sm text-primary"></span>
+                        <p class="text-muted small mt-2 mb-0">กำลังอ่านรายการไฟล์...</p>
+                    </div>
+                }
+                else if (fileItems == null || fileItems.Count == 0)
+                {
+                    <div class="text-center text-muted py-5">
+                        <i class="bi bi-folder2-open fs-1 d-block mb-2"></i>
+                        <p class="mb-0">โฟลเดอร์นี้ว่างเปล่า (Empty Directory)</p>
+                        @if (!string.IsNullOrEmpty(currentSubPath))
+                        {
+                            <button class="btn btn-sm btn-outline-primary mt-3" @onclick="NavigateUp">
+                                <i class="bi bi-arrow-90deg-up"></i>
+                                <span>กลับขึ้นหนึ่งระดับ</span>
+                            </button>
+                        }
+                    </div>
+                }
+                else
+                {
+                    <div class="table-responsive">
+                        <table class="table table-hover align-middle mb-0">
+                            <thead class="table-light small text-muted">
+                                <tr>
+                                    <th class="ps-3" style="width: 50%;">ชื่อไฟล์ / โฟลเดอร์ (NAME)</th>
+                                    <th>ขนาด (SIZE)</th>
+                                    <th>แก้ไขล่าสุด (MODIFIED)</th>
+                                    <th class="text-end pe-3">การจัดการ (ACTIONS)</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @if (!string.IsNullOrEmpty(currentSubPath))
+                                {
+                                    <tr role="button" @onclick="NavigateUp">
+                                        <td class="ps-3" colspan="4">
+                                            <div class="d-inline-flex align-items-center gap-2 text-primary fw-semibold">
+                                                <i class="bi bi-arrow-90deg-up"></i>
+                                                <span>.. (ย้อนกลับขึ้นหนึ่งระดับ)</span>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                }
+
+                                @foreach (var item in fileItems)
+                                {
+                                    <tr>
+                                        <td class="ps-3">
+                                            @if (item.IsDirectory)
+                                            {
+                                                <a href="javascript:void(0)" class="text-decoration-none text-dark fw-bold d-inline-flex align-items-center gap-2" @onclick="() => NavigateToPath(item.RelativePath)">
+                                                    <i class="bi bi-folder-fill text-primary fs-5"></i>
+                                                    <span>@item.Name</span>
+                                                </a>
+                                            }
+                                            else
+                                            {
+                                                <div class="d-inline-flex align-items-center gap-2">
+                                                    <i class="bi @GetFileIcon(item.Extension) fs-5"></i>
+                                                    <span>@item.Name</span>
+                                                </div>
+                                            }
+                                        </td>
+                                        <td class="small text-muted font-monospace">
+                                            @(item.IsDirectory ? "-" : FormatBytes(item.SizeBytes))
+                                        </td>
+                                        <td class="small text-muted text-nowrap font-monospace">
+                                            @item.LastModified.ToLocalTime().ToString("dd/MM/yyyy HH:mm")
+                                        </td>
+                                        <td class="text-end pe-3">
+                                            <div class="action-bar">
+                                                @if (!item.IsDirectory)
+                                                {
+                                                    <button class="btn btn-sm btn-outline-primary" title="ดาวน์โหลดไฟล์นี้" @onclick="() => DownloadFile(item)">
+                                                        <i class="bi bi-download"></i>
+                                                        <span>ดาวน์โหลด</span>
+                                                    </button>
+                                                    <span class="action-divider"></span>
+                                                }
+                                                <button class="btn btn-sm btn-outline-danger" title="ลบรายการนี้" @onclick="() => DeleteItem(item)">
+                                                    <i class="bi bi-trash3"></i>
+                                                </button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                }
+            </div>
+        </div>
+    }
+</div>
+
+<!-- Modal: New Folder -->
+@if (isNewFolderModalOpen)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content shadow-lg border-0">
+                <div class="modal-header bg-dark text-white">
+                    <h5 class="modal-title d-flex align-items-center gap-2">
+                        <i class="bi bi-folder-plus text-primary"></i>
+                        <span>สร้างโฟลเดอร์ใหม่</span>
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" @onclick="() => isNewFolderModalOpen = false"></button>
+                </div>
+                <div class="modal-body p-4">
+                    <label class="form-label small fw-bold">ชื่อโฟลเดอร์</label>
+                    <input type="text" class="form-control" @bind="newFolderName" placeholder="เช่น uploads, documents" autofocus />
+                </div>
+                <div class="modal-footer bg-light">
+                    <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="() => isNewFolderModalOpen = false">ยกเลิก</button>
+                    <button type="button" class="btn btn-primary btn-sm" @onclick="SubmitCreateFolder">
+                        <i class="bi bi-check-lg"></i>
+                        <span>สร้างโฟลเดอร์</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public string? SelectedUsername { get; set; }
+    [Parameter] public string? SelectedGroupName { get; set; }
+
+    private bool IsGroupMode => !string.IsNullOrEmpty(SelectedGroupName);
+    private string CurrentTargetName => IsGroupMode ? (SelectedGroupName ?? "") : (SelectedUsername ?? "");
+    private string SelectedTargetDropdownValue => IsGroupMode ? $"group:{SelectedGroupName}" : (!string.IsNullOrEmpty(SelectedUsername) ? $"user:{SelectedUsername}" : "");
+
+    private List<SftpUser>? users;
+    private List<SftpGroup>? groups;
+    private List<FileItemInfo>? fileItems;
+    private string? physicalPathOnDisk;
+    private string currentSubPath = "";
+    private bool isLoadingFiles;
+    private bool isUploading;
+    private string? alertMessage;
+    private bool isAlertSuccess;
+
+    private bool isNewFolderModalOpen;
+    private string newFolderName = "";
+    private string? _loadedTarget;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDropdownData();
+    }
+
+    private async Task LoadDropdownData()
+    {
+        users = await UserService.GetAllUsersAsync();
+        groups = await GroupService.GetAllGroupsAsync();
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        var currentTarget = IsGroupMode ? $"group:{SelectedGroupName}" : $"user:{SelectedUsername}";
+        if (!string.Equals(_loadedTarget, currentTarget, StringComparison.OrdinalIgnoreCase))
+        {
+            _loadedTarget = currentTarget;
+            currentSubPath = "";
+            if (!string.IsNullOrEmpty(CurrentTargetName))
+            {
+                await LoadPhysicalPath();
+                await LoadDirectoryContents();
+            }
+            else
+            {
+                fileItems = null;
+                physicalPathOnDisk = null;
+            }
+        }
+    }
+
+    private async Task LoadPhysicalPath()
+    {
+        try
+        {
+            if (IsGroupMode && !string.IsNullOrEmpty(SelectedGroupName))
+            {
+                physicalPathOnDisk = await FileBrowser.ResolveGroupPhysicalPathAsync(SelectedGroupName);
+            }
+            else if (!IsGroupMode && !string.IsNullOrEmpty(SelectedUsername))
+            {
+                physicalPathOnDisk = await FileBrowser.ResolveUserPhysicalPathAsync(SelectedUsername);
+            }
+            else
+            {
+                physicalPathOnDisk = null;
+            }
+        }
+        catch
+        {
+            physicalPathOnDisk = null;
+        }
+    }
+
+    private void OnTargetChanged(ChangeEventArgs e)
+    {
+        var rawValue = e.Value?.ToString() ?? "";
+        if (rawValue.StartsWith("group:", StringComparison.OrdinalIgnoreCase))
+        {
+            var grp = rawValue.Substring(6);
+            Navigation.NavigateTo($"files/group/{grp}");
+        }
+        else if (rawValue.StartsWith("user:", StringComparison.OrdinalIgnoreCase))
+        {
+            var usr = rawValue.Substring(5);
+            Navigation.NavigateTo($"files/{usr}");
+        }
+        else
+        {
+            Navigation.NavigateTo("files");
+        }
+    }
+
+    private async Task LoadDirectoryContents()
+    {
+        if (string.IsNullOrWhiteSpace(CurrentTargetName)) return;
+
+        isLoadingFiles = true;
+        alertMessage = null;
+        try
+        {
+            if (IsGroupMode)
+            {
+                fileItems = await FileBrowser.ListGroupItemsAsync(SelectedGroupName!, currentSubPath);
+            }
+            else
+            {
+                fileItems = await FileBrowser.ListItemsAsync(SelectedUsername!, currentSubPath);
+            }
+        }
+        catch (Exception ex)
+        {
+            SetAlert(ex.Message, false);
+            fileItems = new();
+        }
+        finally
+        {
+            isLoadingFiles = false;
+        }
+    }
+
+    private async Task NavigateToPath(string relPath)
+    {
+        currentSubPath = relPath;
+        await LoadDirectoryContents();
+    }
+
+    private async Task NavigateUp()
+    {
+        if (string.IsNullOrEmpty(currentSubPath)) return;
+        var parts = currentSubPath.Split(new[] { '/', '\\' }, StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length <= 1)
+        {
+            currentSubPath = "";
+        }
+        else
+        {
+            currentSubPath = string.Join("/", parts.Take(parts.Length - 1));
+        }
+        await LoadDirectoryContents();
+    }
+
+    private async Task SubmitCreateFolder()
+    {
+        if (string.IsNullOrWhiteSpace(newFolderName) || string.IsNullOrWhiteSpace(CurrentTargetName)) return;
+
+        var op = string.IsNullOrEmpty(SessionState.CurrentUsername) ? "admin" : SessionState.CurrentUsername;
+        var folderName = newFolderName.Trim();
+        try
+        {
+            if (IsGroupMode)
+            {
+                await FileBrowser.CreateGroupDirectoryAsync(SelectedGroupName!, currentSubPath, folderName);
+                await AuditService.LogAsync("GROUP_FOLDER_CREATE", $"Created directory '{folderName}' in '{currentSubPath}' for group '{SelectedGroupName}'", true, op);
+            }
+            else
+            {
+                await FileBrowser.CreateDirectoryAsync(SelectedUsername!, currentSubPath, folderName);
+                await AuditService.LogAsync("FOLDER_CREATE", $"Created directory '{folderName}' in '{currentSubPath}' for user '{SelectedUsername}'", true, op);
+            }
+
+            isNewFolderModalOpen = false;
+            newFolderName = "";
+            SetAlert("สร้างโฟลเดอร์เรียบร้อย", true);
+            await LoadDirectoryContents();
+        }
+        catch (Exception ex)
+        {
+            var action = IsGroupMode ? "GROUP_FOLDER_CREATE_FAIL" : "FOLDER_CREATE_FAIL";
+            await AuditService.LogAsync(action, $"Failed to create folder '{folderName}' for '{CurrentTargetName}': {ex.Message}", false, op);
+            SetAlert(ex.Message, false);
+        }
+    }
+
+    private async Task HandleFileUpload(InputFileChangeEventArgs e)
+    {
+        if (string.IsNullOrWhiteSpace(CurrentTargetName)) return;
+
+        var op = string.IsNullOrEmpty(SessionState.CurrentUsername) ? "admin" : SessionState.CurrentUsername;
+        isUploading = true;
+        try
+        {
+            foreach (var file in e.GetMultipleFiles(10))
+            {
+                using var stream = file.OpenReadStream(maxAllowedSize: 500 * 1024 * 1024);
+                if (IsGroupMode)
+                {
+                    await FileBrowser.UploadGroupFileAsync(SelectedGroupName!, currentSubPath, file.Name, stream);
+                    await AuditService.LogAsync("GROUP_FILE_UPLOAD", $"Uploaded file '{file.Name}' ({FormatBytes(file.Size)}) to group '{SelectedGroupName}' (Path: '{currentSubPath}')", true, op);
+                }
+                else
+                {
+                    await FileBrowser.UploadFileAsync(SelectedUsername!, currentSubPath, file.Name, stream);
+                    await AuditService.LogAsync("FILE_UPLOAD", $"Uploaded file '{file.Name}' ({FormatBytes(file.Size)}) to user '{SelectedUsername}' (Path: '{currentSubPath}')", true, op);
+                }
+            }
+            SetAlert("อัปโหลดไฟล์สำเร็จ", true);
+            await LoadDirectoryContents();
+        }
+        catch (Exception ex)
+        {
+            var action = IsGroupMode ? "GROUP_FILE_UPLOAD_FAIL" : "FILE_UPLOAD_FAIL";
+            await AuditService.LogAsync(action, $"Failed file upload for '{CurrentTargetName}': {ex.Message}", false, op);
+            SetAlert($"Upload Failed: {ex.Message}", false);
+        }
+        finally
+        {
+            isUploading = false;
+        }
+    }
+
+    private async Task DownloadFile(FileItemInfo item)
+    {
+        if (string.IsNullOrWhiteSpace(CurrentTargetName)) return;
+
+        var op = string.IsNullOrEmpty(SessionState.CurrentUsername) ? "admin" : SessionState.CurrentUsername;
+        try
+        {
+            Stream stream;
+            if (IsGroupMode)
+            {
+                stream = await FileBrowser.OpenGroupReadStreamAsync(SelectedGroupName!, item.RelativePath);
+            }
+            else
+            {
+                stream = await FileBrowser.OpenReadStreamAsync(SelectedUsername!, item.RelativePath);
+            }
+
+            await using (stream)
+            {
+                using var dotnetStreamRef = new DotNetStreamReference(stream);
+                await JS.InvokeVoidAsync("downloadFileFromStream", item.Name, dotnetStreamRef);
+            }
+
+            var action = IsGroupMode ? "GROUP_FILE_DOWNLOAD" : "FILE_DOWNLOAD";
+            await AuditService.LogAsync(action, $"Downloaded file '{item.RelativePath}' of '{CurrentTargetName}'", true, op);
+        }
+        catch (Exception ex)
+        {
+            var action = IsGroupMode ? "GROUP_FILE_DOWNLOAD_FAIL" : "FILE_DOWNLOAD_FAIL";
+            await AuditService.LogAsync(action, $"Failed to download '{item.RelativePath}' for '{CurrentTargetName}': {ex.Message}", false, op);
+            SetAlert($"Download Error: {ex.Message}", false);
+        }
+    }
+
+    private async Task DeleteItem(FileItemInfo item)
+    {
+        if (string.IsNullOrWhiteSpace(CurrentTargetName)) return;
+
+        var op = string.IsNullOrEmpty(SessionState.CurrentUsername) ? "admin" : SessionState.CurrentUsername;
+        try
+        {
+            if (IsGroupMode)
+            {
+                await FileBrowser.DeleteGroupItemAsync(SelectedGroupName!, item.RelativePath);
+                await AuditService.LogAsync("GROUP_FILE_DELETE", $"Deleted {(item.IsDirectory ? "folder" : "file")} '{item.RelativePath}' in group '{SelectedGroupName}'", true, op);
+            }
+            else
+            {
+                await FileBrowser.DeleteItemAsync(SelectedUsername!, item.RelativePath);
+                await AuditService.LogAsync("FILE_DELETE", $"Deleted {(item.IsDirectory ? "folder" : "file")} '{item.RelativePath}' of user '{SelectedUsername}'", true, op);
+            }
+
+            SetAlert($"ลบ '{item.Name}' เรียบร้อย", true);
+            await LoadDirectoryContents();
+        }
+        catch (Exception ex)
+        {
+            var action = IsGroupMode ? "GROUP_FILE_DELETE_FAIL" : "FILE_DELETE_FAIL";
+            await AuditService.LogAsync(action, $"Failed to delete '{item.RelativePath}' for '{CurrentTargetName}': {ex.Message}", false, op);
+            SetAlert($"Delete Error: {ex.Message}", false);
+        }
+    }
+
+    private void SetAlert(string msg, bool success)
+    {
+        alertMessage = msg;
+        isAlertSuccess = success;
+    }
+
+    private string GetFileIcon(string extension)
+    {
+        return (extension.ToLowerInvariant()) switch
+        {
+            ".zip" or ".rar" or ".7z" or ".tar" or ".gz" => "bi-file-earmark-zip-fill text-warning",
+            ".pdf" => "bi-file-earmark-pdf-fill text-danger",
+            ".png" or ".jpg" or ".jpeg" or ".gif" or ".svg" or ".webp" => "bi-file-earmark-image-fill text-info",
+            ".txt" or ".log" or ".md" or ".json" or ".xml" or ".csv" => "bi-file-earmark-text-fill text-primary",
+            ".exe" or ".msi" or ".bat" or ".cmd" or ".ps1" => "bi-file-earmark-binary-fill text-dark",
+            _ => "bi-file-earmark-fill text-secondary"
+        };
+    }
+
+    private string FormatBytes(long bytes)
+    {
+        string[] sizes = { "B", "KB", "MB", "GB", "TB" };
+        int order = 0;
+        double len = bytes;
+        while (len >= 1024 && order < sizes.Length - 1)
+        {
+            order++;
+            len /= 1024;
+        }
+        return $"{len:0.##} {sizes[order]}";
+    }
+}

@@ -1,0 +1,267 @@
+@inject INativeAclProvisioner AclProvisioner
+
+@if (IsOpen)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.6);" role="dialog">
+        <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+            <div class="modal-content shadow-lg border-0">
+                <div class="modal-header bg-dark text-white">
+                    <h5 class="modal-title d-flex align-items-center gap-2">
+                        <i class="bi bi-folder2-open text-primary"></i>
+                        <span>เลือกโฟลเดอร์ (Select Folder / Path)</span>
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" @onclick="Close"></button>
+                </div>
+                <div class="modal-body p-4">
+                    <!-- Current Selected / Typed Path -->
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold">โฟลเดอร์ที่เลือก (Selected Path)</label>
+                        <div class="input-group input-group-sm">
+                            <input type="text" class="form-control font-monospace" @bind="CurrentPath" @bind:event="oninput" placeholder="เช่น D:\SFTPShare\Data" />
+                            <button class="btn btn-outline-secondary" type="button" @onclick="GoToCurrentPath" title="ไปยัง Path ที่ระบุ">
+                                <i class="bi bi-arrow-right"></i>
+                                <span>ไปยังโฟลเดอร์</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Drive Selection Buttons -->
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold">ไดรฟ์ในระบบ (Available Drives)</label>
+                        <div class="d-flex flex-wrap gap-2">
+                            @foreach (var drive in _availableDrives)
+                            {
+                                <button type="button"
+                                        class="btn btn-sm @(IsCurrentDrive(drive.FullPath) ? "btn-primary" : "btn-outline-primary")"
+                                        @onclick="() => NavigateTo(drive.FullPath)">
+                                    <i class="bi bi-hdd"></i>
+                                    <span>@drive.Name</span>
+                                </button>
+                            }
+                        </div>
+                    </div>
+
+                    <!-- Directory Navigation Breadcrumbs -->
+                    <nav aria-label="breadcrumb">
+                        <ol class="breadcrumb bg-light border p-2 rounded small mb-3 align-items-center">
+                            <li class="breadcrumb-item">
+                                <a href="javascript:void(0)" class="text-decoration-none d-inline-flex align-items-center gap-1" @onclick="() => LoadDrives()">
+                                    <i class="bi bi-pc-display"></i>
+                                    <span>Computer</span>
+                                </a>
+                            </li>
+                            @foreach (var crumb in _breadcrumbs)
+                            {
+                                <li class="breadcrumb-item @(crumb.IsLast ? "active fw-semibold" : "")">
+                                    @if (!crumb.IsLast)
+                                    {
+                                        <a href="javascript:void(0)" class="text-decoration-none" @onclick="() => NavigateTo(crumb.Path)">@crumb.Name</a>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-dark fw-semibold">@crumb.Name</span>
+                                    }
+                                </li>
+                            }
+                        </ol>
+                    </nav>
+
+                    <!-- New Folder Action -->
+                    <div class="row g-2 mb-3">
+                        <div class="col-8">
+                            <input type="text" class="form-control form-control-sm" placeholder="ระบุชื่อโฟลเดอร์ใหม่..." @bind="_newFolderName" />
+                        </div>
+                        <div class="col-4">
+                            <button type="button" class="btn btn-sm btn-outline-primary w-100 justify-content-center" @onclick="CreateNewFolder" disabled="@(string.IsNullOrWhiteSpace(_newFolderName) || string.IsNullOrWhiteSpace(CurrentPath))">
+                                <i class="bi bi-folder-plus"></i>
+                                <span>สร้างโฟลเดอร์ใหม่</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    @if (!string.IsNullOrEmpty(_errorMessage))
+                    {
+                        <div class="alert alert-danger py-2 small d-flex align-items-center gap-2">
+                            <i class="bi bi-exclamation-triangle-fill flex-shrink-0"></i>
+                            <div>@_errorMessage</div>
+                        </div>
+                    }
+
+                    <!-- Folder List -->
+                    <div class="border rounded bg-white p-2" style="max-height: 280px; overflow-y: auto;">
+                        @if (_currentFolders.Count == 0)
+                        {
+                            <div class="text-muted text-center py-4 small">
+                                <i class="bi bi-folder2-open fs-2 d-block mb-2"></i>
+                                <span>ไม่มีโฟลเดอร์ย่อยภายในไดเรกทอรีนี้</span>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="list-group list-group-flush">
+                                @if (!string.IsNullOrEmpty(GetParentPath(CurrentPath)))
+                                {
+                                    <button type="button" class="list-group-item list-group-item-action py-1.5 px-2.5 d-flex align-items-center gap-2 text-primary fw-semibold" @onclick="() => NavigateTo(GetParentPath(CurrentPath)!)">
+                                        <i class="bi bi-arrow-90deg-up"></i>
+                                        <span class="small font-monospace">.. (ย้อนกลับขึ้นหนึ่งระดับ)</span>
+                                    </button>
+                                }
+                                @foreach (var folder in _currentFolders)
+                                {
+                                    <button type="button" class="list-group-item list-group-item-action py-1.5 px-2.5 d-flex align-items-center justify-content-between" @onclick="() => NavigateTo(folder.FullPath)">
+                                        <div class="d-flex align-items-center gap-2 text-truncate">
+                                            <i class="bi bi-folder-fill text-primary"></i>
+                                            <span class="small font-monospace">@folder.Name</span>
+                                        </div>
+                                        <i class="bi bi-chevron-right text-muted small"></i>
+                                    </button>
+                                }
+                            </div>
+                        }
+                    </div>
+                </div>
+                <div class="modal-footer bg-light">
+                    <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="Close">ยกเลิก</button>
+                    <button type="button" class="btn btn-primary btn-sm px-3" @onclick="ConfirmSelection" disabled="@(string.IsNullOrWhiteSpace(CurrentPath))">
+                        <i class="bi bi-check-lg"></i>
+                        <span>เลือกโฟลเดอร์นี้</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public bool IsOpen { get; set; }
+    [Parameter] public string CurrentPath { get; set; } = string.Empty;
+    [Parameter] public EventCallback<string> OnFolderSelected { get; set; }
+    [Parameter] public EventCallback OnClosed { get; set; }
+
+    private List<DriveFolderItem> _availableDrives = new();
+    private List<DriveFolderItem> _currentFolders = new();
+    private List<BreadcrumbItem> _breadcrumbs = new();
+    private string _newFolderName = string.Empty;
+    private string? _errorMessage;
+    private bool _wasOpen;
+
+    protected override void OnParametersSet()
+    {
+        if (IsOpen && !_wasOpen)
+        {
+            _wasOpen = true;
+            _errorMessage = null;
+            LoadDrives();
+            if (!string.IsNullOrWhiteSpace(CurrentPath) && AclProvisioner.DirectoryExists(CurrentPath))
+            {
+                NavigateTo(CurrentPath);
+            }
+            else if (_availableDrives.Count > 0)
+            {
+                NavigateTo(_availableDrives[0].FullPath);
+            }
+        }
+        else if (!IsOpen)
+        {
+            _wasOpen = false;
+        }
+    }
+
+    private void LoadDrives()
+    {
+        _availableDrives = AclProvisioner.ListAvailableDrives();
+    }
+
+    private bool IsCurrentDrive(string driveRoot)
+    {
+        return !string.IsNullOrEmpty(CurrentPath) && CurrentPath.StartsWith(driveRoot, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private void NavigateTo(string path)
+    {
+        try
+        {
+            _errorMessage = null;
+            if (!AclProvisioner.DirectoryExists(path))
+            {
+                _errorMessage = $"ไม่พบโฟลเดอร์ที่ระบุ: {path}";
+                return;
+            }
+
+            _breadcrumbs = AclProvisioner.GetDirectoryBreadcrumbs(path);
+            CurrentPath = _breadcrumbs.LastOrDefault()?.Path ?? path;
+            _currentFolders = AclProvisioner.ListDirectories(CurrentPath);
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = ex.Message;
+        }
+    }
+
+    private void GoToCurrentPath()
+    {
+        if (!string.IsNullOrWhiteSpace(CurrentPath))
+        {
+            NavigateTo(CurrentPath);
+        }
+    }
+
+    private void CreateNewFolder()
+    {
+        if (string.IsNullOrWhiteSpace(_newFolderName) || string.IsNullOrWhiteSpace(CurrentPath)) return;
+
+        try
+        {
+            var trimmedName = _newFolderName.Trim();
+            var (okName, nameErr) = OpensshUI.Services.Security.SecurityValidator.ValidateFolderItemName(trimmedName);
+            if (!okName)
+            {
+                _errorMessage = $"ชื่อโฟลเดอร์ไม่ปลอดภัย: {nameErr}";
+                return;
+            }
+
+            var sep = CurrentPath.EndsWith("\\") || CurrentPath.EndsWith("/") ? "" : "\\";
+            var target = $"{CurrentPath}{sep}{trimmedName}";
+            bool ok = AclProvisioner.CreateDirectory(target);
+            if (ok)
+            {
+                _newFolderName = string.Empty;
+                NavigateTo(target);
+            }
+            else
+            {
+                _errorMessage = "ไม่สามารถสร้างโฟลเดอร์ได้ โฟลเดอร์ปลายทางอาจถูกจำกัดสิทธิ์โดยระบบรักษาความปลอดภัย";
+            }
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"ไม่สามารถสร้างโฟลเดอร์ได้: {ex.Message}";
+        }
+    }
+
+    private string? GetParentPath(string path)
+    {
+        return AclProvisioner.GetParentDirectory(path);
+    }
+
+    private async Task ConfirmSelection()
+    {
+        if (!string.IsNullOrWhiteSpace(CurrentPath))
+        {
+            var (okPath, pathErr) = OpensshUI.Services.Security.SecurityValidator.ValidateSafeCustomPath(CurrentPath);
+            if (!okPath)
+            {
+                _errorMessage = $"ไม่สามารถเลือกโฟลเดอร์นี้ได้: {pathErr}";
+                return;
+            }
+            await OnFolderSelected.InvokeAsync(CurrentPath);
+        }
+        await Close();
+    }
+
+    private async Task Close()
+    {
+        IsOpen = false;
+        await OnClosed.InvokeAsync();
+    }
+}

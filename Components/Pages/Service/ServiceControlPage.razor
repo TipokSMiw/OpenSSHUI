@@ -1,0 +1,268 @@
+@page "/service"
+@rendermode InteractiveServer
+@inject IOpenSshServiceManager SshManager
+@inject IAuditService AuditService
+@inject UserSessionState SessionState
+
+<PageTitle>OpenSSH Service Controller - OpensshUI</PageTitle>
+
+<div class="container-fluid p-0">
+    <!-- Standardized Page Header -->
+    <div class="page-header">
+        <div>
+            <h3 class="page-title">
+                <i class="bi bi-hdd-network-fill text-primary"></i>
+                <span>บริการ OpenSSH (Service Controller)</span>
+            </h3>
+            <p class="text-muted small mb-0">ควบคุมและตรวจสอบสถานะ Windows OpenSSH (sshd) พร้อมระบบตรวจสอบไวยากรณ์ sshd.exe -t</p>
+        </div>
+        <div class="d-flex align-items-center gap-2">
+            <button class="btn btn-outline-secondary btn-sm" @onclick="RefreshStatus">
+                <i class="bi bi-arrow-clockwise"></i>
+                <span>รีเฟรชสถานะ</span>
+            </button>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrEmpty(alertMessage))
+    {
+        <div class="alert @(isAlertSuccess ? "alert-success" : "alert-danger") alert-dismissible fade show py-2 small d-flex align-items-center gap-2" role="alert">
+            <i class="bi @(isAlertSuccess ? "bi-check-circle-fill" : "bi-exclamation-triangle-fill") flex-shrink-0"></i>
+            <div>@alertMessage</div>
+            <button type="button" class="btn-close" @onclick="() => alertMessage = null"></button>
+        </div>
+    }
+
+    <div class="row g-4 mb-4">
+        <!-- Service Status & Controls -->
+        <div class="col-lg-6">
+            <div class="card border-0 shadow-sm rounded-3 h-100">
+                <div class="card-header bg-white border-bottom pt-3 pb-2">
+                    <h6 class="fw-bold mb-0 d-flex align-items-center gap-2">
+                        <i class="bi bi-cpu-fill text-primary"></i>
+                        <span>สถานะ Windows Service (sshd)</span>
+                    </h6>
+                </div>
+                <div class="card-body">
+                    <div class="d-flex align-items-center gap-3 mb-4">
+                        <div class="@(serviceInfo?.Status == "Running" ? "bg-success-subtle text-success" : "bg-danger-subtle text-danger") p-3 rounded-circle d-inline-flex align-items-center justify-content-center">
+                            <i class="bi @(serviceInfo?.Status == "Running" ? "bi-check-circle-fill" : "bi-stop-circle-fill") fs-2"></i>
+                        </div>
+                        <div>
+                            <div class="text-muted small">Service Status</div>
+                            <h3 class="fw-bold mb-0">@(serviceInfo?.Status ?? "Unknown")</h3>
+                            <small class="text-muted">Service Name: <code>sshd</code></small>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <div class="small text-muted fw-semibold mb-1">Executable Path:</div>
+                        <code class="d-block p-2 bg-light border rounded text-break">@(serviceInfo?.SshdExecutablePath ?? "-")</code>
+                    </div>
+
+                    <div class="mb-4">
+                        <div class="small text-muted fw-semibold mb-1">Config File Path:</div>
+                        <code class="d-block p-2 bg-light border rounded text-break">@(serviceInfo?.ConfigPath ?? "-")</code>
+                    </div>
+
+                    <div class="d-flex flex-wrap align-items-center gap-2 pt-2 border-top">
+                        <button class="btn btn-success btn-sm" @onclick="StartService" disabled="@(!serviceInfo?.CanStart == true || isProcessing)">
+                            <i class="bi bi-play-fill"></i>
+                            <span>Start Service</span>
+                        </button>
+                        <button class="btn btn-warning btn-sm text-dark fw-semibold" @onclick="RestartService" disabled="@isProcessing">
+                            <i class="bi bi-arrow-repeat"></i>
+                            <span>Restart Service</span>
+                        </button>
+                        <span class="action-divider"></span>
+                        <button class="btn btn-outline-danger btn-sm" @onclick="StopService" disabled="@(!serviceInfo?.CanStop == true || isProcessing)">
+                            <i class="bi bi-stop-fill"></i>
+                            <span>Stop Service</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Syntax Check (sshd -t) -->
+        <div class="col-lg-6">
+            <div class="card border-0 shadow-sm rounded-3 h-100">
+                <div class="card-header bg-white border-bottom pt-3 pb-2 d-flex justify-content-between align-items-center">
+                    <h6 class="fw-bold mb-0 d-flex align-items-center gap-2">
+                        <i class="bi bi-shield-check text-primary"></i>
+                        <span>ตรวจสอบไวยากรณ์ Config (sshd.exe -t)</span>
+                    </h6>
+                    <button class="btn btn-primary btn-sm" @onclick="RunSyntaxCheck" disabled="@isCheckingSyntax">
+                        @if (isCheckingSyntax)
+                        {
+                            <span class="spinner-border spinner-border-sm"></span>
+                            <span>กำลังตรวจสอบ...</span>
+                        }
+                        else
+                        {
+                            <i class="bi bi-check2-circle"></i>
+                            <span>ตรวจสอบเดี๋ยวนี้</span>
+                        }
+                    </button>
+                </div>
+                <div class="card-body">
+                    <p class="small text-muted mb-3">
+                        การใช้คำสั่ง <code>sshd.exe -t</code> จะตรวจสอบความถูกต้องของไฟล์ <code>sshd_config</code> โดยระบบจะรันการตรวจสอบนี้ทุกครั้งก่อนสั่ง Restart Service เสมอเพื่อป้องกันไม่ให้บริการล่ม
+                    </p>
+
+                    @if (lastValidationResult != null)
+                    {
+                        <div class="mb-2">
+                            @if (lastValidationResult.IsValid)
+                            {
+                                <span class="badge bg-success-subtle text-success border border-success-subtle px-2.5 py-1">
+                                    <i class="bi bi-check-circle-fill"></i>
+                                    <span>Syntax Valid (ไวยากรณ์ถูกต้อง ปลอดภัย)</span>
+                                </span>
+                            }
+                            else
+                            {
+                                <span class="badge bg-danger-subtle text-danger border border-danger-subtle px-2.5 py-1">
+                                    <i class="bi bi-x-circle-fill"></i>
+                                    <span>Syntax Error (พบข้อผิดพลาดในไฟล์ config)</span>
+                                </span>
+                            }
+                        </div>
+
+                        <div class="bg-dark text-light p-3 rounded font-monospace small" style="min-height: 120px; max-height: 200px; overflow-y: auto;">
+                            @if (string.IsNullOrWhiteSpace(lastValidationResult.Output))
+                            {
+                                <span class="text-success">[sshd -t] Configuration syntax is OK. No errors detected.</span>
+                            }
+                            else
+                            {
+                                <div>@lastValidationResult.Output</div>
+                            }
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="bg-light border text-muted p-4 rounded text-center small font-monospace">
+                            คลิกปุ่ม "ตรวจสอบเดี๋ยวนี้" เพื่อรันคำสั่ง sshd.exe -t
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Zero-Config Group Block Setup -->
+    <div class="card border-0 shadow-sm rounded-3">
+        <div class="card-header bg-white border-bottom pt-3 pb-2 d-flex justify-content-between align-items-center">
+            <h6 class="fw-bold mb-0 d-flex align-items-center gap-2">
+                <i class="bi bi-lightning-charge-fill text-primary"></i>
+                <span>โครงสร้าง Zero-Config Reload (Match Group SFTP-Users)</span>
+            </h6>
+            @if (serviceInfo?.HasZeroConfigBlock == true)
+            {
+                <span class="badge bg-success-subtle text-success border border-success-subtle px-2.5 py-1">
+                    <i class="bi bi-check-circle-fill"></i>
+                    <span>ติดตั้งแล้ว</span>
+                </span>
+            }
+            else
+            {
+                <button class="btn btn-warning btn-sm fw-bold text-dark" @onclick="InstallZeroConfig">
+                    <i class="bi bi-plus-circle-fill"></i>
+                    <span>ติดตั้งลง sshd_config</span>
+                </button>
+            }
+        </div>
+        <div class="card-body">
+            <p class="small text-muted mb-3">
+                ด้วยบล็อกการตั้งค่านี้ เมื่อผู้ใช้ใหม่อยู่ใน Windows Local Group <code>SFTP-Users</code> ระบบ OpenSSH จะบังคับ Chroot และอ่าน Public Key จากโฟลเดอร์กลาง <code>C:\ProgramData\ssh\keys\%u</code> โดยอัตโนมัติ ทำให้ไม่ต้องเปิดไฟล์ config แก้ไข หรือ Restart Service อีกเลย
+            </p>
+
+            <pre class="bg-dark text-code-warning p-3 rounded font-monospace small mb-0"><code>@zeroConfigPreview</code></pre>
+        </div>
+    </div>
+</div>
+
+@code {
+    private ServiceStatusInfo? serviceInfo;
+    private ConfigValidationResult? lastValidationResult;
+    private string zeroConfigPreview = "";
+    private bool isProcessing;
+    private bool isCheckingSyntax;
+    private string? alertMessage;
+    private bool isAlertSuccess;
+
+    protected override void OnInitialized()
+    {
+        zeroConfigPreview = SshManager.GetZeroConfigBlockTemplate(SshManager.SftpRoot, SshManager.KeysPath);
+        RefreshStatus();
+    }
+
+    private void RefreshStatus()
+    {
+        serviceInfo = SshManager.GetStatus();
+    }
+
+    private async Task RunSyntaxCheck()
+    {
+        isCheckingSyntax = true;
+        try
+        {
+            lastValidationResult = await Task.Run(() => SshManager.ValidateConfigSyntax());
+        }
+        finally
+        {
+            isCheckingSyntax = false;
+        }
+    }
+
+    private async Task StartService()
+    {
+        isProcessing = true;
+        var op = string.IsNullOrEmpty(SessionState.CurrentUsername) ? "admin" : SessionState.CurrentUsername;
+        var res = await SshManager.StartServiceAsync();
+        isProcessing = false;
+        SetAlert(res.Message, res.Success);
+        await AuditService.LogAsync("SERVICE_START", res.Message, res.Success, op);
+        RefreshStatus();
+    }
+
+    private async Task StopService()
+    {
+        isProcessing = true;
+        var op = string.IsNullOrEmpty(SessionState.CurrentUsername) ? "admin" : SessionState.CurrentUsername;
+        var res = await SshManager.StopServiceAsync();
+        isProcessing = false;
+        SetAlert(res.Message, res.Success);
+        await AuditService.LogAsync("SERVICE_STOP", res.Message, res.Success, op);
+        RefreshStatus();
+    }
+
+    private async Task RestartService()
+    {
+        isProcessing = true;
+        var op = string.IsNullOrEmpty(SessionState.CurrentUsername) ? "admin" : SessionState.CurrentUsername;
+        var res = await SshManager.RestartServiceAsync();
+        isProcessing = false;
+        SetAlert(res.Message, res.Success);
+        await AuditService.LogAsync("SERVICE_RESTART", res.Message, res.Success, op);
+        RefreshStatus();
+    }
+
+    private async Task InstallZeroConfig()
+    {
+        isProcessing = true;
+        var op = string.IsNullOrEmpty(SessionState.CurrentUsername) ? "admin" : SessionState.CurrentUsername;
+        var res = await SshManager.ApplyZeroConfigBlockAsync();
+        isProcessing = false;
+        SetAlert(res.Message, res.Success);
+        await AuditService.LogAsync("ZEROCONFIG_INSTALL", res.Message, res.Success, op);
+        RefreshStatus();
+    }
+
+    private void SetAlert(string msg, bool success)
+    {
+        alertMessage = msg;
+        isAlertSuccess = success;
+    }
+}

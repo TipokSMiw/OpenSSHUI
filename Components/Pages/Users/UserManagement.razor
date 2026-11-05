@@ -1,0 +1,1702 @@
+@page "/users"
+@rendermode InteractiveServer
+@using System.Collections.Concurrent
+@inject ISftpUserService UserService
+@inject ISftpGroupService GroupService
+@inject ILdapAuthService LdapAuth
+@inject ISecureFileBrowserService FileBrowser
+@inject IOpenSshServiceManager SshManager
+@inject UserSessionState SessionState
+@inject NavigationManager Navigation
+@inject IJSRuntime JSRuntime
+@implements IDisposable
+
+<PageTitle>SFTP Users - OpensshUI</PageTitle>
+
+<div class="container-fluid p-0">
+    <!-- Standardized Page Header -->
+    <div class="page-header">
+        <div>
+            <h3 class="page-title">
+                <i class="bi bi-people-fill text-primary"></i>
+                <span>จัดการผู้ใช้งาน SFTP (SFTP Users)</span>
+            </h3>
+            <p class="text-muted small mb-0">บริหารจัดการบัญชีผู้ใช้, กำหนดสิทธิ์ Chroot Directory, Virtual Folders และ SSH Public Keys</p>
+        </div>
+        <div class="d-flex align-items-center gap-2">
+            <button class="btn btn-outline-secondary btn-sm" @onclick="LoadData">
+                <i class="bi bi-arrow-clockwise"></i>
+                <span>รีเฟรช</span>
+            </button>
+            <button class="btn btn-primary btn-sm" @onclick="OpenCreateUserModal">
+                <i class="bi bi-person-plus-fill"></i>
+                <span>เพิ่มผู้ใช้ใหม่</span>
+            </button>
+        </div>
+    </div>
+
+    @if (!string.IsNullOrEmpty(alertMessage))
+    {
+        <div class="alert @(isAlertSuccess ? "alert-success" : "alert-danger") alert-dismissible fade show py-2 small d-flex align-items-center gap-2" role="alert">
+            <i class="bi @(isAlertSuccess ? "bi-check-circle-fill" : "bi-exclamation-triangle-fill") flex-shrink-0"></i>
+            <div>@alertMessage</div>
+            <button type="button" class="btn-close" @onclick="() => alertMessage = null"></button>
+        </div>
+    }
+
+    <!-- Search & Filter Bar -->
+    <div class="card border-0 shadow-sm rounded-3 mb-3">
+        <div class="card-body py-2.5 px-3">
+            <div class="row g-2 align-items-center">
+                <div class="col-md-4">
+                    <div class="input-group input-group-sm">
+                        <span class="input-group-text bg-white border-end-0 text-muted"><i class="bi bi-search"></i></span>
+                        <input type="text" class="form-control border-start-0" placeholder="ค้นหา Username หรือชื่อ-นามสกุล..." @bind="searchTerm" @bind:event="oninput" />
+                    </div>
+                </div>
+                <div class="col-md-2">
+                    <select class="form-select form-select-sm" @bind="accountTypeFilter">
+                        <option value="">ทุกประเภทบัญชี</option>
+                        <option value="LocalWindows">Local Windows</option>
+                        <option value="ActiveDirectory">Active Directory</option>
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <select class="form-select form-select-sm" @bind="statusFilter">
+                        <option value="">ทุกสถานะ</option>
+                        <option value="Active">ใช้งานอยู่ (Active)</option>
+                        <option value="Disabled">ระงับ (Disabled)</option>
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <select class="form-select form-select-sm" @bind="groupFilter">
+                        <option value="">ทุกกลุ่ม (Groups)</option>
+                        @foreach (var g in availableGroups)
+                        {
+                            <option value="@g.Id">@g.Name</option>
+                        }
+                    </select>
+                </div>
+                <div class="col-md-2 d-flex justify-content-end align-items-center gap-2">
+                    @if (HasActiveFilter)
+                    {
+                        <button class="btn btn-outline-secondary btn-sm py-0.5 px-2" title="ล้างตัวกรองทั้งหมด" @onclick="ClearFilters">
+                            <i class="bi bi-x-circle"></i>
+                            <span>ล้าง</span>
+                        </button>
+                    }
+                    <span class="text-muted small text-nowrap">
+                        แสดง <strong>@(users == null ? 0 : FilteredUsers.Count())</strong> รายการ
+                    </span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Users Table -->
+    <div class="card border-0 shadow-sm rounded-3">
+        <div class="card-body p-0">
+            @if (users == null)
+            {
+                <div class="text-center py-5">
+                    <span class="spinner-border spinner-border-sm text-primary"></span>
+                    <p class="text-muted small mt-2 mb-0">กำลังโหลดรายชื่อผู้ใช้งาน...</p>
+                </div>
+            }
+            else if (!FilteredUsers.Any())
+            {
+                <div class="text-center text-muted py-5">
+                    <i class="bi bi-person-x fs-1 d-block mb-2"></i>
+                    <p class="mb-0">ไม่พบรายชื่อผู้ใช้งาน SFTP ตามเงื่อนไขที่ค้นหา</p>
+                </div>
+            }
+            else
+            {
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0">
+                        <thead class="table-light small text-muted">
+                            <tr>
+                                <th class="ps-3">ผู้ใช้งาน (USER)</th>
+                                <th>กลุ่มสังกัด (GROUPS)</th>
+                                <th>EFFECTIVE ROOT PATH</th>
+                                <th>SSH KEYS</th>
+                                <th>พื้นที่ใช้งาน</th>
+                                <th>สถานะ</th>
+                                <th>วันที่สร้าง</th>
+                                <th class="text-end pe-3">การจัดการ (ACTIONS)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var user in FilteredUsers)
+                            {
+                                <tr>
+                                    <td class="ps-3">
+                                        <div class="d-flex align-items-center gap-2">
+                                            <i class="bi @(user.AccountType == SftpAccountType.LocalWindows ? "bi-person-badge text-primary" : "bi-diagram-3 text-info") fs-5"></i>
+                                            <div>
+                                                <div class="fw-bold">@user.Username</div>
+                                                <small class="text-muted">
+                                                    @(string.IsNullOrEmpty(user.DisplayName) ? "-" : user.DisplayName)
+                                                    <span class="text-secondary">(@(user.AccountType == SftpAccountType.LocalWindows ? "Local" : "AD"))</span>
+                                                </small>
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td>
+                                        @if (user.UserGroups.Count == 0)
+                                        {
+                                            <span class="text-muted small">-</span>
+                                        }
+                                        else
+                                        {
+                                            <div class="d-flex flex-wrap gap-1">
+                                                @foreach (var ug in user.UserGroups)
+                                                {
+                                                    <span class="badge bg-primary-subtle text-primary border border-primary-subtle small">
+                                                        <i class="bi bi-collection"></i>
+                                                        <span>@(ug.Group?.Name ?? ug.GroupId)</span>
+                                                    </span>
+                                                }
+                                            </div>
+                                        }
+                                    </td>
+                                    <td>
+                                        @if (!string.IsNullOrEmpty(user.CustomRootPath))
+                                        {
+                                            <div class="path-badge path-badge-custom" title="กำหนด Chroot พิเศษ (Custom Root): @user.CustomRootPath">
+                                                <i class="bi bi-folder-symlink-fill"></i>
+                                                <span class="path-text">@user.CustomRootPath</span>
+                                                <span class="badge bg-primary text-white ms-1 px-1.5 py-0.5" style="font-size: 0.65rem;">CUSTOM</span>
+                                            </div>
+                                        }
+                                        else
+                                        {
+                                            <div class="path-badge path-badge-default" title="โฟลเดอร์ Chroot เริ่มต้น: @user.HomeDirectory">
+                                                <i class="bi bi-folder2-open"></i>
+                                                <span class="path-text">@user.HomeDirectory</span>
+                                            </div>
+                                        }
+                                    </td>
+                                    <td>
+                                        <button class="btn btn-sm btn-outline-primary py-0.5 px-2.5 rounded-pill" title="คลิกเพื่อจัดการ SSH Public Keys" @onclick="() => OpenKeyManagerModal(user)">
+                                            <i class="bi bi-key-fill"></i>
+                                            <span>@user.PublicKeys.Count</span>
+                                        </button>
+                                    </td>
+                                    <td class="small text-muted font-monospace">
+                                        @if (userStorageMap.TryGetValue(user.Username, out var bytes))
+                                        {
+                                            @FormatBytes(bytes)
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted" title="กำลังคำนวณพื้นที่...">...</span>
+                                        }
+                                    </td>
+                                    <td>
+                                        @if (user.IsActive)
+                                        {
+                                            <span class="badge bg-success-subtle text-success border border-success-subtle">
+                                                <i class="bi bi-check-circle-fill"></i>
+                                                <span>Active</span>
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                            <span class="badge bg-danger-subtle text-danger border border-danger-subtle">
+                                                <i class="bi bi-pause-circle-fill"></i>
+                                                <span>Disabled</span>
+                                            </span>
+                                        }
+                                    </td>
+                                    <td class="small text-muted text-nowrap font-monospace">@user.CreatedAt.ToLocalTime().ToString("dd/MM/yyyy")</td>
+                                    <td class="text-end pe-3">
+                                        <div class="action-bar">
+                                            <button class="btn btn-sm btn-outline-secondary" title="แก้ไขข้อมูล สิทธิ์ และกลุ่ม" @onclick="() => OpenEditUserModal(user)">
+                                                <i class="bi bi-pencil-square"></i>
+                                                <span>แก้ไข</span>
+                                            </button>
+                                            <button class="btn btn-sm btn-outline-primary" title="เปิดดูไฟล์ของผู้ใช้ใน Web File Browser" @onclick='() => Navigation.NavigateTo($"files/{user.Username}")'>
+                                                <i class="bi bi-folder2-open"></i>
+                                                <span>ไฟล์</span>
+                                            </button>
+                                            @if (user.AccountType == SftpAccountType.LocalWindows)
+                                            {
+                                                <button class="btn btn-sm btn-outline-secondary" title="เปลี่ยนรหัสผ่าน Windows User" @onclick="() => OpenResetPasswordModal(user)">
+                                                    <i class="bi bi-shield-lock"></i>
+                                                </button>
+                                            }
+                                            <button class="btn btn-sm @(user.IsActive ? "btn-outline-warning" : "btn-outline-success")"
+                                                    title="@(user.IsActive ? "ระงับการใช้งานชั่วคราว" : "เปิดใช้งานบัญชี")"
+                                                    @onclick="() => ToggleUserStatus(user)">
+                                                <i class="bi @(user.IsActive ? "bi-pause-fill" : "bi-play-fill")"></i>
+                                            </button>
+                                            <span class="action-divider"></span>
+                                            <button class="btn btn-sm btn-outline-danger" title="ลบผู้ใช้งาน" @onclick="() => OpenDeleteUserModal(user)">
+                                                <i class="bi bi-trash3"></i>
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+<!-- Modal: Create SFTP User -->
+@if (isCreateModalOpen)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+        <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+            <div class="modal-content shadow-lg border-0">
+                <div class="modal-header bg-dark text-white">
+                    <h5 class="modal-title d-flex align-items-center gap-2">
+                        <i class="bi bi-person-plus-fill text-primary"></i>
+                        <span>สร้างผู้ใช้งาน SFTP ใหม่</span>
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" @onclick="() => isCreateModalOpen = false"></button>
+                </div>
+                <div class="modal-body p-4">
+                    <div class="mb-3">
+                        <label class="form-label fw-bold small">ประเภทบัญชี (Account Type)</label>
+                        <div class="d-flex gap-4">
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" id="accLocal" name="accType" checked="@(newUser.AccountType == SftpAccountType.LocalWindows)" @onchange="OnSelectLocalAccountType" />
+                                <label class="form-check-label small" for="accLocal">Local Windows User</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="radio" id="accAd" name="accType" checked="@(newUser.AccountType == SftpAccountType.ActiveDirectory)" @onchange="OnSelectAdAccountType" />
+                                <label class="form-check-label small" for="accAd">Active Directory User</label>
+                            </div>
+                        </div>
+                    </div>
+
+                    @if (newUser.AccountType == SftpAccountType.ActiveDirectory)
+                    {
+                        @if (!isLdapEnabledInConfig)
+                        {
+                            <div class="alert alert-warning py-2 px-3 small d-flex align-items-center gap-2 mb-3" role="alert">
+                                <i class="bi bi-exclamation-triangle-fill text-warning flex-shrink-0"></i>
+                                <div>
+                                    <strong>Active Directory (LDAP) ยังไม่ถูกเปิดใช้งาน:</strong>
+                                    สามารถพิมพ์ SamAccountName ในช่อง Username ด้านล่างได้โดยตรง หรือเปิดใช้งานการเชื่อมต่อที่
+                                    <a href="/settings" class="alert-link">ตั้งค่าระบบ</a> เพื่อใช้งานระบบค้นหา AD
+                                </div>
+                            </div>
+                        }
+
+                        <div class="p-3 mb-3 bg-light rounded border">
+                            <label class="form-label fw-bold small d-flex align-items-center gap-1.5 mb-2">
+                                <i class="bi bi-diagram-3-fill text-primary"></i>
+                                <span>ค้นหาผู้ใช้จาก Active Directory (LDAP)</span>
+                            </label>
+
+                            <div class="input-group input-group-sm mb-2">
+                                <input type="text" class="form-control" placeholder="พิมพ์ชื่อ SamAccountName หรือ Display Name แล้วกด Enter..."
+                                       @bind="adSearchQuery" @bind:event="oninput" @onkeydown="HandleAdSearchKeyDown" disabled="@isSearchingAd" />
+                                <button class="btn btn-primary" type="button" @onclick="SearchActiveDirectory" disabled="@isSearchingAd">
+                                    @if (isSearchingAd)
+                                    {
+                                        <span class="spinner-border spinner-border-sm me-1" role="status"></span>
+                                        <span>กำลังค้นหา...</span>
+                                    }
+                                    else
+                                    {
+                                        <i class="bi bi-search me-1"></i>
+                                        <span>ค้นหา AD</span>
+                                    }
+                                </button>
+                            </div>
+
+                            @if (!string.IsNullOrEmpty(adSearchError))
+                            {
+                                <div class="alert alert-danger py-1.5 px-2.5 small mb-2 d-flex align-items-center gap-2">
+                                    <i class="bi bi-exclamation-circle-fill flex-shrink-0"></i>
+                                    <div>@adSearchError</div>
+                                </div>
+                            }
+
+                            @if (!string.IsNullOrEmpty(adSearchInfo))
+                            {
+                                <div class="text-muted small py-1.5 px-2 bg-white rounded border d-flex align-items-center gap-2">
+                                    <i class="bi bi-info-circle text-primary"></i>
+                                    <span>@adSearchInfo</span>
+                                </div>
+                            }
+
+                            @if (adSearchResults.Any())
+                            {
+                                <div class="list-group list-group-flush border rounded bg-white shadow-sm mt-2" style="max-height: 180px; overflow-y: auto;">
+                                    @foreach (var adUser in adSearchResults)
+                                    {
+                                        bool isAlreadyAdded = users != null && users.Any(u => string.Equals(u.Username, adUser.SamAccountName, StringComparison.OrdinalIgnoreCase));
+                                        <div class="list-group-item list-group-item-action d-flex justify-content-between align-items-center py-2 px-3 @(isAlreadyAdded ? "bg-light opacity-75" : "")">
+                                            <div class="d-flex align-items-center gap-2">
+                                                <i class="bi bi-person-badge text-primary fs-5"></i>
+                                                <div>
+                                                    <strong class="font-monospace">@adUser.SamAccountName</strong>
+                                                    <span class="text-muted small ms-2">(@adUser.DisplayName)</span>
+                                                    @if (!string.IsNullOrWhiteSpace(adUser.Email))
+                                                    {
+                                                        <div class="small text-muted font-monospace"><i class="bi bi-envelope"></i> @adUser.Email</div>
+                                                    }
+                                                </div>
+                                            </div>
+                                            <div>
+                                                @if (isAlreadyAdded)
+                                                {
+                                                    <span class="badge bg-secondary-subtle text-secondary-emphasis border border-secondary-subtle small">
+                                                        <i class="bi bi-check2"></i> เพิ่มในระบบแล้ว
+                                                    </span>
+                                                }
+                                                else
+                                                {
+                                                    <button type="button" class="btn btn-sm btn-primary py-0.5 px-2.5" @onclick="() => SelectAdUser(adUser)">
+                                                        <i class="bi bi-check-lg"></i> เลือก
+                                                    </button>
+                                                }
+                                            </div>
+                                        </div>
+                                    }
+                                </div>
+                            }
+                        </div>
+
+                        @if (selectedAdUser != null)
+                        {
+                            <div class="card border border-primary-subtle bg-primary-subtle rounded-3 p-3 mb-3">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <div class="d-flex align-items-center gap-2.5">
+                                        <i class="bi bi-check-circle-fill text-success fs-4"></i>
+                                        <div>
+                                            <div class="fw-bold small text-primary">เลือกบัญชี Active Directory:</div>
+                                            <div class="font-monospace fw-bold fs-6">
+                                                @selectedAdUser.SamAccountName
+                                                <span class="badge bg-primary ms-1 small">AD Account</span>
+                                            </div>
+                                            <div class="small text-muted">
+                                                @selectedAdUser.DisplayName
+                                                @if (!string.IsNullOrEmpty(selectedAdUser.Email))
+                                                {
+                                                    <span class="text-secondary font-monospace ms-1">(@selectedAdUser.Email)</span>
+                                                }
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="ClearSelectedAdUser">
+                                        <i class="bi bi-x-circle"></i>
+                                        <span>เปลี่ยนผู้ใช้</span>
+                                    </button>
+                                </div>
+                            </div>
+                        }
+                    }
+
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold small">
+                                Username <span class="text-danger">*</span>
+                                @if (newUser.AccountType == SftpAccountType.ActiveDirectory)
+                                {
+                                    <small class="text-muted fw-normal">(sAMAccountName ใน AD)</small>
+                                }
+                            </label>
+                            <input type="text" class="form-control form-control-sm" @bind="newUser.Username" placeholder="เช่น sftp_user1" disabled="@(selectedAdUser != null)" />
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold small">Display Name</label>
+                            <input type="text" class="form-control form-control-sm" @bind="newUser.DisplayName" placeholder="ชื่อ-นามสกุล หรือ แผนก" />
+                        </div>
+                    </div>
+
+                    @if (newUser.AccountType == SftpAccountType.LocalWindows)
+                    {
+                        <div class="row g-3 mb-3">
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold small">Password <span class="text-danger">*</span></label>
+                                <input type="password" class="form-control form-control-sm" @bind="newUser.Password" placeholder="รหัสผ่าน Windows User" />
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label fw-bold small">Confirm Password <span class="text-danger">*</span></label>
+                                <input type="password" class="form-control form-control-sm" @bind="confirmPassword" placeholder="ยืนยันรหัสผ่าน" />
+                            </div>
+                        </div>
+                    }
+
+                    <!-- Group Assignment -->
+                    <div class="mb-3">
+                        <label class="form-label fw-bold small">สังกัดกลุ่ม SFTP (Assign Groups)</label>
+                        <div class="border rounded p-2.5 bg-white" style="max-height: 130px; overflow-y: auto;">
+                            @if (availableGroups.Count == 0)
+                            {
+                                <div class="text-muted small">ยังไม่มี SFTP Group ในระบบ (สามารถสร้างได้ที่เมนู กลุ่มผู้ใช้)</div>
+                            }
+                            else
+                            {
+                                <div class="row row-cols-2 g-2">
+                                    @foreach (var g in availableGroups)
+                                    {
+                                        <div class="col">
+                                            <div class="form-check">
+                                                <input class="form-check-input" type="checkbox" id="create_grp_@g.Id"
+                                                       checked="@newUser.GroupIds.Contains(g.Id)"
+                                                       @onchange="(e) => ToggleGroupSelection(newUser.GroupIds, g.Id, e.Value)" />
+                                                <label class="form-check-label small" for="create_grp_@g.Id">
+                                                    <strong>@g.Name</strong>
+                                                    <span class="text-muted font-monospace small">(@g.RootPath)</span>
+                                                </label>
+                                            </div>
+                                        </div>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    </div>
+
+                    <!-- Custom Root Path (Optional) -->
+                    <div class="card border rounded-3 p-3 bg-light mb-3">
+                        <h6 class="fw-bold small mb-2 text-primary d-flex align-items-center gap-1.5">
+                            <i class="bi bi-folder-symlink"></i>
+                            <span>กำหนด Root Path เฉพาะบุคคล (Custom Root Override - ไม่บังคับ)</span>
+                        </h6>
+                        <div class="row g-2">
+                            <div class="col-12">
+                                <label class="form-label small fw-bold">Custom Root Path</label>
+                                <div class="input-group input-group-sm">
+                                    <input type="text" class="form-control font-monospace" placeholder="@($"ปล่อยว่างหากใช้ Default Home ({SshManager.SftpRoot}\\{{username}})")" @bind="newUser.CustomRootPath" />
+                                    <button class="btn btn-outline-secondary" type="button" @onclick="OpenFolderBrowserForCreate">
+                                        <i class="bi bi-folder2-open"></i>
+                                        <span>เลือกโฟลเดอร์...</span>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label small fw-bold">Access Mode</label>
+                                <select class="form-select form-select-sm" @bind="newUser.AccessMode">
+                                    <option value="@SftpAccessMode.VirtualFolder">Virtual Folder (โฟลเดอร์กลุ่มปรากฏข้างใน)</option>
+                                    <option value="@SftpAccessMode.DirectChroot">Direct Chroot (เข้าสู่ Root Path ทันที)</option>
+                                </select>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label small fw-bold">ระดับสิทธิ์ (Permission)</label>
+                                <select class="form-select form-select-sm" @bind="newUser.CustomPermissionType">
+                                    <option value="@SftpPermissionType.ReadWrite">Read & Write (อ่านและเขียนไฟล์ได้)</option>
+                                    <option value="@SftpPermissionType.ReadOnly">Read-Only (ดาวน์โหลดอ่านไฟล์ได้อย่างเดียว)</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold small">SSH Public Key (ไม่บังคับ - วางได้ทั้งแบบ OpenSSH หรือ PuTTY)</label>
+                        <textarea class="form-control form-control-sm font-monospace" rows="2" placeholder="ssh-rsa AAAAB3... หรือ ---- BEGIN SSH2 PUBLIC KEY ----" @bind="newUser.SshPublicKey"></textarea>
+                    </div>
+
+                    <div class="mb-0">
+                        <label class="form-label fw-bold small">Notes / หมายเหตุ</label>
+                        <input type="text" class="form-control form-control-sm" @bind="newUser.Notes" placeholder="บันทึกช่วยจำเกี่ยวกับผู้ใช้รายนี้" />
+                    </div>
+                </div>
+                <div class="modal-footer bg-light">
+                    <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="() => isCreateModalOpen = false">ยกเลิก</button>
+                    <button type="button" class="btn btn-primary btn-sm" @onclick="SubmitCreateUser" disabled="@isSubmitting">
+                        @if (isSubmitting)
+                        {
+                            <span class="spinner-border spinner-border-sm"></span>
+                            <span>กำลังสร้าง...</span>
+                        }
+                        else
+                        {
+                            <i class="bi bi-check-lg"></i>
+                            <span>บันทึกและสร้าง Chroot</span>
+                        }
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Modal: Edit User -->
+@if (isEditModalOpen && editUserRequest != null)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+        <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+            <div class="modal-content shadow-lg border-0">
+                <div class="modal-header bg-dark text-white">
+                    <h5 class="modal-title d-flex align-items-center gap-2">
+                        <i class="bi bi-pencil-square text-primary"></i>
+                        <span>แก้ไขข้อมูลผู้ใช้: @editUserRequest.Username</span>
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" @onclick="() => isEditModalOpen = false"></button>
+                </div>
+                <div class="modal-body p-4">
+                    <div class="row g-3 mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold small">Username</label>
+                            <input type="text" class="form-control form-control-sm" value="@editUserRequest.Username" disabled />
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold small">Display Name</label>
+                            <input type="text" class="form-control form-control-sm" @bind="editUserRequest.DisplayName" />
+                        </div>
+                    </div>
+
+                    <!-- Groups Selection -->
+                    <div class="mb-3">
+                        <label class="form-label fw-bold small">สังกัดกลุ่ม SFTP (Assign Groups)</label>
+                        <div class="border rounded p-2.5 bg-white" style="max-height: 140px; overflow-y: auto;">
+                            @if (availableGroups.Count == 0)
+                            {
+                                <div class="text-muted small">ยังไม่มี SFTP Group ในระบบ</div>
+                            }
+                            else
+                            {
+                                <div class="row row-cols-2 g-2">
+                                    @foreach (var g in availableGroups)
+                                    {
+                                        <div class="col">
+                                            <div class="form-check">
+                                                <input class="form-check-input" type="checkbox" id="edit_grp_@g.Id"
+                                                       checked="@editUserRequest.GroupIds.Contains(g.Id)"
+                                                       @onchange="(e) => ToggleGroupSelection(editUserRequest.GroupIds, g.Id, e.Value)" />
+                                                <label class="form-check-label small" for="edit_grp_@g.Id">
+                                                    <strong>@g.Name</strong>
+                                                    <span class="text-muted font-monospace small">(@g.RootPath)</span>
+                                                </label>
+                                            </div>
+                                        </div>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    </div>
+
+                    <!-- Custom Root Path Override -->
+                    <div class="card border rounded-3 p-3 bg-light mb-3">
+                        <h6 class="fw-bold small mb-2 text-primary d-flex align-items-center gap-1.5">
+                            <i class="bi bi-folder-symlink"></i>
+                            <span>กำหนด Root Path เฉพาะบุคคล (Custom Root Override)</span>
+                        </h6>
+                        <div class="row g-2">
+                            <div class="col-12">
+                                <label class="form-label small fw-bold">Custom Root Path</label>
+                                <div class="input-group input-group-sm">
+                                    <input type="text" class="form-control font-monospace" placeholder="ปล่อยว่างหากใช้ Default Home" @bind="editUserRequest.CustomRootPath" />
+                                    <button class="btn btn-outline-secondary" type="button" @onclick="OpenFolderBrowserForEdit">
+                                        <i class="bi bi-folder2-open"></i>
+                                        <span>เลือกโฟลเดอร์...</span>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label small fw-bold">Access Mode</label>
+                                <select class="form-select form-select-sm" @bind="editUserRequest.AccessMode">
+                                    <option value="@SftpAccessMode.VirtualFolder">Virtual Folder</option>
+                                    <option value="@SftpAccessMode.DirectChroot">Direct Chroot</option>
+                                </select>
+                            </div>
+                            <div class="col-md-6">
+                                <label class="form-label small fw-bold">ระดับสิทธิ์ (Permission)</label>
+                                <select class="form-select form-select-sm" @bind="editUserRequest.CustomPermissionType">
+                                    <option value="@SftpPermissionType.ReadWrite">Read & Write</option>
+                                    <option value="@SftpPermissionType.ReadOnly">Read-Only</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="mb-0">
+                        <label class="form-label fw-bold small">Notes / หมายเหตุ</label>
+                        <input type="text" class="form-control form-control-sm" @bind="editUserRequest.Notes" />
+                    </div>
+                </div>
+                <div class="modal-footer bg-light">
+                    <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="() => isEditModalOpen = false">ยกเลิก</button>
+                    <button type="button" class="btn btn-primary btn-sm" @onclick="SubmitEditUser" disabled="@isSubmitting">
+                        @if (isSubmitting)
+                        {
+                            <span class="spinner-border spinner-border-sm"></span>
+                            <span>กำลังบันทึก...</span>
+                        }
+                        else
+                        {
+                            <i class="bi bi-check-lg"></i>
+                            <span>บันทึกการแก้ไข</span>
+                        }
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Modal: SSH Keys Manager -->
+@if (isKeyModalOpen && selectedUser != null)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content shadow-lg border-0">
+                <div class="modal-header bg-dark text-white">
+                    <h5 class="modal-title d-flex align-items-center gap-2">
+                        <i class="bi bi-key-fill text-primary"></i>
+                        <span>จัดการ SSH Keys สำหรับ: @selectedUser.Username</span>
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" @onclick="CloseKeyModal"></button>
+                </div>
+                <div class="modal-body p-4">
+                    <div class="alert alert-info py-2 small mb-3 d-flex align-items-center gap-2">
+                        <i class="bi bi-info-circle-fill flex-shrink-0"></i>
+                        <div>Public Key จะถูกบันทึกลงใน <code>C:\ProgramData\ssh\keys\@selectedUser.Username</code> ปลอดภัยจากสิทธิ์ Windows และมีผลทันทีไม่ต้อง Restart Service</div>
+                    </div>
+
+                    <!-- Navigation Tabs -->
+                    <ul class="nav nav-tabs mb-3">
+                        <li class="nav-item">
+                            <button class="nav-link @(activeKeyTab == "list" ? "active fw-bold" : "text-muted")" @onclick='() => SwitchKeyTab("list")'>
+                                <i class="bi bi-list-ul"></i>
+                                <span>รายการ Keys ที่ใช้งานอยู่</span>
+                                <span class="badge bg-secondary ms-1">@selectedUser.PublicKeys.Count</span>
+                            </button>
+                        </li>
+                        <li class="nav-item">
+                            <button class="nav-link @(activeKeyTab == "generate" ? "active fw-bold text-primary" : "text-muted")" @onclick='() => SwitchKeyTab("generate")'>
+                                <i class="bi bi-lightning-charge-fill text-warning"></i>
+                                <span>สร้าง Key สำหรับ Automation</span>
+                                <span class="badge bg-primary ms-1">NEW</span>
+                            </button>
+                        </li>
+                        <li class="nav-item">
+                            <button class="nav-link @(activeKeyTab == "paste" ? "active fw-bold" : "text-muted")" @onclick='() => SwitchKeyTab("paste")'>
+                                <i class="bi bi-clipboard-plus"></i>
+                                <span>วาง Public Key เดิม</span>
+                            </button>
+                        </li>
+                    </ul>
+
+                    @if (activeKeyTab == "list")
+                    {
+                        <!-- Current Keys List -->
+                        <h6 class="fw-bold mb-2">Public Keys ที่ใช้งานอยู่ (@selectedUser.PublicKeys.Count)</h6>
+                        @if (!selectedUser.PublicKeys.Any())
+                        {
+                            <div class="text-center text-muted py-4 bg-light rounded mb-3">
+                                <i class="bi bi-key fs-3 d-block text-secondary mb-1"></i>
+                                <small>ยังไม่มี SSH Public Key สำหรับผู้ใช้นี้</small>
+                                <div class="mt-2">
+                                    <button class="btn btn-sm btn-outline-primary" @onclick='() => SwitchKeyTab("generate")'>
+                                        <i class="bi bi-lightning-charge-fill text-warning"></i>
+                                        <span>สร้าง Key สำหรับ Automation</span>
+                                    </button>
+                                </div>
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="list-group mb-3">
+                                @foreach (var key in selectedUser.PublicKeys)
+                                {
+                                    bool isAuto = !string.IsNullOrWhiteSpace(key.Comment) && key.Comment.Contains("automation", StringComparison.OrdinalIgnoreCase);
+                                    <div class="list-group-item d-flex justify-content-between align-items-center py-2.5">
+                                        <div class="space-y-1">
+                                            <div class="d-flex align-items-center gap-2 flex-wrap">
+                                                <span class="badge bg-secondary font-monospace">@key.KeyType</span>
+                                                @if (isAuto)
+                                                {
+                                                    <span class="badge bg-warning text-dark d-flex align-items-center gap-1">
+                                                        <i class="bi bi-robot"></i>
+                                                        <span>Automation</span>
+                                                    </span>
+                                                }
+                                                <span class="fw-bold font-monospace small">@key.FingerprintSha256</span>
+                                            </div>
+                                            <div class="text-muted small">
+                                                <span>Comment: <strong>@(key.Comment ?? "-")</strong></span>
+                                                <span class="mx-1">•</span>
+                                                <span>เพิ่มเมื่อ: @key.AddedAt.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</span>
+                                            </div>
+                                        </div>
+                                        <div class="d-flex align-items-center gap-1">
+                                            <button class="btn btn-outline-secondary btn-sm" title="ดูตัวอย่างคำสั่งเชื่อมต่อ" @onclick="() => OpenQuickSnippet(key)">
+                                                <i class="bi bi-code-slash"></i>
+                                                <span>คำสั่ง</span>
+                                            </button>
+                                            <button class="btn btn-outline-danger btn-sm" title="เพิกถอนสิทธิ์ (Revoke)" @onclick="() => DeletePublicKey(key.Id)">
+                                                <i class="bi bi-trash3"></i>
+                                                <span>ลบ</span>
+                                            </button>
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                        }
+                    }
+                    else if (activeKeyTab == "generate")
+                    {
+                        @if (generatedResult == null)
+                        {
+                            <!-- Generate Key Form -->
+                            <div class="card border rounded-3 p-3 bg-light">
+                                <h6 class="fw-bold mb-1 d-flex align-items-center gap-2">
+                                    <i class="bi bi-lightning-charge-fill text-warning"></i>
+                                    <span>สร้าง SSH Key Pair สำหรับงาน Automation</span>
+                                </h6>
+                                <p class="text-muted small mb-3">
+                                    ระบบจะสร้างคู่รหัสผ่าน SSH ในหน่วยความจำชั่วคราว บันทึก Public Key เข้าสู่ Server ทันที และส่งมอบ Private Key ให้ Admin ดาวน์โหลดเพียงครั้งเดียว
+                                </p>
+
+                                @if (!string.IsNullOrWhiteSpace(genErrorMessage))
+                                {
+                                    <div class="alert alert-danger py-2 small mb-3 d-flex align-items-center gap-2">
+                                        <i class="bi bi-exclamation-triangle-fill flex-shrink-0"></i>
+                                        <div>@genErrorMessage</div>
+                                    </div>
+                                }
+
+                                <div class="mb-3">
+                                    <label class="form-label small fw-bold mb-1">เลือกอัลกอริทึม (Key Algorithm)</label>
+                                    <div class="row g-2">
+                                        <div class="col-sm-6">
+                                            <div class="card p-2.5 h-100 border @(genKeyType == "ed25519" ? "border-primary bg-primary bg-opacity-10" : "bg-white")" style="cursor: pointer;" @onclick='() => genKeyType = "ed25519"'>
+                                                <div class="d-flex align-items-center justify-content-between mb-1">
+                                                    <div class="form-check mb-0">
+                                                        <input class="form-check-input" type="radio" name="genKeyTypeRadio" checked="@(genKeyType == "ed25519")" />
+                                                        <label class="form-check-label fw-bold small ms-1">Ed25519</label>
+                                                    </div>
+                                                    <span class="badge bg-primary text-white font-monospace" style="font-size: 10px;">แนะนำ</span>
+                                                </div>
+                                                <div class="text-muted" style="font-size: 11px; padding-left: 1.5rem;">
+                                                    ขนาดกะทัดรัด รวดเร็ว ปลอดภัยสูง เหมาะสำหรับ Python, PowerShell และ Linux
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="col-sm-6">
+                                            <div class="card p-2.5 h-100 border @(genKeyType == "rsa" ? "border-primary bg-primary bg-opacity-10" : "bg-white")" style="cursor: pointer;" @onclick='() => genKeyType = "rsa"'>
+                                                <div class="d-flex align-items-center justify-content-between mb-1">
+                                                    <div class="form-check mb-0">
+                                                        <input class="form-check-input" type="radio" name="genKeyTypeRadio" checked="@(genKeyType == "rsa")" />
+                                                        <label class="form-check-label fw-bold small ms-1">RSA 4096-bit</label>
+                                                    </div>
+                                                    <span class="badge bg-secondary text-white font-monospace" style="font-size: 10px;">Compatibility</span>
+                                                </div>
+                                                <div class="text-muted" style="font-size: 11px; padding-left: 1.5rem;">
+                                                    รองรับระบบเดิมและโปรแกรม Legacy (เช่น SSIS เก่า, ไคลเอนต์รุ่นเก่า)
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="mb-3">
+                                    <label class="form-label small fw-bold mb-1">
+                                        ชื่องาน / วัตถุประสงค์ (Comment / Task Name)
+                                        <span class="text-danger">*</span>
+                                    </label>
+                                    <input type="text" class="form-control form-control-sm font-monospace" placeholder="เช่น automation-user-sales-to-sql-etl" @bind="genComment" />
+                                    <div class="form-text small" style="font-size: 11px;">
+                                        ช่วยให้ระบุวัตถุประสงค์ใน Audit Log และง่ายต่อการเพิกถอน (Revoke) เมื่อยกเลิกงาน
+                                    </div>
+                                </div>
+
+                                <div class="mb-3">
+                                    <div class="d-flex justify-content-between align-items-center mb-1">
+                                        <label class="form-label small fw-bold mb-0">รหัสผ่านป้องกัน Private Key (Passphrase)</label>
+                                        <span class="badge bg-secondary-subtle text-secondary-emphasis border border-secondary-subtle" style="font-size: 10px;">เว้นว่างได้</span>
+                                    </div>
+                                    <input type="password" class="form-control form-control-sm" placeholder="เว้นว่างไว้สำหรับงาน Automation ที่รันอัตโนมัติ (Unattended Script)" @bind="genPassphrase" />
+                                </div>
+
+                                <div class="alert alert-warning py-2 small mb-3 d-flex align-items-start gap-2">
+                                    <i class="bi bi-shield-lock-fill text-warning flex-shrink-0 mt-0.5"></i>
+                                    <div>
+                                        <strong>ความปลอดภัยแบบ Zero-Knowledge:</strong> เมื่อกดสร้าง ระบบจะไม่จัดเก็บ Private Key ลงในฐานข้อมูล Server โปรดดาวน์โหลดหรือคัดลอกไฟล์ทันทีในหน้าถัดไป
+                                    </div>
+                                </div>
+
+                                <div class="d-flex justify-content-end">
+                                    <button type="button" class="btn btn-primary btn-sm d-flex align-items-center gap-1.5" @onclick="HandleGenerateKey" disabled="@isGeneratingKey">
+                                        @if (isGeneratingKey)
+                                        {
+                                            <span class="spinner-border spinner-border-sm"></span>
+                                            <span>กำลังสร้าง Key Pair ในหน่วยความจำ...</span>
+                                        }
+                                        else
+                                        {
+                                            <i class="bi bi-lightning-charge-fill"></i>
+                                            <span>สร้าง SSH Key เดี๋ยวนี้</span>
+                                        }
+                                    </button>
+                                </div>
+                            </div>
+                        }
+                        else
+                        {
+                            <!-- One-Time Private Key Delivery View -->
+                            <div class="space-y-3">
+                                <div class="alert alert-danger py-2.5 small mb-3 border-danger d-flex align-items-start gap-2.5">
+                                    <i class="bi bi-exclamation-octagon-fill fs-5 text-danger flex-shrink-0"></i>
+                                    <div>
+                                        <div class="fw-bold uppercase">คำเตือนด้านความปลอดภัยระดับสูง (One-Time Access)</div>
+                                        <div>
+                                            กรุณา <strong>ดาวน์โหลดไฟล์ .pem</strong> หรือ <strong>คัดลอก Private Key</strong> ด้านล่างนี้ไปจัดเก็บในที่ปลอดภัยทันที! เมื่อปิดหน้าต่างนี้ ระบบจะทำลาย Private Key ออกจากหน่วยความจำชั่วคราวอย่างถาวรและไม่สามารถเรียกดูซ้ำได้อีก
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Action Toolbar -->
+                                <div class="card p-2.5 bg-light border mb-3">
+                                    <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+                                        <div class="small">
+                                            <span class="text-muted">ชื่อไฟล์: </span>
+                                            <code class="fw-bold">@GetPemFileName()</code>
+                                        </div>
+                                        <div class="d-flex gap-2">
+                                            <button class="btn btn-success btn-sm d-flex align-items-center gap-1" @onclick="DownloadPrivateKeyPem">
+                                                <i class="bi bi-download"></i>
+                                                <span>ดาวน์โหลดไฟล์ .pem</span>
+                                            </button>
+                                            <button class="btn btn-outline-primary btn-sm d-flex align-items-center gap-1" @onclick="CopyPrivateKeyToClipboard">
+                                                <i class="bi bi-clipboard-check"></i>
+                                                <span>@copyKeyBtnText</span>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Private Key Readonly Textarea -->
+                                <div class="mb-3">
+                                    <div class="d-flex justify-content-between align-items-center mb-1">
+                                        <label class="form-label small fw-bold mb-0">เนื้อหา Private Key (OpenSSH Format)</label>
+                                        <span class="text-muted small" style="font-size: 11px;">@generatedResult.KeyType (@generatedResult.FingerprintSha256)</span>
+                                    </div>
+                                    <textarea class="form-control form-control-sm font-monospace bg-dark text-white" rows="6" readonly>@generatedResult.PrivateKeyPem</textarea>
+                                </div>
+
+                                <!-- Code Snippets Section -->
+                                <div class="card border rounded-3 mb-3 overflow-hidden">
+                                    <div class="card-header bg-light py-1.5 px-3 d-flex justify-content-between align-items-center">
+                                        <span class="small fw-bold d-flex align-items-center gap-1">
+                                            <i class="bi bi-code-slash text-primary"></i>
+                                            <span>ตัวอย่างโค้ดคำสั่งสำหรับนำไปใส่ใน Automation Script</span>
+                                        </span>
+                                        <ul class="nav nav-pills" style="font-size: 11px;">
+                                            <li class="nav-item">
+                                                <button class="nav-link py-0.5 px-2 @(activeSnippetTab == "cli" ? "active" : "")" @onclick='() => activeSnippetTab = "cli"'>OpenSSH CLI</button>
+                                            </li>
+                                            <li class="nav-item">
+                                                <button class="nav-link py-0.5 px-2 @(activeSnippetTab == "ps" ? "active" : "")" @onclick='() => activeSnippetTab = "ps"'>PowerShell</button>
+                                            </li>
+                                        </ul>
+                                    </div>
+                                    <div class="card-body p-2 bg-dark text-white font-monospace small" style="font-size: 11px;">
+                                        @if (activeSnippetTab == "cli")
+                                        {
+                                            <pre class="mb-0 text-white"># 1. ทดสอบการเชื่อมต่อ SFTP
+sftp -i ./@GetPemFileName() -P 22 @selectedUser.Username@@localhost
+
+# 2. ตัวอย่างการอัปโหลดไฟล์อัตโนมัติ (Batch Mode)
+echo "put sales_data_*.csv /files/" | sftp -b - -i ./@GetPemFileName() @selectedUser.Username@@localhost</pre>
+                                        }
+                                        else
+                                        {
+                                            <pre class="mb-0 text-white"># PowerShell Automation Script (Windows Task Scheduler)
+$KeyPath = "$PSScriptRoot\@GetPemFileName()"
+
+# ปรับสิทธิ์ NTFS ให้เฉพาะ User ที่รันอ่านได้ (ความปลอดภัย OpenSSH)
+icacls.exe $KeyPath /inheritance:r /grant:r "$($env:USERNAME):(R)"
+
+# รันคำสั่ง SFTP Batch ส่งไฟล์เข้าสู่ Chroot Directory
+$Batch = "put C:\Data\export_*.csv /files/`nbye"
+$Batch | & sftp.exe -i $KeyPath -b - "@(selectedUser.Username)@@localhost"</pre>
+                                        }
+                                    </div>
+                                </div>
+
+                                <!-- Safety Gate Checkbox before Close -->
+                                <div class="card p-3 border-secondary bg-light mb-2">
+                                    <div class="d-flex flex-column flex-sm-row justify-content-between align-items-sm-center gap-2">
+                                        <div class="form-check mb-0">
+                                            <input class="form-check-input" type="checkbox" id="chkConfirmed" @bind="hasConfirmedKeySaved" />
+                                            <label class="form-check-label small fw-bold" for="chkConfirmed">
+                                                ฉันได้ดาวน์โหลดหรือคัดลอก Private Key เรียบร้อยแล้ว และยอมรับว่าไม่สามารถเรียกดูซ้ำได้
+                                            </label>
+                                        </div>
+                                        <button class="btn btn-primary btn-sm d-flex align-items-center gap-1" disabled="@(!hasConfirmedKeySaved)" @onclick="CloseKeyGenerationResult">
+                                            <i class="bi bi-check2-circle"></i>
+                                            <span>เสร็จสิ้น / บันทึกเรียบร้อย</span>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        }
+                    }
+                    else if (activeKeyTab == "paste")
+                    {
+                        <!-- Add New Key Form (Existing Paste) -->
+                        <div class="card border rounded-3 p-3 bg-light">
+                            <h6 class="fw-bold mb-2">นำเข้า SSH Public Key จากภายนอก</h6>
+                            <div class="mb-2">
+                                <label class="form-label small fw-bold mb-1">วางคีย์ (รองรับทั้ง OpenSSH และ PuTTY RFC 4716)</label>
+                                <textarea class="form-control form-control-sm font-monospace" rows="3" placeholder="ssh-rsa AAAAB3... หรือ ---- BEGIN SSH2 PUBLIC KEY ----" @bind="newRawKey" @bind:event="oninput" @bind:after="PreviewParsedKey"></textarea>
+                            </div>
+
+                            @if (keyParsePreview != null)
+                            {
+                                @if (keyParsePreview.IsSuccess)
+                                {
+                                    <div class="alert alert-success py-2 small mb-2">
+                                        <div><strong>Key Type:</strong> @keyParsePreview.KeyType</div>
+                                        <div><strong>SHA-256 Fingerprint:</strong> <code>@keyParsePreview.FingerprintSha256</code></div>
+                                        <div><strong>Comment:</strong> @(keyParsePreview.Comment ?? "-")</div>
+                                    </div>
+                                }
+                                else
+                                {
+                                    <div class="alert alert-danger py-2 small mb-2 d-flex align-items-center gap-2">
+                                        <i class="bi bi-exclamation-circle-fill flex-shrink-0"></i>
+                                        <div>@keyParsePreview.ErrorMessage</div>
+                                    </div>
+                                }
+                            }
+
+                            <div class="d-flex justify-content-end">
+                                <button type="button" class="btn btn-primary btn-sm" @onclick="SubmitAddKey" disabled="@(keyParsePreview?.IsSuccess != true || isAddingKey)">
+                                    @if (isAddingKey)
+                                    {
+                                        <span class="spinner-border spinner-border-sm"></span>
+                                        <span>กำลังบันทึก...</span>
+                                    }
+                                    else
+                                    {
+                                        <i class="bi bi-plus-lg"></i>
+                                        <span>เพิ่ม Public Key</span>
+                                    }
+                                </button>
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Modal: Quick Snippet View -->
+@if (isSnippetModalOpen && selectedSnippetKey != null && selectedUser != null)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content shadow-lg border-0">
+                <div class="modal-header bg-dark text-white py-2.5">
+                    <h6 class="modal-title d-flex align-items-center gap-2 mb-0">
+                        <i class="bi bi-code-slash text-primary"></i>
+                        <span>ตัวอย่างคำสั่งเชื่อมต่อ: @selectedSnippetKey.Comment</span>
+                    </h6>
+                    <button type="button" class="btn-close btn-close-white" @onclick="() => isSnippetModalOpen = false"></button>
+                </div>
+                <div class="modal-body p-3">
+                    <p class="small text-muted mb-2">
+                        ตัวอย่างคำสั่งเชื่อมต่อด้วย Private Key ที่ตรงกับคีย์นี้:
+                    </p>
+                    <div class="p-2 bg-dark text-white rounded font-monospace small mb-3">
+                        sftp -i ./path_to_private_key.pem -P 22 @selectedUser.Username@@localhost
+                    </div>
+                    <div class="d-flex justify-content-end">
+                        <button class="btn btn-sm btn-outline-secondary" @onclick="() => isSnippetModalOpen = false">
+                            ปิด
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Modal: Reset Password -->
+@if (isResetPasswordModalOpen && selectedUser != null)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content shadow-lg border-0">
+                <div class="modal-header bg-dark text-white">
+                    <h5 class="modal-title d-flex align-items-center gap-2">
+                        <i class="bi bi-shield-lock-fill text-primary"></i>
+                        <span>เปลี่ยนรหัสผ่าน Windows: @selectedUser.Username</span>
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" @onclick="() => isResetPasswordModalOpen = false"></button>
+                </div>
+                <div class="modal-body p-4">
+                    <div class="mb-3">
+                        <label class="form-label fw-bold small">รหัสผ่านใหม่</label>
+                        <input type="password" class="form-control" @bind="newResetPassword" placeholder="ระบุรหัสผ่านใหม่" />
+                    </div>
+                </div>
+                <div class="modal-footer bg-light">
+                    <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="() => isResetPasswordModalOpen = false">ยกเลิก</button>
+                    <button type="button" class="btn btn-primary btn-sm" @onclick="SubmitResetPassword">
+                        <i class="bi bi-check-lg"></i>
+                        <span>บันทึกรหัสผ่าน</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Modal: Delete User -->
+@if (isDeleteModalOpen && selectedUser != null)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content shadow-lg border-0">
+                <div class="modal-header bg-danger text-white">
+                    <h5 class="modal-title d-flex align-items-center gap-2">
+                        <i class="bi bi-exclamation-triangle-fill"></i>
+                        <span>ยืนยันการลบผู้ใช้: @selectedUser.Username</span>
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" @onclick="() => isDeleteModalOpen = false"></button>
+                </div>
+                <div class="modal-body p-4">
+                    <p class="mb-3">คุณแน่ใจหรือไม่ว่าต้องการลบผู้ใช้งาน <strong>@selectedUser.Username</strong>?</p>
+                    <div class="form-check p-3 bg-danger-subtle rounded border border-danger-subtle">
+                        <input class="form-check-input ms-0 me-2" type="checkbox" id="delFilesCheck" @bind="deleteUserFiles" />
+                        <label class="form-check-label text-danger fw-bold small" for="delFilesCheck">
+                            ลบโฟลเดอร์และไฟล์ทั้งหมดใน Chroot (@(string.IsNullOrEmpty(selectedUser.HomeDirectory) ? $"{SshManager.SftpRoot}\\{selectedUser.Username}" : selectedUser.HomeDirectory)) อย่างถาวรด้วย
+                        </label>
+                    </div>
+                </div>
+                <div class="modal-footer bg-light">
+                    <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="() => isDeleteModalOpen = false">ยกเลิก</button>
+                    <button type="button" class="btn btn-danger btn-sm" @onclick="SubmitDeleteUser">
+                        <i class="bi bi-trash3"></i>
+                        <span>ยืนยันการลบ</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Shared Folder Browser Modal -->
+<FolderPickerModal IsOpen="isFolderPickerOpen"
+                   CurrentPath="pickerCurrentPath"
+                   OnFolderSelected="HandleFolderSelected"
+                   OnClosed="() => isFolderPickerOpen = false" />
+
+@code {
+    private List<SftpUser>? users;
+    private List<SftpGroup> availableGroups = new();
+
+    private string searchTerm = "";
+    private string accountTypeFilter = "";
+    private string statusFilter = "";
+    private string groupFilter = "";
+
+    private string? alertMessage;
+    private bool isAlertSuccess;
+
+    // Create Modal state
+    private bool isCreateModalOpen;
+    private CreateUserRequest newUser = new();
+    private string confirmPassword = "";
+    private bool isSubmitting;
+    private string adSearchQuery = "";
+    private List<AdUserInfo> adSearchResults = new();
+    private bool isSearchingAd;
+    private string? adSearchError;
+    private string? adSearchInfo;
+    private AdUserInfo? selectedAdUser;
+    private bool isLdapEnabledInConfig;
+
+    // Edit Modal state
+    private bool isEditModalOpen;
+    private UpdateUserRequest? editUserRequest;
+
+    // Folder Picker state
+    private bool isFolderPickerOpen;
+    private string pickerTarget = ""; // "create" or "edit"
+    private string pickerCurrentPath = "";
+
+    // Key Manager state
+    private bool isKeyModalOpen;
+    private SftpUser? selectedUser;
+    private string activeKeyTab = "list"; // "list", "generate", "paste"
+
+    // Paste Key
+    private string newRawKey = "";
+    private SshKeyParseResult? keyParsePreview;
+    private bool isAddingKey;
+
+    // Generate Automation Key
+    private string genKeyType = "ed25519";
+    private string genComment = "";
+    private string genPassphrase = "";
+    private bool isGeneratingKey;
+    private string? genErrorMessage;
+    private SshKeyGenerateResult? generatedResult;
+    private bool hasConfirmedKeySaved;
+    private string copyKeyBtnText = "คัดลอก Private Key";
+    private string activeSnippetTab = "cli";
+
+    // Snippet Modal
+    private bool isSnippetModalOpen;
+    private SshPublicKey? selectedSnippetKey;
+
+    // Reset Password state
+    private bool isResetPasswordModalOpen;
+    private string newResetPassword = "";
+
+    // Delete state
+    private bool isDeleteModalOpen;
+    private bool deleteUserFiles;
+
+    // Storage cache (thread-safe ConcurrentDictionary to prevent race conditions during background calculation)
+    private ConcurrentDictionary<string, long> userStorageMap = new(StringComparer.OrdinalIgnoreCase);
+    private CancellationTokenSource? _storageCts;
+
+    private bool HasActiveFilter =>
+        !string.IsNullOrWhiteSpace(searchTerm) ||
+        !string.IsNullOrWhiteSpace(accountTypeFilter) ||
+        !string.IsNullOrWhiteSpace(statusFilter) ||
+        !string.IsNullOrWhiteSpace(groupFilter);
+
+    private void ClearFilters()
+    {
+        searchTerm = "";
+        accountTypeFilter = "";
+        statusFilter = "";
+        groupFilter = "";
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        users = await UserService.GetAllUsersAsync();
+        availableGroups = await GroupService.GetAllGroupsAsync();
+
+        _storageCts?.Cancel();
+        _storageCts?.Dispose();
+        _storageCts = new CancellationTokenSource();
+        _ = LoadUserStorageAsync(users, _storageCts.Token);
+    }
+
+    private async Task LoadUserStorageAsync(List<SftpUser> userList, CancellationToken cancellationToken)
+    {
+        try
+        {
+            foreach (var u in userList)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var bytes = await FileBrowser.GetTotalUserStorageBytesAsync(u.Username, cancellationToken);
+                userStorageMap[u.Username] = bytes;
+            }
+
+            if (!cancellationToken.IsCancellationRequested)
+            {
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Cancelled by newer LoadData or Dispose
+        }
+        catch (ObjectDisposedException)
+        {
+            // Component disposed
+        }
+    }
+
+    public void Dispose()
+    {
+        _storageCts?.Cancel();
+        _storageCts?.Dispose();
+    }
+
+    private IEnumerable<SftpUser> FilteredUsers
+    {
+        get
+        {
+            if (users == null) return Enumerable.Empty<SftpUser>();
+            var q = users.AsEnumerable();
+
+            if (!string.IsNullOrWhiteSpace(searchTerm))
+            {
+                q = q.Where(u => u.Username.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) ||
+                                 u.DisplayName.Contains(searchTerm, StringComparison.OrdinalIgnoreCase));
+            }
+
+            if (!string.IsNullOrWhiteSpace(accountTypeFilter))
+            {
+                if (Enum.TryParse<SftpAccountType>(accountTypeFilter, out var at))
+                {
+                    q = q.Where(u => u.AccountType == at);
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(statusFilter))
+            {
+                bool active = statusFilter == "Active";
+                q = q.Where(u => u.IsActive == active);
+            }
+
+            if (!string.IsNullOrWhiteSpace(groupFilter))
+            {
+                q = q.Where(u => u.UserGroups.Any(ug => ug.GroupId == groupFilter));
+            }
+
+            return q;
+        }
+    }
+
+    private void OnSelectLocalAccountType()
+    {
+        newUser.AccountType = SftpAccountType.LocalWindows;
+        selectedAdUser = null;
+    }
+
+    private void OnSelectAdAccountType()
+    {
+        newUser.AccountType = SftpAccountType.ActiveDirectory;
+    }
+
+    private async Task OpenCreateUserModal()
+    {
+        newUser = new CreateUserRequest
+        {
+            AccountType = SftpAccountType.LocalWindows,
+            AccessMode = SftpAccessMode.VirtualFolder,
+            CustomPermissionType = SftpPermissionType.ReadWrite
+        };
+        confirmPassword = "";
+        adSearchQuery = "";
+        adSearchResults.Clear();
+        adSearchError = null;
+        adSearchInfo = null;
+        selectedAdUser = null;
+        isSearchingAd = false;
+
+        try
+        {
+            var config = await LdapAuth.GetConfigAsync();
+            isLdapEnabledInConfig = config.IsLdapEnabled;
+        }
+        catch
+        {
+            isLdapEnabledInConfig = false;
+        }
+
+        isCreateModalOpen = true;
+    }
+
+    private void OpenEditUserModal(SftpUser user)
+    {
+        selectedUser = user;
+        editUserRequest = new UpdateUserRequest
+        {
+            Username = user.Username,
+            DisplayName = user.DisplayName,
+            Notes = user.Notes,
+            CustomRootPath = user.CustomRootPath,
+            CustomPermissionType = user.CustomPermissionType,
+            AccessMode = user.AccessMode,
+            GroupIds = user.UserGroups.Select(ug => ug.GroupId).ToList()
+        };
+        isEditModalOpen = true;
+    }
+
+    private void ToggleGroupSelection(List<string> groupList, string groupId, object? isChecked)
+    {
+        if (isChecked is bool b && b)
+        {
+            if (!groupList.Contains(groupId)) groupList.Add(groupId);
+        }
+        else
+        {
+            groupList.Remove(groupId);
+        }
+    }
+
+    private void OpenFolderBrowserForCreate()
+    {
+        pickerTarget = "create";
+        pickerCurrentPath = newUser.CustomRootPath ?? "";
+        isFolderPickerOpen = true;
+    }
+
+    private void OpenFolderBrowserForEdit()
+    {
+        pickerTarget = "edit";
+        pickerCurrentPath = editUserRequest?.CustomRootPath ?? "";
+        isFolderPickerOpen = true;
+    }
+
+    private void HandleFolderSelected(string path)
+    {
+        if (pickerTarget == "create")
+        {
+            newUser.CustomRootPath = path;
+        }
+        else if (pickerTarget == "edit" && editUserRequest != null)
+        {
+            editUserRequest.CustomRootPath = path;
+        }
+        isFolderPickerOpen = false;
+    }
+
+    private async Task HandleAdSearchKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await SearchActiveDirectory();
+        }
+    }
+
+    private async Task SearchActiveDirectory()
+    {
+        if (isSearchingAd) return;
+
+        isSearchingAd = true;
+        adSearchError = null;
+        adSearchInfo = null;
+        adSearchResults.Clear();
+
+        try
+        {
+            var result = await LdapAuth.SearchAdUsersAsync(adSearchQuery);
+            if (result.Success)
+            {
+                adSearchResults = result.Users;
+                if (!adSearchResults.Any())
+                {
+                    adSearchInfo = result.Message;
+                }
+            }
+            else
+            {
+                adSearchError = result.Message;
+            }
+        }
+        catch (Exception ex)
+        {
+            adSearchError = $"เกิดข้อผิดพลาดในการค้นหา: {ex.Message}";
+        }
+        finally
+        {
+            isSearchingAd = false;
+        }
+    }
+
+    private void SelectAdUser(AdUserInfo info)
+    {
+        selectedAdUser = info;
+        newUser.Username = info.SamAccountName;
+        newUser.DisplayName = !string.IsNullOrWhiteSpace(info.DisplayName) ? info.DisplayName : info.SamAccountName;
+        adSearchResults.Clear();
+        adSearchError = null;
+        adSearchInfo = null;
+    }
+
+    private void ClearSelectedAdUser()
+    {
+        selectedAdUser = null;
+        newUser.Username = "";
+        newUser.DisplayName = "";
+    }
+
+    private async Task SubmitCreateUser()
+    {
+        if (string.IsNullOrWhiteSpace(newUser.Username))
+        {
+            SetAlert("กรุณากรอก Username", false);
+            return;
+        }
+
+        if (newUser.AccountType == SftpAccountType.LocalWindows)
+        {
+            if (string.IsNullOrWhiteSpace(newUser.Password))
+            {
+                SetAlert("กรุณาระบุรหัสผ่านสำหรับ Local Windows Account", false);
+                return;
+            }
+            if (newUser.Password != confirmPassword)
+            {
+                SetAlert("รหัสผ่านและการยืนยันรหัสผ่านไม่ตรงกัน", false);
+                return;
+            }
+        }
+
+        isSubmitting = true;
+        var op = string.IsNullOrEmpty(SessionState.CurrentUsername) ? "admin" : SessionState.CurrentUsername;
+        var result = await UserService.CreateUserAsync(newUser, op);
+        isSubmitting = false;
+
+        if (result.Success)
+        {
+            SetAlert(result.Message, true);
+            isCreateModalOpen = false;
+            await LoadData();
+        }
+        else
+        {
+            SetAlert(result.Message, false);
+        }
+    }
+
+    private async Task SubmitEditUser()
+    {
+        if (editUserRequest == null) return;
+
+        isSubmitting = true;
+        var op = string.IsNullOrEmpty(SessionState.CurrentUsername) ? "admin" : SessionState.CurrentUsername;
+        var result = await UserService.UpdateUserAsync(editUserRequest, op);
+        isSubmitting = false;
+
+        if (result.Success)
+        {
+            SetAlert(result.Message, true);
+            isEditModalOpen = false;
+            await LoadData();
+        }
+        else
+        {
+            SetAlert(result.Message, false);
+        }
+    }
+
+    private async Task ToggleUserStatus(SftpUser user)
+    {
+        bool newStatus = !user.IsActive;
+        var op = string.IsNullOrEmpty(SessionState.CurrentUsername) ? "admin" : SessionState.CurrentUsername;
+        var res = await UserService.UpdateUserStatusAsync(user.Username, newStatus, op);
+        SetAlert(res.Message, res.Success);
+        await LoadData();
+    }
+
+    private void OpenKeyManagerModal(SftpUser user, string tab = "list")
+    {
+        selectedUser = user;
+        activeKeyTab = tab;
+        newRawKey = "";
+        keyParsePreview = null;
+        isAddingKey = false;
+
+        genKeyType = "ed25519";
+        genComment = $"automation-{user.Username}-{DateTime.UtcNow:yyyyMMdd}";
+        genPassphrase = "";
+        isGeneratingKey = false;
+        genErrorMessage = null;
+        generatedResult = null;
+        hasConfirmedKeySaved = false;
+        copyKeyBtnText = "คัดลอก Private Key";
+        activeSnippetTab = "cli";
+
+        isKeyModalOpen = true;
+    }
+
+    private void SwitchKeyTab(string tab)
+    {
+        activeKeyTab = tab;
+        genErrorMessage = null;
+    }
+
+    private void CloseKeyModal()
+    {
+        if (generatedResult != null && !hasConfirmedKeySaved)
+        {
+            genErrorMessage = "โปรดยืนยันว่าได้บันทึก Private Key แล้ว หรือกดปุ่มเสร็จสิ้นด้านล่าง";
+            return;
+        }
+        generatedResult = null;
+        isKeyModalOpen = false;
+    }
+
+    private void CloseKeyGenerationResult()
+    {
+        generatedResult = null;
+        hasConfirmedKeySaved = false;
+        activeKeyTab = "list";
+    }
+
+    private async Task HandleGenerateKey()
+    {
+        if (selectedUser == null) return;
+
+        isGeneratingKey = true;
+        genErrorMessage = null;
+
+        var op = string.IsNullOrEmpty(SessionState.CurrentUsername) ? "admin" : SessionState.CurrentUsername;
+        var request = new GenerateAutomationKeyRequest
+        {
+            Username = selectedUser.Username,
+            KeyType = genKeyType,
+            Comment = genComment,
+            Passphrase = string.IsNullOrWhiteSpace(genPassphrase) ? null : genPassphrase
+        };
+
+        var (success, message, result) = await UserService.GenerateAutomationKeyAsync(request, op);
+        isGeneratingKey = false;
+
+        if (success && result != null)
+        {
+            generatedResult = result;
+            hasConfirmedKeySaved = false;
+            await LoadData();
+            selectedUser = users?.FirstOrDefault(u => u.Username == selectedUser.Username);
+        }
+        else
+        {
+            genErrorMessage = message;
+        }
+    }
+
+    private async Task DownloadPrivateKeyPem()
+    {
+        if (generatedResult == null || selectedUser == null) return;
+
+        var comment = string.IsNullOrWhiteSpace(generatedResult.Comment) ? "automation" : generatedResult.Comment;
+        var fileName = $"{selectedUser.Username}_{comment}_id_{genKeyType}.pem";
+        foreach (var c in Path.GetInvalidFileNameChars())
+        {
+            fileName = fileName.Replace(c, '_');
+        }
+
+        var bytes = System.Text.Encoding.UTF8.GetBytes(generatedResult.PrivateKeyPem);
+        using var stream = new MemoryStream(bytes);
+        using var streamRef = new DotNetStreamReference(stream);
+        await JSRuntime.InvokeVoidAsync("downloadFileFromStream", fileName, streamRef);
+    }
+
+    private async Task CopyPrivateKeyToClipboard()
+    {
+        if (generatedResult == null) return;
+        await JSRuntime.InvokeVoidAsync("copyTextToClipboard", generatedResult.PrivateKeyPem);
+        copyKeyBtnText = "คัดลอกเรียบร้อยแล้ว!";
+        StateHasChanged();
+        await Task.Delay(2000);
+        copyKeyBtnText = "คัดลอก Private Key";
+        StateHasChanged();
+    }
+
+    private string GetPemFileName()
+    {
+        if (selectedUser == null) return "id_automation.pem";
+        var comment = string.IsNullOrWhiteSpace(genComment) ? "automation" : genComment;
+        return $"{selectedUser.Username}_{comment}_id_{genKeyType}.pem";
+    }
+
+    private void OpenQuickSnippet(SshPublicKey key)
+    {
+        selectedSnippetKey = key;
+        isSnippetModalOpen = true;
+    }
+
+    private void PreviewParsedKey()
+    {
+        if (string.IsNullOrWhiteSpace(newRawKey))
+        {
+            keyParsePreview = null;
+            return;
+        }
+        keyParsePreview = SshKeyConverter.ParseAndNormalizeKey(newRawKey);
+    }
+
+    private async Task SubmitAddKey()
+    {
+        if (selectedUser == null || keyParsePreview?.IsSuccess != true) return;
+
+        isAddingKey = true;
+        var op = string.IsNullOrEmpty(SessionState.CurrentUsername) ? "admin" : SessionState.CurrentUsername;
+        var result = await UserService.AddPublicKeyAsync(selectedUser.Username, keyParsePreview.RawPublicKey, keyParsePreview.Comment, op);
+        isAddingKey = false;
+
+        if (result.Success)
+        {
+            newRawKey = "";
+            keyParsePreview = null;
+            await LoadData();
+            selectedUser = users?.FirstOrDefault(u => u.Username == selectedUser.Username);
+            SetAlert("เพิ่ม SSH Key สำเร็จ", true);
+        }
+        else
+        {
+            SetAlert(result.Message, false);
+        }
+    }
+
+    private async Task DeletePublicKey(int keyId)
+    {
+        if (selectedUser == null) return;
+        var op = string.IsNullOrEmpty(SessionState.CurrentUsername) ? "admin" : SessionState.CurrentUsername;
+        var result = await UserService.DeletePublicKeyAsync(keyId, op);
+        if (result.Success)
+        {
+            await LoadData();
+            selectedUser = users?.FirstOrDefault(u => u.Username == selectedUser.Username);
+            SetAlert("ลบ SSH Key เรียบร้อย", true);
+        }
+        else
+        {
+            SetAlert(result.Message, false);
+        }
+    }
+
+    private void OpenResetPasswordModal(SftpUser user)
+    {
+        selectedUser = user;
+        newResetPassword = "";
+        isResetPasswordModalOpen = true;
+    }
+
+    private async Task SubmitResetPassword()
+    {
+        if (selectedUser == null || string.IsNullOrWhiteSpace(newResetPassword)) return;
+        var op = string.IsNullOrEmpty(SessionState.CurrentUsername) ? "admin" : SessionState.CurrentUsername;
+        var res = await UserService.ResetPasswordAsync(selectedUser.Username, newResetPassword, op);
+        isResetPasswordModalOpen = false;
+        SetAlert(res.Message, res.Success);
+    }
+
+    private void OpenDeleteUserModal(SftpUser user)
+    {
+        selectedUser = user;
+        deleteUserFiles = false;
+        isDeleteModalOpen = true;
+    }
+
+    private async Task SubmitDeleteUser()
+    {
+        if (selectedUser == null) return;
+        var op = string.IsNullOrEmpty(SessionState.CurrentUsername) ? "admin" : SessionState.CurrentUsername;
+        var res = await UserService.DeleteUserAsync(selectedUser.Username, deleteUserFiles, op);
+        isDeleteModalOpen = false;
+        SetAlert(res.Message, res.Success);
+        await LoadData();
+    }
+
+    private void SetAlert(string msg, bool success)
+    {
+        alertMessage = msg;
+        isAlertSuccess = success;
+    }
+
+    private string FormatBytes(long bytes)
+    {
+        string[] sizes = { "B", "KB", "MB", "GB", "TB" };
+        int order = 0;
+        double len = bytes;
+        while (len >= 1024 && order < sizes.Length - 1)
+        {
+            order++;
+            len /= 1024;
+        }
+        return $"{len:0.##} {sizes[order]}";
+    }
+}
