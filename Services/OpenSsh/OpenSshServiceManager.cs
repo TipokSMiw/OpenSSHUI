@@ -1,8 +1,8 @@
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Runtime.Versioning;
 using System.ServiceProcess;
 using System.Text;
-using System.Text.RegularExpressions;
 using OpensshUI.Services.Security;
 
 namespace OpensshUI.Services.OpenSsh;
@@ -30,88 +30,108 @@ public class ServiceStatusInfo
     public bool HasZeroConfigBlock { get; set; }
     public string ConfigPath { get; set; } = string.Empty;
     public string SshdExecutablePath { get; set; } = string.Empty;
+    public string ServiceName { get; set; } = "sshd";
 }
 
 [SupportedOSPlatform("windows")]
 public class OpenSshServiceManager : IOpenSshServiceManager
 {
-    private const string ServiceName = "sshd";
+    private const string DefaultSshdServiceName = "sshd";
+    private const string DefaultAgentServiceName = "ssh-agent";
+
     private readonly IConfiguration? _configuration;
     private readonly string _defaultConfigPath;
     private readonly string _defaultKeysPath;
     private readonly string _defaultSftpRoot;
     private readonly ILogger<OpenSshServiceManager> _logger;
-    private readonly SemaphoreSlim _configLock = new(1, 1);
+    private readonly ISshdConfigService _configService;
     private readonly SemaphoreSlim _serviceLock = new(1, 1);
 
-    public const string BlockHeader = "# >>> SFTP Zero-Config Block (Managed by OpensshUI) >>>";
-    public const string BlockFooter = "# <<< SFTP Zero-Config Block (Managed by OpensshUI) <<<";
+    public const string BlockHeader = SshdConfigService.BlockHeader;
+    public const string BlockFooter = SshdConfigService.BlockFooter;
 
     public OpenSshServiceManager(
         ILogger<OpenSshServiceManager> logger,
-        IConfiguration? configuration = null)
+        IConfiguration? configuration = null,
+        ISshdConfigService? configService = null)
     {
         _logger = logger;
         _configuration = configuration;
         _defaultSftpRoot = configuration?["SftpSettings:SftpRoot"] ?? @"C:\SFTPRoot";
         _defaultKeysPath = configuration?["SftpSettings:KeysPath"] ?? @"C:\ProgramData\ssh\keys";
         _defaultConfigPath = configuration?["SftpSettings:SshdConfigPath"] ?? @"C:\ProgramData\ssh\sshd_config";
+        _configService = configService ?? new SshdConfigService(
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<SshdConfigService>.Instance,
+            configuration);
     }
 
     public string ConfigPath => _configuration?["SftpSettings:SshdConfigPath"] ?? _defaultConfigPath;
     public string KeysPath => _configuration?["SftpSettings:KeysPath"] ?? _defaultKeysPath;
     public string SftpRoot => _configuration?["SftpSettings:SftpRoot"] ?? _defaultSftpRoot;
 
-    public string FindSshdExecutable()
-    {
-        string[] candidates = {
-            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "OpenSSH", "sshd.exe"),
-            @"C:\Program Files\OpenSSH\sshd.exe",
-            @"C:\Windows\System32\OpenSSH\sshd.exe"
-        };
-
-        foreach (var path in candidates)
-        {
-            if (File.Exists(path)) return path;
-        }
-
-        return "sshd.exe"; // Fallback to PATH
-    }
+    public string FindSshdExecutable() => _configService.FindSshdExecutable();
 
     public ServiceStatusInfo GetStatus()
     {
+        return QueryServiceStatus(DefaultSshdServiceName);
+    }
+
+    public ServiceStatusInfo GetAgentStatus()
+    {
+        return QueryServiceStatus(DefaultAgentServiceName);
+    }
+
+    private ServiceStatusInfo QueryServiceStatus(string serviceName)
+    {
         var info = new ServiceStatusInfo
         {
-            ConfigPath = _defaultConfigPath,
+            ServiceName = serviceName,
+            ConfigPath = ConfigPath,
             SshdExecutablePath = FindSshdExecutable()
         };
 
         try
         {
-            using var sc = new ServiceController(ServiceName);
+            using var sc = new ServiceController(serviceName);
             info.IsInstalled = true;
             info.Status = sc.Status.ToString();
             info.CanStart = sc.Status == ServiceControllerStatus.Stopped;
             info.CanStop = sc.Status == ServiceControllerStatus.Running;
         }
+        catch (Win32Exception ex)
+        {
+            _logger.LogWarning(ex, "Win32Exception querying service '{Service}': {Msg}", serviceName, ex.Message);
+            info.IsInstalled = false;
+            info.Status = "Access Denied";
+        }
+        catch (InvalidOperationException ex)
+        {
+            _logger.LogWarning(ex, "Service '{Service}' not found or inaccessible.", serviceName);
+            info.IsInstalled = false;
+            info.Status = "Not Installed";
+        }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "OpenSSH service '{Service}' could not be queried directly.", ServiceName);
+            _logger.LogWarning(ex, "Service '{Service}' query encountered unexpected error.", serviceName);
             info.IsInstalled = false;
-            info.Status = "Not Installed / Access Denied";
+            info.Status = "Unknown Error";
         }
 
-        info.HasZeroConfigBlock = CheckHasZeroConfigBlock();
+        if (serviceName.Equals(DefaultSshdServiceName, StringComparison.OrdinalIgnoreCase))
+        {
+            info.HasZeroConfigBlock = CheckHasZeroConfigBlock();
+        }
+
         return info;
     }
 
     public bool CheckHasZeroConfigBlock()
     {
-        if (!File.Exists(_defaultConfigPath)) return false;
+        if (!File.Exists(ConfigPath)) return false;
 
         try
         {
-            var content = File.ReadAllText(_defaultConfigPath);
+            var content = File.ReadAllText(ConfigPath);
             return content.Contains("Match Group SFTP-Users", StringComparison.OrdinalIgnoreCase);
         }
         catch
@@ -125,16 +145,10 @@ public class OpenSshServiceManager : IOpenSshServiceManager
         return GenerateManagedBlock(new List<DirectChrootRule>(), sftpRoot, keysPath);
     }
 
-    private static string FormatConfigPath(string rawPath)
-    {
-        var clean = SecurityValidator.SanitizeSingleLine(rawPath).Replace("\"", "").Trim();
-        return clean.Contains(' ') ? $"\"{clean}\"" : clean;
-    }
-
     public string GenerateManagedBlock(IEnumerable<DirectChrootRule>? customRules, string? sftpRoot = null, string? keysPath = null)
     {
-        var root = sftpRoot ?? _defaultSftpRoot;
-        var keys = keysPath ?? _defaultKeysPath;
+        var root = sftpRoot ?? SftpRoot;
+        var keys = keysPath ?? KeysPath;
 
         var normalizedKeys = FormatConfigPath(keys.Replace("\\", "/").TrimEnd('/') + "/%u");
         var defaultNormalizedRoot = FormatConfigPath(root.Replace("/", "\\").TrimEnd('\\') + "\\%u");
@@ -143,12 +157,10 @@ public class OpenSshServiceManager : IOpenSshServiceManager
         sb.AppendLine();
         sb.AppendLine(BlockHeader);
 
-        // 1. Specific custom DirectChroot rules (Users first, then specific Groups)
         if (customRules != null)
         {
             var rules = customRules.ToList();
 
-            // Match User rules first
             foreach (var rule in rules.Where(r => !r.IsGroup && !string.IsNullOrWhiteSpace(r.RootPath)))
             {
                 var cleanId = SecurityValidator.SanitizeSingleLine(rule.Identifier).Replace(" ", "").Replace("\"", "");
@@ -161,7 +173,6 @@ public class OpenSshServiceManager : IOpenSshServiceManager
                 sb.AppendLine($"    AuthorizedKeysFile {normalizedKeys}");
             }
 
-            // Match Group rules (specific groups before generic SFTP-Users)
             foreach (var rule in rules.Where(r => r.IsGroup && !string.IsNullOrWhiteSpace(r.RootPath)))
             {
                 var cleanId = SecurityValidator.SanitizeSingleLine(rule.Identifier).Replace(" ", "").Replace("\"", "");
@@ -175,7 +186,6 @@ public class OpenSshServiceManager : IOpenSshServiceManager
             }
         }
 
-        // 2. Generic default SFTP-Users rule
         sb.AppendLine("Match Group SFTP-Users");
         sb.AppendLine($"    ChrootDirectory {defaultNormalizedRoot}");
         sb.AppendLine("    ForceCommand internal-sftp");
@@ -189,57 +199,7 @@ public class OpenSshServiceManager : IOpenSshServiceManager
 
     public ConfigValidationResult ValidateConfigSyntax()
     {
-        var sshdPath = FindSshdExecutable();
-        var result = new ConfigValidationResult();
-
-        try
-        {
-            var psi = new ProcessStartInfo
-            {
-                FileName = sshdPath,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-            psi.ArgumentList.Add("-t");
-
-            using var proc = new Process { StartInfo = psi };
-            proc.Start();
-
-            var stdoutTask = proc.StandardOutput.ReadToEndAsync();
-            var stderrTask = proc.StandardError.ReadToEndAsync();
-
-            bool completed = proc.WaitForExit(5000);
-            if (!completed)
-            {
-                try { proc.Kill(entireProcessTree: true); } catch { }
-                result.IsValid = false;
-                result.ErrorMessage = "sshd -t syntax validation timed out.";
-                return result;
-            }
-
-            Task.WaitAll(new[] { stdoutTask, stderrTask }, TimeSpan.FromMilliseconds(1000));
-            var stdout = stdoutTask.Result;
-            var stderr = stderrTask.Result;
-
-            result.Output = string.IsNullOrWhiteSpace(stderr) ? stdout : stderr;
-            result.IsValid = proc.ExitCode == 0;
-
-            if (!result.IsValid && string.IsNullOrWhiteSpace(result.ErrorMessage))
-            {
-                result.ErrorMessage = result.Output;
-            }
-
-            return result;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to run sshd -t syntax validation.");
-            result.IsValid = false;
-            result.ErrorMessage = ex.Message;
-            return result;
-        }
+        return _configService.ValidateSyntax(ConfigPath);
     }
 
     public async Task<(bool Success, string Message)> ApplyZeroConfigBlockAsync()
@@ -249,124 +209,79 @@ public class OpenSshServiceManager : IOpenSshServiceManager
 
     public async Task<(bool Success, string Message)> SyncManagedConfigAsync(IEnumerable<DirectChrootRule> rules, bool autoRestart = true)
     {
-        await _configLock.WaitAsync();
-        try
+        // 1. Atomically update config via SshdConfigService (Write to temp, test with sshd -t -f, File.Replace)
+        var result = await _configService.SyncManagedBlocksAsync(rules, SftpRoot, KeysPath, ConfigPath);
+        if (!result.Success)
         {
-            if (!File.Exists(_defaultConfigPath))
-            {
-                return (false, $"Configuration file not found at {_defaultConfigPath}. Ensure OpenSSH Server is installed.");
-            }
-
-            var currentContent = await File.ReadAllTextAsync(_defaultConfigPath);
-            var newBlock = GenerateManagedBlock(rules);
-
-            // Strip existing block if present
-            var pattern = Regex.Escape(BlockHeader) + @"[\s\S]*?" + Regex.Escape(BlockFooter);
-            string updatedContent;
-            if (Regex.IsMatch(currentContent, pattern))
-            {
-                updatedContent = Regex.Replace(currentContent, pattern, newBlock.TrimStart());
-            }
-            else
-            {
-                updatedContent = currentContent.TrimEnd() + Environment.NewLine + newBlock;
-            }
-
-            // Backup existing config with millisecond precision to avoid collisions
-            var backupPath = $"{_defaultConfigPath}.bak_{DateTime.UtcNow:yyyyMMdd_HHmmss_fff}";
-            File.Copy(_defaultConfigPath, backupPath, true);
-            CleanupOldConfigBackups(maxBackups: 5);
-
-            await File.WriteAllTextAsync(_defaultConfigPath, updatedContent);
-
-            // Validate syntax immediately off the UI thread
-            var validation = await Task.Run(ValidateConfigSyntax);
-            if (!validation.IsValid)
-            {
-                // Rollback on syntax error
-                File.Copy(backupPath, _defaultConfigPath, true);
-                return (false, $"Config syntax error detected by sshd -t: {validation.Output}. Restored from backup.");
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to sync managed sshd_config.");
-            return (false, ex.Message);
-        }
-        finally
-        {
-            _configLock.Release();
+            return result;
         }
 
+        // 2. Optional auto-restart
         if (autoRestart)
         {
-            var (restartOk, restartMsg) = await RestartServiceAsync();
+            var (restartOk, restartMsg) = await RestartServiceAsync(DefaultSshdServiceName);
             if (!restartOk)
             {
-                return (true, $"Config updated and validated, but restart had warning: {restartMsg}");
+                return (true, $"Config updated and validated, but service restart notice: {restartMsg}");
             }
         }
 
         return (true, "OpenSSH sshd_config updated, validated, and applied successfully.");
     }
 
-    private void CleanupOldConfigBackups(int maxBackups = 5)
-    {
-        try
-        {
-            var dir = Path.GetDirectoryName(_defaultConfigPath);
-            var fileName = Path.GetFileName(_defaultConfigPath);
-            if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir)) return;
-
-            var backups = new DirectoryInfo(dir)
-                .GetFiles($"{fileName}.bak_*")
-                .OrderByDescending(f => f.CreationTimeUtc)
-                .Skip(maxBackups)
-                .ToList();
-
-            foreach (var oldBackup in backups)
-            {
-                try { oldBackup.Delete(); } catch { }
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogDebug(ex, "Could not clean up old sshd_config backup files.");
-        }
-    }
-
-    public async Task<(bool Success, string Message)> RestartServiceAsync()
+    public async Task<(bool Success, string Message)> RestartServiceAsync(string serviceName = DefaultSshdServiceName)
     {
         await _serviceLock.WaitAsync();
         try
         {
             return await Task.Run(() =>
             {
-                // 1. ALWAYS validate config syntax first!
-                var validation = ValidateConfigSyntax();
-                if (!validation.IsValid)
+                // Only validate sshd config when restarting sshd service
+                if (serviceName.Equals(DefaultSshdServiceName, StringComparison.OrdinalIgnoreCase))
                 {
-                    return (false, $"Cannot restart OpenSSH: sshd -t syntax error: {validation.Output}");
+                    var validation = ValidateConfigSyntax();
+                    if (!validation.IsValid)
+                    {
+                        return (false, $"Cannot restart OpenSSH: sshd.exe -t syntax error: {validation.Output}");
+                    }
                 }
 
                 try
                 {
-                    using var sc = new ServiceController(ServiceName);
-                    if (sc.Status == ServiceControllerStatus.Running)
+                    using var sc = new ServiceController(serviceName);
+
+                    // Stop if running or start pending
+                    if (sc.Status == ServiceControllerStatus.Running || sc.Status == ServiceControllerStatus.StartPending)
                     {
                         sc.Stop();
                         sc.WaitForStatus(ServiceControllerStatus.Stopped, TimeSpan.FromSeconds(15));
                     }
 
+                    // Start service
                     sc.Start();
                     sc.WaitForStatus(ServiceControllerStatus.Running, TimeSpan.FromSeconds(15));
 
-                    return (true, "OpenSSH (sshd) service restarted successfully.");
+                    return (true, $"Service '{serviceName}' restarted successfully.");
+                }
+                catch (Win32Exception ex)
+                {
+                    _logger.LogError(ex, "Win32 permission error restarting service '{Service}'.", serviceName);
+                    return (false, $"Access Denied restarting service '{serviceName}'. Requires Local Administrator privileges (Win32 Error: {ex.NativeErrorCode}).");
+                }
+                catch (System.ServiceProcess.TimeoutException ex)
+                {
+                    _logger.LogError(ex, "Timeout waiting for service '{Service}' to transition.", serviceName);
+                    return (false, $"Timeout waiting for service '{serviceName}' to restart within 15 seconds.");
+                }
+                catch (InvalidOperationException ex)
+                {
+                    _logger.LogError(ex, "InvalidOperationException restarting service '{Service}'.", serviceName);
+                    return (false, $"Cannot control service '{serviceName}': {ex.Message}");
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Error restarting sshd service.");
-                    return (false, $"Error restarting service: {ex.Message}");
+                    _logger.LogError(ex, "Unexpected error restarting service '{Service}'.", serviceName);
+                    return (false, $"Error restarting service '{serviceName}': {ex.Message}");
                 }
             });
         }
@@ -376,32 +291,51 @@ public class OpenSshServiceManager : IOpenSshServiceManager
         }
     }
 
-    public async Task<(bool Success, string Message)> StartServiceAsync()
+    public async Task<(bool Success, string Message)> StartServiceAsync(string serviceName = DefaultSshdServiceName)
     {
         await _serviceLock.WaitAsync();
         try
         {
             return await Task.Run(() =>
             {
-                var validation = ValidateConfigSyntax();
-                if (!validation.IsValid)
+                if (serviceName.Equals(DefaultSshdServiceName, StringComparison.OrdinalIgnoreCase))
                 {
-                    return (false, $"Cannot start OpenSSH: sshd -t syntax check failed: {validation.Output}");
+                    var validation = ValidateConfigSyntax();
+                    if (!validation.IsValid)
+                    {
+                        return (false, $"Cannot start OpenSSH: sshd.exe -t syntax check failed: {validation.Output}");
+                    }
                 }
 
                 try
                 {
-                    using var sc = new ServiceController(ServiceName);
+                    using var sc = new ServiceController(serviceName);
                     if (sc.Status == ServiceControllerStatus.Running)
-                        return (true, "Service is already running.");
+                        return (true, $"Service '{serviceName}' is already running.");
 
                     sc.Start();
                     sc.WaitForStatus(ServiceControllerStatus.Running, TimeSpan.FromSeconds(15));
-                    return (true, "Service started successfully.");
+                    return (true, $"Service '{serviceName}' started successfully.");
+                }
+                catch (Win32Exception ex)
+                {
+                    _logger.LogError(ex, "Win32 permission error starting service '{Service}'.", serviceName);
+                    return (false, $"Access Denied starting service '{serviceName}'. Requires Local Administrator privileges (Win32 Error: {ex.NativeErrorCode}).");
+                }
+                catch (System.ServiceProcess.TimeoutException ex)
+                {
+                    _logger.LogError(ex, "Timeout waiting for service '{Service}' to start.", serviceName);
+                    return (false, $"Timeout waiting for service '{serviceName}' to start within 15 seconds.");
+                }
+                catch (InvalidOperationException ex)
+                {
+                    _logger.LogError(ex, "Cannot start service '{Service}'.", serviceName);
+                    return (false, $"Cannot start service '{serviceName}': {ex.Message}");
                 }
                 catch (Exception ex)
                 {
-                    return (false, ex.Message);
+                    _logger.LogError(ex, "Unexpected error starting service '{Service}'.", serviceName);
+                    return (false, $"Error starting service '{serviceName}': {ex.Message}");
                 }
             });
         }
@@ -411,7 +345,7 @@ public class OpenSshServiceManager : IOpenSshServiceManager
         }
     }
 
-    public async Task<(bool Success, string Message)> StopServiceAsync()
+    public async Task<(bool Success, string Message)> StopServiceAsync(string serviceName = DefaultSshdServiceName)
     {
         await _serviceLock.WaitAsync();
         try
@@ -420,17 +354,33 @@ public class OpenSshServiceManager : IOpenSshServiceManager
             {
                 try
                 {
-                    using var sc = new ServiceController(ServiceName);
+                    using var sc = new ServiceController(serviceName);
                     if (sc.Status == ServiceControllerStatus.Stopped)
-                        return (true, "Service is already stopped.");
+                        return (true, $"Service '{serviceName}' is already stopped.");
 
                     sc.Stop();
                     sc.WaitForStatus(ServiceControllerStatus.Stopped, TimeSpan.FromSeconds(15));
-                    return (true, "Service stopped successfully.");
+                    return (true, $"Service '{serviceName}' stopped successfully.");
+                }
+                catch (Win32Exception ex)
+                {
+                    _logger.LogError(ex, "Win32 permission error stopping service '{Service}'.", serviceName);
+                    return (false, $"Access Denied stopping service '{serviceName}'. Requires Local Administrator privileges (Win32 Error: {ex.NativeErrorCode}).");
+                }
+                catch (System.ServiceProcess.TimeoutException ex)
+                {
+                    _logger.LogError(ex, "Timeout waiting for service '{Service}' to stop.", serviceName);
+                    return (false, $"Timeout waiting for service '{serviceName}' to stop within 15 seconds.");
+                }
+                catch (InvalidOperationException ex)
+                {
+                    _logger.LogError(ex, "Cannot stop service '{Service}'.", serviceName);
+                    return (false, $"Cannot stop service '{serviceName}': {ex.Message}");
                 }
                 catch (Exception ex)
                 {
-                    return (false, ex.Message);
+                    _logger.LogError(ex, "Unexpected error stopping service '{Service}'.", serviceName);
+                    return (false, $"Error stopping service '{serviceName}': {ex.Message}");
                 }
             });
         }
@@ -438,5 +388,11 @@ public class OpenSshServiceManager : IOpenSshServiceManager
         {
             _serviceLock.Release();
         }
+    }
+
+    private static string FormatConfigPath(string rawPath)
+    {
+        var clean = SecurityValidator.SanitizeSingleLine(rawPath).Replace("\"", "").Trim();
+        return clean.Contains(' ') ? $"\"{clean}\"" : clean;
     }
 }

@@ -332,14 +332,22 @@
                     </div>
 
                     <div class="row g-3 mb-3">
-                        <div class="col-sm-6">
+                        <div class="col-sm-4">
                             <span class="small text-muted d-block mb-1">ประเภทเหตุการณ์ (Event Type):</span>
                             <span class="badge @GetBadgeClass(selectedEntry.EventType)">
                                 <i class="bi @GetBadgeIcon(selectedEntry.EventType)"></i>
                                 <span>@GetBadgeLabel(selectedEntry.EventType)</span>
                             </span>
                         </div>
-                        <div class="col-sm-6">
+                        <div class="col-sm-4">
+                            <span class="small text-muted d-block mb-1">สถานะการยืนยันตัวตน (Auth Status):</span>
+                            <span class="badge bg-light text-dark border font-monospace">@selectedEntry.AuthStatus</span>
+                            @if (!string.IsNullOrEmpty(selectedEntry.AuthMethod))
+                            {
+                                <span class="badge bg-secondary-subtle text-secondary-emphasis border border-secondary-subtle ms-1 font-monospace">@selectedEntry.AuthMethod</span>
+                            }
+                        </div>
+                        <div class="col-sm-4">
                             <span class="small text-muted d-block mb-1">ผู้ใช้ & ปลายทาง (User / IP):</span>
                             <span class="fw-semibold">@(selectedEntry.Username ?? "N/A")</span>
                             @if (!string.IsNullOrEmpty(selectedEntry.ClientIp))

@@ -51,10 +51,13 @@ builder.Services.AddScoped<ILdapAuthService, LdapAuthService>();
 builder.Services.AddScoped<UserSessionState>();
 
 // OpenSSH & Windows Host Services
-builder.Services.AddSingleton<INativeAclProvisioner, NativeAclProvisioner>();
+builder.Services.AddSingleton<ISshdConfigService, SshdConfigService>();
+builder.Services.AddSingleton<INtfsAclService, NtfsAclService>();
+builder.Services.AddSingleton<INativeAclProvisioner, NtfsAclService>();
 builder.Services.AddSingleton<IWindowsUserManager, WindowsUserManager>();
 builder.Services.AddSingleton<IOpenSshServiceManager, OpenSshServiceManager>();
-builder.Services.AddSingleton<IOpenSshLogService, OpenSshLogService>();
+builder.Services.AddSingleton<ISshEventLogService, SshEventLogService>();
+builder.Services.AddSingleton<IOpenSshLogService, SshEventLogService>();
 builder.Services.AddSingleton<ISshKeyGenerator, SshKeyGenerator>();
 builder.Services.AddSingleton<ISecureFileBrowserService, SecureFileBrowserService>(sp =>
 {

@@ -9,6 +9,16 @@ public enum SshEventType
     SystemInfo        // ข้อความระบบ / อื่นๆ
 }
 
+public enum SshAuthStatus
+{
+    None,
+    Success,
+    FailedKey,
+    FailedPassword,
+    InvalidUser,
+    Disconnected
+}
+
 public class OpenSshLogEntry
 {
     public long? RecordId { get; set; }
@@ -16,6 +26,8 @@ public class OpenSshLogEntry
     public int EventId { get; set; }
     public string Level { get; set; } = "Information";
     public SshEventType EventType { get; set; } = SshEventType.SystemInfo;
+    public SshAuthStatus AuthStatus { get; set; } = SshAuthStatus.None;
+    public string? AuthMethod { get; set; }
     public string? Username { get; set; }
     public string? ClientIp { get; set; }
     public int? Port { get; set; }
