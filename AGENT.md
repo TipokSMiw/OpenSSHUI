@@ -10,12 +10,14 @@
 
 ### Core Responsibilities (ขอบเขตหน้าที่หลัก)
 1. **User Management:** จัดการ Local Windows Users, การกำหนด Home Directory, Chroot Directory, Quota, และสถานะการเปิด/ปิดบัญชี
-2. **SSH Key Management:** จัดการ Public Keys สำหรับ SFTP Authentication พร้อมตัวแปลงรูปแบบคีย์ (OpenSSH, RFC4716, PKCS#8/PEM, PuTTY .ppk)
-3. **Group & Junction Management:** จัดการ SFTP Groups และสร้าง NTFS Directory Junctions สำหรับการแชร์โฟลเดอร์ระหว่างกลุ่มผู้ใช้
-4. **NTFS ACL Provisioning:** กำหนดสิทธิ์โฟลเดอร์ระดับ OS (SYSTEM / Administrators Full Control, User Modify/Read-Only ตาม chroot spec)
-5. **Secure File Browser:** ระบบสำรวจไฟล์ผ่านเว็บอินเทอร์เฟซ โดยจำกัดขอบเขตภายใต้ SFTP Root ป้องกัน Path Traversal
-6. **OpenSSH Service Controller:** ควบคุมและตรวจสอบสถานะของ Windows Service (`sshd`)
-7. **Authentication & Audit:** รองรับ LDAP / Active Directory ร่วมกับ Fallback Local Admin และบันทึก Audit Logs ทุกกิจกรรม
+2. **SSH Key Management:** จัดการ Public Keys สำหรับ SFTP Authentication พร้อมตัวแปลงรูปแบบคีย์ (OpenSSH, RFC4716, PKCS#8/PEM, PuTTY `.ppk`)
+3. **Group & Junction Management:** จัดการ SFTP Groups และสร้าง NTFS Directory Junctions สำหรับการแชร์โฟลเดอร์ระหว่างกลุ่มผู้ใช้ ป้องกัน Symlink Attack
+4. **Strict Chroot NTFS ACL Provisioning (`INtfsAclService`):** กำหนดสิทธิ์โฟลเดอร์ระดับ OS อย่างเข้มงวดตามข้อกำหนดของ OpenSSH Chroot (Root ต้องมีเฉพาะ `SYSTEM` และ `Administrators` เท่านั้นที่มีสิทธิ์เขียน, ผู้ใช้ทั่วไปมีสิทธิ์เฉพาะโฟลเดอร์ย่อย) พร้อมระบบ Path Safety Validation ป้องกัน Path Traversal
+5. **Atomic `sshd_config` Engine (`ISshdConfigService`):** จัดการไฟล์คอนฟิกแบบแยกส่วน (Global Directives และ Match Blocks) ป้องกันปัญหา Directive Bleeding, ตรวจสอบไวยากรณ์ด้วย `sshd.exe -t` ก่อนบันทึกจริง, เขียนไฟล์แบบ Atomic ป้องกันไฟล์เสียหาย และมีระบบ Rolling Backup สูงสุด 5 ชุด
+6. **Dual Service Controller (`IOpenSshServiceManager`):** ควบคุมและตรวจสอบสถานะของ Windows Services ทั้ง `sshd` และ `ssh-agent` พร้อมเครื่องมือทดสอบไวยากรณ์ก่อน Restart และระบบโครงสร้าง Zero-Config Reload (`Match Group SFTP-Users`)
+7. **Optimized Event Log Engine (`ISshEventLogService`):** ตรวจสอบบันทึกกิจกรรม OpenSSH จาก Windows Event Log (`OpenSSH/Operational`) ผ่าน Regex Parser ความเร็วสูง แยกสถานะ Authentication, User, IP, Port, และส่งออก CSV ได้
+8. **Secure Web File Browser:** ระบบสำรวจไฟล์ผ่านเว็บอินเทอร์เฟซ โดยจำกัดขอบเขตภายใต้ SFTP Root อย่างเคร่งครัด
+9. **Authentication & Audit:** รองรับ LDAP / Active Directory ร่วมกับ Fallback Local Admin และบันทึก Audit Logs ทุกกิจกรรมลง SQLite (WAL Mode)
 
 ---
 
@@ -27,10 +29,17 @@
 OpensshUI (Root Project - net8.0-windows)
 ├── Components/             # Blazor Interactive Server UI
 │   ├── Layout/             # MainLayout, NavMenu, Scoped CSS
-│   ├── Pages/              # Page components (Users, Groups, Files, Logs, Service, Settings)
+│   ├── Pages/              # Page components
+│   │   ├── Auth/           # Login
+│   │   ├── Files/          # Secure File Browser
+│   │   ├── Groups/         # Group Management
+│   │   ├── Logs/           # OpenSshLogPage (Event Logs), WebAuditLogPage
+│   │   ├── Service/        # ServiceControlPage (sshd & ssh-agent controller)
+│   │   ├── Settings/       # Settings, LDAP Config
+│   │   └── Users/          # User Management, SshKeysModal
 │   └── Shared/             # Reusable UI widgets & Modals (e.g. FolderPickerModal)
 ├── Data/                   # EF Core DbContext & Migrations
-│   └── AppDbContext.cs     # SQLite DbContext with Custom Migrations
+│   └── AppDbContext.cs     # SQLite DbContext with WAL mode & Custom Migrations
 ├── Models/                 # Domain Entities & View Models (POCOs)
 │   ├── AuditLog.cs
 │   ├── LdapConfig.cs
@@ -44,28 +53,35 @@ OpensshUI (Root Project - net8.0-windows)
 │   ├── Auth/               # ILdapAuthService, LdapAuthService, UserSessionState
 │   ├── Files/              # ISecureFileBrowserService, SecureFileBrowserService
 │   ├── Groups/             # ISftpGroupService, SftpGroupService
-│   ├── OpenSsh/            # WindowsUserManager, NativeAclProvisioner, OpenSshServiceManager, SshKeyConverter, OpenSshLogService, SshLogParser
+│   ├── OpenSsh/            # Core OpenSSH & OS Services
+│   │   ├── INtfsAclService.cs / NtfsAclService.cs             # Strict Chroot NTFS ACL & Junctions
+│   │   ├── ISshdConfigService.cs / SshdConfigService.cs       # Atomic sshd_config & syntax engine
+│   │   ├── ISshEventLogService.cs / SshEventLogService.cs     # Windows Event Log query & export
+│   │   ├── SshLogParser.cs                                    # High-speed Event Log Regex Parser
+│   │   ├── IOpenSshServiceManager.cs / OpenSshServiceManager.cs # Service lifecycle (sshd & ssh-agent)
+│   │   ├── IWindowsUserManager.cs / WindowsUserManager.cs     # Local account orchestration
+│   │   ├── ISshKeyGenerator.cs / SshKeyGenerator.cs           # Key conversion & generation
+│   │   └── NativeAclProvisioner.cs / OpenSshLogService.cs     # Compatibility wrappers
 │   ├── Security/           # IProtectionService, ProtectionService, PasswordHasher
 │   └── Users/              # ISftpUserService, SftpUserService
-└── OpensshUI.Tests/        # Test Suite (xUnit)
+└── OpensshUI.Tests/        # Test Suite (xUnit, FluentAssertions, 190+ tests)
 ```
 
 ### Architectural Rules for Agents:
-1. **Interface Segregation:** ทุก Service ในโฟลเดอร์ `Services/` ต้องมี Interface กำกับเสมอ (เช่น `ISftpUserService`) และลงทะเบียนใน DI Container ผ่าน `Program.cs`
-2. **UI Decoupling:** ห้าม Razor Components เรียกใช้ OS APIs, `System.IO` (เช่น `Path.GetFullPath`, `Path.Combine`), Process Execution หรือ Entity Framework DbContext โดยตรง ต้องเรียกผ่าน Service Layer เสมอ
+1. **Interface Segregation:** ทุก Service ในโฟลเดอร์ `Services/` ต้องมี Interface กำกับเสมอ (เช่น `ISshdConfigService`, `INtfsAclService`, `ISshEventLogService`) และลงทะเบียนใน DI Container ผ่าน `Program.cs`
+2. **UI Decoupling:** ห้าม Razor Components เรียกใช้ OS APIs, `System.IO` (เช่น `File.WriteAllText`, `Path.GetFullPath`), Process Execution หรือ Entity Framework DbContext โดยตรง ต้องเรียกผ่าน Service Layer เสมอ
 3. **DbContext Concurrency in Blazor:** Blazor Server มี Long-lived connection ห้าม Inject `AppDbContext` เป็น Scoped โดยตรง แต่ต้องใช้ `IDbContextFactory<AppDbContext>` เพื่อหลีกเลี่ยง Concurrency Issue และ Thread Safety Conflicts
+4. **Configuration Safety:** การแก้ไขหรือซิงค์ไฟล์ `sshd_config` **ต้องเรียกผ่าน `ISshdConfigService` หรือ `IOpenSshServiceManager` เสมอ** ห้ามเขียนทับไฟล์โดยตรงเด็ดขาด เพื่อให้ผ่านการตรวจสอบ `sshd -t` และมีการทำ Rolling Backup ทุกครั้ง
 
-### UI/UX & Blazor Component Standards (มาตรฐานการออกแบบ UI สำหรับผู้ดูแลระบบ):
-1. **Unified Visual Hierarchy (ลำดับการไล่สายตามาตรฐานเดียวกันทุกหน้า):**
-   - ทุกหน้าใน `Components/Pages/` ต้องเริ่มต้นด้วย `.page-header` (ซ้าย: `<h3 class="page-title">` พร้อมไอคอนประจำหน้าและคำอธิบายย่อย / ขวา: ปุ่มรอง `รีเฟรช` ตามด้วยปุ่ม Primary Action)
-   - ถัดจาก Header เป็น Alert Banner -> Search & Filter Bar (พร้อมปุ่ม `ล้าง` เมื่อมีตัวกรองและตัวนับจำนวนรายการ) -> Data Card / Table
+### UI/UX & Blazor Component Standards:
+1. **Unified Visual Hierarchy:**
+   - ทุกหน้าใน `Components/Pages/` ต้องเริ่มต้นด้วย `.page-header` (ซ้าย: `<h3 class="page-title">` พร้อมไอคอนและคำอธิบายย่อย / ขวา: ปุ่ม Refresh และ Primary Action)
+   - ถัดจาก Header เป็น Alert Banner -> Search & Filter Bar -> Data Card / Table
 2. **Strict Icon-Text Alignment & Zero Redundant Emojis:**
    - ใช้ Bootstrap Icons (`<i class="bi ..."></i>`) เท่านั้น **ห้ามใช้ Emoji หรืออักขระพิเศษที่ซ้ำซ้อนกับ Icon**
-   - ไอคอนทุกจุดต้องอยู่ในระดับกึ่งกลางแนวตั้งเดียวกับตัวหนังสือ (`display: inline-flex; align-items: center; line-height: 1;`) ตามคลาสใน `wwwroot/app.css`
+   - ไอคอนทุกจุดต้องอยู่ในระดับกึ่งกลางแนวตั้งเดียวกับตัวหนังสือ (`display: inline-flex; align-items: center; line-height: 1;`)
 3. **Ergonomic Admin Action Buttons:**
-   - ในคอลัมน์ `การจัดการ (ACTIONS)` ของตาราง ให้ใช้ `.action-bar` โดยใส่ข้อความกำกับสั้นๆ คู่กับไอคอนในปุ่มหลัก (เช่น `แก้ไข`, `ไฟล์`, `ดาวน์โหลด`) และคั่นปุ่มอันตราย (`ลบ`, `Stop Service`) ออกไปทางขวาสุดด้วย `<span class="action-divider"></span>` เพื่อลดความเสี่ยงในการกดพลาด
-4. **Consistent Language & Tone:**
-   - ใช้ภาษาไทยควบคู่คำศัพท์เทคนิคมาตรฐาน (เช่น `จัดการกลุ่มผู้ใช้งาน SFTP (SFTP Groups)`) เหมือนกันทุกหน้าและทุก Modal (Header ของ Modal ใช้ `bg-dark text-white` หรือ `bg-danger text-white` สำหรับการยืนยันการลบ)
+   - ในคอลัมน์ Actions ของตาราง ให้ใช้ `.action-bar` โดยมีข้อความกำกับคู่กับไอคอน และคั่นปุ่มอันตราย (`ลบ`, `Stop Service`) ออกไปทางขวาสุดด้วย `<span class="action-divider"></span>`
 
 ---
 
@@ -81,39 +97,41 @@ AI Agent **ต้องปฏิบัติตามกฎเหล็กเห
 - **ใช้ ProcessStartInfo แบบ Parameterized เท่านั้น:** ส่ง Arguments ผ่าน `ArgumentList` (เช่น `psi.ArgumentList.Add(...)`) แทนการต่อ String
 - **Input Sanitization:** ตรวจสอบ Username, GroupName และ Path อย่างเข้มงวด ห้ามมีอักขระพิเศษที่เป็นอันตราย เช่น `;`, `&`, `|`, `` ` ``, `$`, `>`, `<`
 
-### 3.2 Path Traversal & Filesystem Protection
-- **Canonization Check:** ทุกคำสั่งที่เข้าถึง Path ต้องผ่านการ Normalization และตรวจสอบว่า Path ปลายทางอยู่ภายใต้ Root ที่กำหนดเสมอ เช่น:
-  ```csharp
-  var fullPath = Path.GetFullPath(requestedPath);
-  if (!fullPath.StartsWith(allowedRoot, StringComparison.OrdinalIgnoreCase))
-  {
-      throw new UnauthorizedAccessException("Path traversal detected.");
-  }
-  ```
-- **ห้ามแก้ไขไฟล์ระบบ:** ห้ามเขียนหรือลบไฟล์นอกเหนือจากไดเรกทอรี `app_data/`, SFTP Root (`C:\SFTPRoot`) และ OpenSSH Config Directory ที่กำหนดไว้ใน Configuration
+### 3.2 Strict OpenSSH Chroot & NTFS ACL Rules
+- **Chroot Root Directory Ownership:** ตามข้อกำหนดของ OpenSSH Chroot ไดเรกทอรีที่เป็น Chroot Root (เช่น `D:\SFTPRoot\<user>`) ต้องมีเจ้าของเป็น Administrators/SYSTEM เท่านั้น และ**ห้ามมิให้ผู้ใช้หรือกลุ่มผู้ใช้ทั่วไปมีสิทธิ์ Write เด็ดขาด** หากผิดข้อกำหนด OpenSSH จะปฏิเสธการเชื่อมต่อทันที
+- **User Subdirectories Only:** ผู้ใช้จะได้รับสิทธิ์ Modify เฉพาะโฟลเดอร์ย่อยที่อยู่ภายใต้ Chroot Root เท่านั้น (เช่น `D:\SFTPRoot\<user>\data` หรือ Junctions)
+- **Path Traversal Defense:** ทุก Path ต้องผ่าน `INtfsAclService.ValidatePathSafety` และ `Path.GetFullPath` เพื่อป้องกัน Traversal ออกนอกพื้นที่ที่ได้รับอนุญาต
 
-### 3.3 Sensitive Data & Secrets Protection
+### 3.3 Atomic `sshd_config` Modification & Rolling Backup
+- **Syntax Pre-flight Check:** ทุกครั้งที่มีการบันทึกหรืออัปเดตเนื้อหา `sshd_config` จะต้องผ่านการตรวจไวยากรณ์ด้วย `sshd.exe -t` ก่อนเสมอ
+- **Atomic Replace:** บันทึกข้อมูลลง Temp File ก่อน จากนั้นสลับไฟล์ด้วย `File.Replace` หรือ Atomic Move เพื่อป้องกันไฟล์คอนฟิกเสียหายกรณีเครื่องดับ
+- **Rolling Backup:** ระบบเก็บไฟล์สำรอง `.bak` สูงสุด 5 ชุดตามลำดับเวลา
+
+### 3.4 Sensitive Data & Secrets Protection
 - **No Plaintext Passwords:** ห้ามเก็บรหัสผ่านเป็น Plaintext ใน SQLite หรือ Log
 - **ASP.NET DataProtection:** รหัสผ่าน LDAP Bind Password หรือ Credentials ใดๆ ต้องเข้ารหัสผ่าน `IProtectionService` (DataProtection API)
-- **Local Fallback Admin:** ใช้ Secure Hash (เช่น PBKDF2 / SHA256 with Salt) ตามคลาส `PasswordHasher`
+- **Local Fallback Admin:** ใช้ Secure Hash (PBKDF2 with Salt) ตามคลาส `PasswordHasher`
 
 ---
 
 ## 4. Testing & Verification Standards (มาตรฐานการทดสอบ)
 
-### 4.1 Tooling
+### 4.1 Tooling & Coverage
 - **Test Framework:** `xUnit`
-- **Mocking Library:** `NSubstitute` (หรือ `Moq`) สำหรับการ Mock Interfaces
-- **Assertions:** `FluentAssertions` เพื่อความชัดเจนและอ่านง่ายของ Assertions
-- **Database Testing:** ใช้ SQLite In-Memory หรือ Mock `IDbContextFactory<AppDbContext>`
+- **Assertions:** `FluentAssertions`
+- **Security Hardening Suite:** `ProductionHardeningAndSecurityTests.cs` (ครอบคลุม 4 เสาหลักความปลอดภัยระดับ Production):
+  1. **Domain 1:** `sshd_config` Parser, Hierarchy (Global vs Match blocks), Directive Bleeding Prevention, Atomic Write, Syntax Checking, และ Rolling Backup
+  2. **Domain 2:** NTFS ACL Provisioning, OpenSSH Strict Chroot Permissions, Path Traversal Defense, และ Directory Junctions
+  3. **Domain 3:** Windows Event Log Regex Parsing (`OpenSSH/Operational`), Event Type Identification, Authentication Status, และ CSV Export
+  4. **Domain 4:** Dual Service Controller (`sshd` และ `ssh-agent`) Lifecycle & Fallback Behavior
 
 ### 4.2 Rules for Testing
-1. **Mock OS Dependencies:** ในการทดสอบ Unit Tests ห้ามเรียก `net.exe`, ห้ามสร้าง Windows User จริง, และห้ามเรียก Windows Service Controller บนเครื่องทดสอบ ต้องทำการ Mock ผ่าน Interface ของ Manager เสมอ
+1. **Mock OS Dependencies:** ในการทดสอบ Unit Tests ห้ามเรียก `net.exe`, ห้ามสร้าง Windows User จริง, และห้ามสั่งปิด Windows Service บนเครื่องทดสอบจริง
 2. **Mandatory Test Execution:** ก่อนสรุปงานทุกครั้ง Agent ต้องรันชุดทดสอบและยืนยันว่าผลผ่าน 100%:
    ```powershell
    dotnet test OpensshUI.Tests\OpensshUI.Tests.csproj
    ```
-3. **No Regressions:** ห้ามมี Test Case ใดที่ล้มเหลว (Failed: 0)
+3. **No Regressions:** ชุดทดสอบทั้งหมด (190+ tests) ต้องผ่านครบถ้วน (`Failed: 0`)
 
 ---
 
@@ -124,55 +142,40 @@ AI Agent **ต้องปฏิบัติตามกฎเหล็กเห
 # Restore & Build Project
 dotnet build OpensshUI.csproj
 
-# Run Tests
+# Run Automated Tests
 dotnet test OpensshUI.Tests\OpensshUI.Tests.csproj
 
 # Run Web Application (Development)
 dotnet run --project OpensshUI.csproj
-```
 
-### Note on Solution Structure:
-- ปัจจุบันโปรเจกต์ `OpensshUI.Tests` ตั้งอยู่เป็น Subfolder ภายใน root ของ `OpensshUI` การรันคำสั่ง `dotnet build` หรือ `dotnet test` ควรกำหนด Path ไปยัง `.csproj` โดยตรงเพื่อป้องกัน MSBuild evaluation conflict
+# Publish for Production
+dotnet publish OpensshUI.csproj -c Release -o ./publish
+```
 
 ---
 
-## 6. Technical Debt & Improvement Roadmap (รายการปรับปรุงและ Technical Debt)
-
-Agent ที่เข้ามาดูแลงานต่อ สามารถอ้างอิงลำดับความสำคัญ (Priority) ในการปรับปรุงระบบได้ดังนี้:
+## 6. Technical Debt & Improvement Roadmap (รายการปรับปรุงและ Roadmap)
 
 ### Priority 1: High (ความปลอดภัยและความพร้อมในการทดสอบ) [COMPLETED]
-- [x] **Introduce Interfaces for OS Managers:**
-  - สร้าง `IWindowsUserManager`, `INativeAclProvisioner`, `IOpenSshServiceManager`
-  - ปรับ `SftpUserService` และ `SftpGroupService` ให้รับ Interfaces เหล่านี้ เพื่อให้สามารถเขียน Unit Test ได้ครบ 100% โดยไม่ต้องแตะ OS จริง
-- [x] **Refactor `net.exe` execution to `ArgumentList`:**
-  - ปรับปรุงการเรียก `ProcessStartInfo` ใน `WindowsUserManager`, `NativeAclProvisioner` และ `OpenSshServiceManager` จากการต่อ String `Arguments` ให้ใช้ `ArgumentList.Add(...)` ป้องกัน Argument Injection โดยสมบูรณ์
+- [x] **Introduce Interfaces for OS Managers:** `IWindowsUserManager`, `INativeAclProvisioner`, `INtfsAclService`, `ISshdConfigService`, `ISshEventLogService`, `IOpenSshServiceManager`
+- [x] **Refactor Process Execution to `ArgumentList`:** ป้องกัน Argument Injection โดยสมบูรณ์ในทุก Service
+- [x] **Atomic `sshd_config` Engine:** แยกส่วน Global vs Match block, ตรวจสอบไวยากรณ์ด้วย `sshd.exe -t`, Rolling Backup 5 ชุด
+- [x] **Strict Chroot NTFS ACL Engine:** ระบบกำหนดสิทธิ์ตามมาตรฐานความปลอดภัย OpenSSH Chroot และป้องกัน Path Traversal
+- [x] **Dual Service Management:** รองรับการควบคุมทั้ง `sshd` และ `ssh-agent` พร้อมตรวจสอบไวยากรณ์ก่อนเริ่มงาน
+- [x] **High-Performance Event Log Parser:** Optimized Regex Parser สำหรับ Windows Event Log (`OpenSSH/Operational`)
+- [x] **Production Security Test Suite:** 190+ Unit & Integration Tests ครอบคลุมความปลอดภัยรอบด้าน
 
 ### Priority 2: Medium (โครงสร้างและการจัดการข้อผิดพลาด)
-- [ ] **Project Layout Normalization:**
-  - ปรับโครงสร้าง Root ให้เป็นระเบียบตามมาตรฐาน .NET Standard:
-    ```
-    root/
-    ├── OpensshUI.sln
-    ├── src/
-    │   └── OpensshUI/
-    └── tests/
-        └── OpensshUI.Tests/
-    ```
-    *(หมายเหตุ: เมื่อแยกโฟลเดอร์ `src/` และ `tests/` แล้ว จะสามารถใช้ `OpensshUI.sln` ได้อย่างสมบูรณ์แบบโดยไม่มี Path collision)*
-- [ ] **Unified Result Pattern:**
-  - นำ `Result<T>` หรือ `OperationResult` มาใช้แทนการ Return `bool` ใน Service Layer เพื่อส่งต่อ Error Messages ที่ชัดเจนไปยัง UI
+- [ ] **Project Layout Normalization:** ปรับโครงสร้างแยก `src/OpensshUI` และ `tests/OpensshUI.Tests` ตามมาตรฐานโซลูชัน .NET เมื่อถึงรอบ Major Refactor
+- [ ] **Unified Result Pattern:** นำ `Result<T>` หรือ `OperationResult` มาใช้แทนการ Return `bool` ในบางจุดของ Service Layer เพื่อส่งต่อข้อความแจ้งเตือนที่ละเอียดยิ่งขึ้น
 
 ### Priority 3: Low (ฟีเจอร์และการปรับปรุงทั่วไป)
-- [ ] **EF Core Migrations:**
-  - เปลี่ยนจากการใช้ `db.Database.EnsureCreated()` และ Custom SQL Scripts มาใช้ Code-First EF Core Migrations มาตรฐาน (`dotnet ef migrations add`)
-- [ ] **Comprehensive bUnit Testing:**
-  - ติดตั้ง `bUnit` สำหรับทดสอบ Blazor Component Rendering และ Event Handling
+- [ ] **EF Core Migrations:** ขยายจาก Custom Migrations สู่ EF Core Code-First Migrations
+- [ ] **Comprehensive bUnit Testing:** ทดสอบ Blazor Component Rendering และ Event Handling ในเชิง UI อัตโนมัติ
 
 ---
 
 ## 7. AI Agent Execution Playbook (คู่มือการทำงานทีละขั้นตอนสำหรับ AI)
-
-เมื่อได้รับมอบหมายให้แก้ไขบั๊กหรือเพิ่มฟีเจอร์ ให้ปฏิบัติตามลำดับขั้นนี้เสมอ:
 
 ```mermaid
 flowchart TD
@@ -187,6 +190,6 @@ flowchart TD
 
 1. **สำรวจโค้ด (Explore):** อ่านไฟล์ที่เกี่ยวข้อง ตรวจสอบการพึ่งพา (Dependencies) ใน `Program.cs`
 2. **ตรวจสอบความปลอดภัย (Security Check):** ตรวจสอบว่าไม่มี Hardcoded Secret, มีการ Sanitize Input, และใช้ Parameterized Arguments
-3. **เขียนโค้ด (Implement):** พัฒนาตามหลัก Single Responsibility และ Hybrid Monolith
+3. **เขียนโค้ด (Implement):** พัฒนาตามหลัก Clean Service Layer และ Hybrid Monolith
 4. **เขียนและรันชุดทดสอบ (Test):** เขียน Unit Test ครอบคลุม Business Logic ใหม่ และรัน `dotnet test OpensshUI.Tests\OpensshUI.Tests.csproj`
 5. **ตรวจสอบความเรียบร้อย (Verify):** ยืนยันว่าโค้ดคอมไพล์ผ่าน ไม่เกิด Warning สำคัญ และเทสผ่านครบ 100%

@@ -7,7 +7,7 @@
 ## สารบัญ
 1. [ภาพรวมสถาปัตยกรรมและโครงสร้าง Drive D:](#1-ภาพรวมสถาปัตยกรรมและโครงสร้าง-drive-d)
 2. [Checklist สิ่งที่ต้องเตรียมล่วงหน้า](#2-checklist-สิ่งที่ต้องเตรียมล่วงหน้า)
-3. [ขั้นตอนที่ 1: ติดตั้งและตั้งค่า Windows OpenSSH Server](#ขั้นตอนที่-1-ติดตั้งและตั้งค่า-windows-openssh-server)
+3. [ขั้นตอนที่ 1: ติดตั้งและตั้งค่า Windows OpenSSH Server & ssh-agent](#ขั้นตอนที่-1-ติดตั้งและตั้งค่า-windows-openssh-server--ssh-agent)
 4. [ขั้นตอนที่ 2: ติดตั้ง IIS และ WebSocket Protocol](#ขั้นตอนที่-2-ติดตั้ง-iis-และ-websocket-protocol)
 5. [ขั้นตอนที่ 3: ติดตั้ง .NET 8 Hosting Bundle](#ขั้นตอนที่-3-ติดตั้ง-net-8-hosting-bundle)
 6. [ขั้นตอนที่ 4: Publish แอปพลิเคชัน OpensshUI ลง Drive D:](#ขั้นตอนที่-4-publish-แอปพลิเคชัน-opensshui-ลง-drive-d)
@@ -26,7 +26,7 @@
 ### โครงสร้างไดเรกทอรีที่แนะนำ:
 * **Web Application:** `D:\inetpub\OpensshUI` (ตัวโค้ดเว็บและ SQLite Database ใน `app_data/`)
 * **SFTP Storage Root:** `D:\SFTPRoot` (โฟลเดอร์ Chroot และไฟล์ของผู้ใช้ SFTP ทั้งหมด)
-* **OpenSSH System Config:** `C:\ProgramData\ssh` (ตำแหน่ง Config และ Service มาตรฐานของ Windows OpenSSH)
+* **OpenSSH System Config:** `C:\ProgramData\ssh` (ตำแหน่ง Config, Backup `.bak`, และ Service มาตรฐานของ Windows OpenSSH)
 
 ```
 [Web Browser / Admin]
@@ -38,14 +38,15 @@
         └── ASP.NET Core Module v2 (.NET 8 Runtime)
               └── OpensshUI (Path: D:\inetpub\OpensshUI)
                     ├── จัดการ Local Windows Users (net.exe / AD)
-                    ├── ควบคุม Windows Service (sshd)
-                    ├── จัดการสิทธิ์ NTFS ACLs บน D:\SFTPRoot
+                    ├── ควบคุม Windows Services (sshd, ssh-agent)
+                    ├── ตรวจสอบไวยากรณ์และเขียนคอนฟิกแบบ Atomic (sshd.exe -t, rolling backups)
+                    ├── จัดการสิทธิ์ NTFS ACLs บน D:\SFTPRoot (Strict Chroot)
                     └── SQLite DB (D:\inetpub\OpensshUI\app_data\sftp_admin.db)
 ```
 
 > [!IMPORTANT]
 > **ทำไม Application Pool Identity ต้องมีสิทธิ์ระดับ Local Administrator?**
-> เนื่องจาก OpensshUI มีการโต้ตอบกับระบบปฏิบัติการโดยตรง ได้แก่ การสร้างและลบ Local Windows Users (`net user`), การจัดสรรสิทธิ์โฟลเดอร์ NTFS (`icacls`), และการสั่ง Start/Stop/Restart Service `sshd` หาก AppPool ไม่มีสิทธิ์ Admin ระบบจะไม่สามารถทำงานดังกล่าวได้
+> เนื่องจาก OpensshUI มีการโต้ตอบกับระบบปฏิบัติการโดยตรง ได้แก่ การสร้างและลบ Local Windows Users (`net user`), การจัดสรรสิทธิ์โฟลเดอร์ NTFS (`icacls`), และการสั่ง Start/Stop/Restart Service `sshd` และ `ssh-agent` หาก AppPool ไม่มีสิทธิ์ Admin ระบบจะไม่สามารถทำงานดังกล่าวได้
 
 ---
 
@@ -60,7 +61,7 @@
 
 ---
 
-## ขั้นตอนที่ 1: ติดตั้งและตั้งค่า Windows OpenSSH Server
+## ขั้นตอนที่ 1: ติดตั้งและตั้งค่า Windows OpenSSH Server & ssh-agent
 
 เปิด **PowerShell ด้วยสิทธิ์ Administrator (Run as Administrator)** แล้วรันคำสั่ง:
 
@@ -72,9 +73,12 @@ if ($sshCapability.State -ne 'Installed') {
     Add-WindowsCapability -Online -Name $sshCapability.Name
 }
 
-# 2. เริ่มต้น Service และตั้งให้รันอัตโนมัติทุกครั้งที่เปิดเครื่อง
-Start-Service sshd
+# 2. เริ่มต้น Services (sshd และ ssh-agent) พร้อมตั้งให้รันอัตโนมัติทุกครั้งที่เปิดเครื่อง
 Set-Service -Name sshd -StartupType 'Automatic'
+Start-Service sshd
+
+Set-Service -Name ssh-agent -StartupType 'Automatic'
+Start-Service ssh-agent
 
 # 3. เปิดการบันทึก Windows Event Log Channel (OpenSSH/Operational) และให้สิทธิ์อ่าน Log แก่ IIS
 wevtutil sl "OpenSSH/Operational" /e:true
@@ -228,7 +232,7 @@ icacls "D:\inetpub\OpensshUI" /grant "SYSTEM:(OI)(CI)F" /grant "Administrators:(
 # ให้สิทธิ์ Full Control บนโฟลเดอร์ SFTP Root ใน Drive D:
 icacls "D:\SFTPRoot" /grant "SYSTEM:(OI)(CI)F" /grant "Administrators:(OI)(CI)F" /T
 
-# ตรวจสอบและให้สิทธิ์โฟลเดอร์ C:\ProgramData\ssh สำหรับ SSH Keys & Config
+# ตรวจสอบและให้สิทธิ์โฟลเดอร์ C:\ProgramData\ssh สำหรับ SSH Keys, Config และ Rolling Backups
 if (-not (Test-Path "C:\ProgramData\ssh\keys")) {
     New-Item -ItemType Directory -Path "C:\ProgramData\ssh\keys" -Force
 }
@@ -248,7 +252,11 @@ icacls "C:\ProgramData\ssh" /grant "SYSTEM:(OI)(CI)F" /grant "Administrators:(OI
    * ไปที่เมนู **Settings**
    * ทำการเปลี่ยนรหัสผ่าน Fallback Admin เป็นรหัสผ่านที่ปลอดภัยตามนโยบายองค์กรทันที
    * หากต้องการเชื่อมต่อกับ Domain Controller / Active Directory สามารถเปิดใช้งาน **LDAP Authentication** และระบุค่า Domain, Base DN, Bind Account และ Admin Group ได้ที่หน้านี้
-   * ไปที่เมนู **Users** ทดลองสร้าง User ใหม่ และสังเกตว่า Home Directory ของ User จะถูกสร้างขึ้นภายใต้ `D:\SFTPRoot\<username>` โดยอัตโนมัติ
+   * ไปที่เมนู **บริการ OpenSSH (Service Controller)**:
+     * ตรวจสอบสถานะการทำงานของบริการทั้ง `sshd` และ `ssh-agent`
+     * คลิกปุ่ม **"ตรวจสอบเดี๋ยวนี้"** เพื่อรันคำสั่ง `sshd.exe -t` ยืนยันว่าไวยากรณ์ของ `sshd_config` ถูกต้องสมบูรณ์
+     * ตรวจสอบส่วน **"โครงสร้าง Zero-Config Reload"** หากยังไม่ได้ติดตั้ง ให้กดปุ่ม **"ติดตั้งลง sshd_config"** เพื่อเปิดใช้งาน Chroot และ Centralized Authorized Keys (`C:\ProgramData\ssh\keys\%u`) สำหรับผู้ใช้กลุ่ม `SFTP-Users` ทำให้การเพิ่มผู้ใช้หลังจากนี้ไม่ต้อง Restart Service อีก
+   * ไปที่เมนู **Users** ทดลองสร้าง User ใหม่ และสังเกตว่า Home Directory ของ User จะถูกสร้างขึ้นภายใต้ `D:\SFTPRoot\<username>` โดยอัตโนมัติ พร้อมการจัดสรรสิทธิ์ NTFS ACLs ที่เข้มงวดตามมาตรฐาน OpenSSH Chroot
 
 ---
 
@@ -286,6 +294,10 @@ icacls "C:\ProgramData\ssh" /grant "SYSTEM:(OI)(CI)F" /grant "Administrators:(OI
   ```
   *(หรือหากใช้งานบนเครื่องพัฒนา สามารถคลิกปุ่ม **"จำลองข้อมูล (Demo Mode)"** บนหน้าเว็บเพื่อทดสอบการทำงานของระบบได้ทันที)*
 
+### ปัญหาที่ 6: Restart Service ไม่ผ่านเนื่องจาก Syntax Error ใน sshd_config
+* **สาเหตุ:** ไฟล์ `sshd_config` มี Directive หรือไวยากรณ์ที่ไม่ถูกต้อง
+* **วิธีแก้:** เข้าหน้า **บริการ OpenSSH (Service Controller)** แล้วคลิกปุ่ม **"ตรวจสอบเดี๋ยวนี้"** เพื่อดูรายละเอียดข้อผิดพลาดที่ `sshd.exe -t` แจ้งเตือน ระบบมีไฟล์สำรองอัตโนมัติ (`sshd_config.bak.<timestamp>`) สูงสุด 5 ชุดอยู่ใน `C:\ProgramData\ssh\` ซึ่งสามารถนำมาใช้งานย้อนกลับได้ทันที
+
 ---
 
 ## 11. ภาคผนวก: สคริปต์ PowerShell สำหรับเตรียมระบบ Drive D: อัตโนมัติ
@@ -319,14 +331,17 @@ if (-not (Test-Path "$TargetDrive\")) {
 Write-Host "`n[1/6] ติดตั้ง IIS และ Web-WebSockets..." -ForegroundColor Yellow
 Install-WindowsFeature -Name Web-Server, Web-WebSockets, Web-Mgmt-Tools -IncludeManagementTools | Out-Null
 
-# 2. ติดตั้ง OpenSSH Server
-Write-Host "[2/6] ติดตั้ง OpenSSH Server..." -ForegroundColor Yellow
+# 2. ติดตั้ง OpenSSH Server และเปิดใช้งาน Services
+Write-Host "[2/6] ติดตั้ง OpenSSH Server และเปิด sshd, ssh-agent..." -ForegroundColor Yellow
 $ssh = Get-WindowsCapability -Online | Where-Object Name -like 'OpenSSH.Server*'
 if ($ssh.State -ne 'Installed') {
     Add-WindowsCapability -Online -Name $ssh.Name | Out-Null
 }
-Start-Service sshd -ErrorAction SilentlyContinue
 Set-Service -Name sshd -StartupType 'Automatic'
+Start-Service sshd -ErrorAction SilentlyContinue
+
+Set-Service -Name ssh-agent -StartupType 'Automatic'
+Start-Service ssh-agent -ErrorAction SilentlyContinue
 
 # 3. เปิด Event Log Channel OpenSSH/Operational และกำหนดสิทธิ์ให้อ่านได้
 Write-Host "[3/6] เปิดใช้งาน Event Log Channel (OpenSSH/Operational)..." -ForegroundColor Yellow
