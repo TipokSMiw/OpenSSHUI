@@ -9,6 +9,7 @@ public class AuthResult
     public string Username { get; set; } = string.Empty;
     public string DisplayName { get; set; } = string.Empty;
     public bool IsAdmin { get; set; }
+    public WebAdminRole Role { get; set; } = WebAdminRole.SuperAdmin;
 }
 
 public class AdUserInfo

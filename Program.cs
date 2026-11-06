@@ -48,6 +48,7 @@ builder.Services.AddDbContextFactory<AppDbContext>(options =>
 builder.Services.AddSingleton<IProtectionService, ProtectionService>();
 builder.Services.AddScoped<IAuditService, AuditService>();
 builder.Services.AddScoped<ILdapAuthService, LdapAuthService>();
+builder.Services.AddScoped<IWebAdminService, WebAdminService>();
 builder.Services.AddScoped<UserSessionState>();
 
 // OpenSSH & Windows Host Services

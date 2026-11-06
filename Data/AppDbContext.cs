@@ -15,6 +15,7 @@ public class AppDbContext : DbContext
     public DbSet<SftpUserGroup> SftpUserGroups => Set<SftpUserGroup>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
     public DbSet<LdapConfig> LdapConfigs => Set<LdapConfig>();
+    public DbSet<WebAdminUser> WebAdminUsers => Set<WebAdminUser>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -86,6 +87,15 @@ public class AppDbContext : DbContext
             entity.Property(e => e.BaseDn).HasMaxLength(255);
             entity.Property(e => e.AdminGroup).HasMaxLength(255);
         });
+
+        modelBuilder.Entity<WebAdminUser>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Username).HasMaxLength(100);
+            entity.Property(e => e.DisplayName).HasMaxLength(200);
+            entity.Property(e => e.Email).HasMaxLength(255);
+            entity.HasIndex(e => e.Username).IsUnique();
+        });
     }
 
     /// <summary>
@@ -142,6 +152,60 @@ public class AppDbContext : DbContext
         await Database.ExecuteSqlRawAsync(@"
             CREATE INDEX IF NOT EXISTS ""IX_SftpUserGroups_GroupId"" ON ""SftpUserGroups"" (""GroupId"");
         ");
+
+        // 5. Create WebAdminUsers table if not exists
+        await Database.ExecuteSqlRawAsync(@"
+            CREATE TABLE IF NOT EXISTS ""WebAdminUsers"" (
+                ""Id"" INTEGER NOT NULL CONSTRAINT ""PK_WebAdminUsers"" PRIMARY KEY AUTOINCREMENT,
+                ""Username"" TEXT NOT NULL,
+                ""DisplayName"" TEXT NOT NULL,
+                ""Email"" TEXT NULL,
+                ""AccountType"" INTEGER NOT NULL DEFAULT 0,
+                ""PasswordHash"" TEXT NULL,
+                ""Role"" INTEGER NOT NULL DEFAULT 0,
+                ""IsActive"" INTEGER NOT NULL DEFAULT 1,
+                ""CreatedAt"" TEXT NOT NULL,
+                ""LastLoginAt"" TEXT NULL,
+                ""CreatedBy"" TEXT NOT NULL DEFAULT 'System'
+            );
+        ");
+
+        await Database.ExecuteSqlRawAsync(@"
+            CREATE UNIQUE INDEX IF NOT EXISTS ""IX_WebAdminUsers_Username"" ON ""WebAdminUsers"" (""Username"");
+        ");
+
+        // Seed initial admin if WebAdminUsers is empty
+        try
+        {
+            var adminCount = await WebAdminUsers.CountAsync();
+            if (adminCount == 0)
+            {
+                var ldapConfig = await LdapConfigs.FirstOrDefaultAsync();
+                var fallbackUser = ldapConfig?.FallbackAdminUsername ?? "admin";
+                var fallbackHash = ldapConfig?.FallbackAdminPasswordHash;
+                if (string.IsNullOrEmpty(fallbackHash))
+                {
+                    fallbackHash = OpensshUI.Services.Security.PasswordHasher.HashPassword("Admin@123456");
+                }
+
+                WebAdminUsers.Add(new WebAdminUser
+                {
+                    Username = fallbackUser,
+                    DisplayName = "Local Administrator",
+                    AccountType = WebAdminType.Local,
+                    PasswordHash = fallbackHash,
+                    Role = WebAdminRole.SuperAdmin,
+                    IsActive = true,
+                    CreatedAt = DateTime.UtcNow,
+                    CreatedBy = "System"
+                });
+                await SaveChangesAsync();
+            }
+        }
+        catch
+        {
+            // Ignore during initial migration if tables are being established
+        }
     }
 
     private async Task AddColumnIfNotExistsAsync(string tableName, string columnName, string columnDefinition)

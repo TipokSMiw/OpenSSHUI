@@ -1,3 +1,5 @@
+@inject OpensshUI.Services.Auth.UserSessionState SessionState
+
 <div class="top-row ps-3 navbar navbar-dark">
     <div class="container-fluid">
         <a class="navbar-brand d-inline-flex align-items-center gap-2 fw-bold" href="">
@@ -63,11 +65,21 @@
             </NavLink>
         </div>
 
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="settings">
-                <i class="bi bi-gear-fill"></i>
-                <span>ตั้งค่าระบบ (AD/LDAP)</span>
-            </NavLink>
-        </div>
+        @if (SessionState.CanManageSystem)
+        {
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="web-admins">
+                    <i class="bi bi-person-badge-fill"></i>
+                    <span>ผู้ดูแลระบบ (Web Admins)</span>
+                </NavLink>
+            </div>
+
+            <div class="nav-item px-3">
+                <NavLink class="nav-link" href="settings">
+                    <i class="bi bi-gear-fill"></i>
+                    <span>ตั้งค่าระบบ (AD/LDAP)</span>
+                </NavLink>
+            </div>
+        }
     </nav>
 </div>

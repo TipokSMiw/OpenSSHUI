@@ -177,7 +177,82 @@ public class LdapAuthService : ILdapAuthService
 
         var config = await GetConfigAsync();
 
-        // 1. Try Fallback Local Admin Login
+        // 1. Check if user is registered in WebAdminUsers table
+        await using (var db = await _dbFactory.CreateDbContextAsync())
+        {
+            var adminRecord = await db.WebAdminUsers.FirstOrDefaultAsync(u => u.Username.ToLower() == cleanUsername.ToLower());
+            if (adminRecord != null)
+            {
+                if (!adminRecord.IsActive)
+                {
+                    _logger.LogWarning("Login attempt for deactivated web admin {User}", cleanUsername);
+                    return new AuthResult
+                    {
+                        IsSuccess = false,
+                        ErrorMessage = "บัญชีผู้ดูแลระบบนี้ถูกระงับการใช้งาน กรุณาติดต่อ Super Administrator"
+                    };
+                }
+
+                if (adminRecord.AccountType == WebAdminType.Local)
+                {
+                    if (!string.IsNullOrEmpty(adminRecord.PasswordHash) && PasswordHasher.VerifyPassword(password, adminRecord.PasswordHash))
+                    {
+                        ResetLockoutForUser(cleanUsername);
+                        adminRecord.LastLoginAt = DateTime.UtcNow;
+                        await db.SaveChangesAsync();
+
+                        return new AuthResult
+                        {
+                            IsSuccess = true,
+                            Username = adminRecord.Username,
+                            DisplayName = adminRecord.DisplayName,
+                            IsAdmin = true,
+                            Role = adminRecord.Role
+                        };
+                    }
+
+                    RecordFailedAttempt(cleanUsername);
+                    return new AuthResult
+                    {
+                        IsSuccess = false,
+                        ErrorMessage = "ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง"
+                    };
+                }
+                else if (adminRecord.AccountType == WebAdminType.ActiveDirectory)
+                {
+                    if (!config.IsLdapEnabled)
+                    {
+                        return new AuthResult
+                        {
+                            IsSuccess = false,
+                            ErrorMessage = "Active Directory ถูกปิดใช้งานในระบบ จึงไม่สามารถเข้าสู่ระบบด้วยบัญชีโดเมนได้"
+                        };
+                    }
+
+                    var adAuth = await Task.Run(() => PerformLdapAuth(config, cleanUsername, password, checkAdminGroup: false));
+                    if (adAuth.IsSuccess)
+                    {
+                        ResetLockoutForUser(cleanUsername);
+                        adminRecord.LastLoginAt = DateTime.UtcNow;
+                        await db.SaveChangesAsync();
+
+                        return new AuthResult
+                        {
+                            IsSuccess = true,
+                            Username = adminRecord.Username,
+                            DisplayName = string.IsNullOrEmpty(adminRecord.DisplayName) ? cleanUsername : adminRecord.DisplayName,
+                            IsAdmin = true,
+                            Role = adminRecord.Role
+                        };
+                    }
+
+                    RecordFailedAttempt(cleanUsername);
+                    return adAuth;
+                }
+            }
+        }
+
+        // 2. Fallback Local Admin Login (Disaster recovery / backward compatibility)
         if (string.Equals(cleanUsername, config.FallbackAdminUsername, StringComparison.OrdinalIgnoreCase))
         {
             if (PasswordHasher.VerifyPassword(password, config.FallbackAdminPasswordHash))
@@ -188,7 +263,8 @@ public class LdapAuthService : ILdapAuthService
                     IsSuccess = true,
                     Username = config.FallbackAdminUsername,
                     DisplayName = "Local Administrator",
-                    IsAdmin = true
+                    IsAdmin = true,
+                    Role = WebAdminRole.SuperAdmin
                 };
             }
 
@@ -203,7 +279,7 @@ public class LdapAuthService : ILdapAuthService
             }
         }
 
-        // 2. If LDAP is not enabled, return failure
+        // 3. Fallback Active Directory Group Membership
         if (!config.IsLdapEnabled)
         {
             RecordFailedAttempt(cleanUsername);
@@ -214,59 +290,69 @@ public class LdapAuthService : ILdapAuthService
             };
         }
 
-        // 3. Authenticate against LDAP off the UI thread with explicit timeout
         return await Task.Run(() =>
         {
-            try
+            var res = PerformLdapAuth(config, cleanUsername, password, checkAdminGroup: true);
+            if (!res.IsSuccess)
             {
-                var userDn = cleanUsername.Contains('@') ? cleanUsername : $"{cleanUsername}@{config.Domain}";
-                using var connection = CreateLdapConnection(config);
-
-                var credential = new NetworkCredential(userDn, password);
-                connection.Bind(credential); // Throws if invalid password
-
-                // Check if user is in admin group
-                bool isAdmin = string.IsNullOrWhiteSpace(config.AdminGroup);
-                if (!isAdmin)
-                {
-                    isAdmin = CheckUserGroupMembership(connection, config, cleanUsername);
-                }
-
-                if (!isAdmin)
-                {
-                    RecordFailedAttempt(cleanUsername);
-                    return new AuthResult
-                    {
-                        IsSuccess = false,
-                        Username = cleanUsername,
-                        DisplayName = cleanUsername,
-                        IsAdmin = false,
-                        ErrorMessage = "User authenticated but does not belong to the authorized Admin group."
-                    };
-                }
-
+                RecordFailedAttempt(cleanUsername);
+            }
+            else
+            {
                 ResetLockoutForUser(cleanUsername);
+            }
+            return res;
+        });
+    }
+
+    private AuthResult PerformLdapAuth(LdapConfig config, string cleanUsername, string password, bool checkAdminGroup)
+    {
+        try
+        {
+            var userDn = cleanUsername.Contains('@') ? cleanUsername : $"{cleanUsername}@{config.Domain}";
+            using var connection = CreateLdapConnection(config);
+
+            var credential = new NetworkCredential(userDn, password);
+            connection.Bind(credential); // Throws if invalid password
+
+            // Check if user is in admin group
+            bool isAdmin = !checkAdminGroup || string.IsNullOrWhiteSpace(config.AdminGroup);
+            if (!isAdmin)
+            {
+                isAdmin = CheckUserGroupMembership(connection, config, cleanUsername);
+            }
+
+            if (!isAdmin)
+            {
                 return new AuthResult
                 {
-                    IsSuccess = true,
+                    IsSuccess = false,
                     Username = cleanUsername,
                     DisplayName = cleanUsername,
-                    IsAdmin = true
+                    IsAdmin = false,
+                    ErrorMessage = "User authenticated but does not belong to the authorized Admin group."
                 };
             }
-            catch (LdapException lex)
+
+            return new AuthResult
             {
-                RecordFailedAttempt(cleanUsername);
-                _logger.LogWarning(lex, "LDAP authentication failed for user {User}", cleanUsername);
-                return new AuthResult { IsSuccess = false, ErrorMessage = $"LDAP Error ({lex.ErrorCode}): {lex.Message}" };
-            }
-            catch (Exception ex)
-            {
-                RecordFailedAttempt(cleanUsername);
-                _logger.LogError(ex, "Unexpected error authenticating user {User}", cleanUsername);
-                return new AuthResult { IsSuccess = false, ErrorMessage = ex.Message };
-            }
-        });
+                IsSuccess = true,
+                Username = cleanUsername,
+                DisplayName = cleanUsername,
+                IsAdmin = true,
+                Role = WebAdminRole.SuperAdmin
+            };
+        }
+        catch (LdapException lex)
+        {
+            _logger.LogWarning(lex, "LDAP authentication failed for user {User}", cleanUsername);
+            return new AuthResult { IsSuccess = false, ErrorMessage = $"LDAP Error ({lex.ErrorCode}): {lex.Message}" };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Unexpected error authenticating user {User}", cleanUsername);
+            return new AuthResult { IsSuccess = false, ErrorMessage = ex.Message };
+        }
     }
 
     private LdapConnection CreateLdapConnection(LdapConfig config)

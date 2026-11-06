@@ -132,7 +132,21 @@ else
                     <div class="d-flex align-items-center gap-2 pe-2">
                         <i class="bi bi-person-circle fs-5 text-primary"></i>
                         <div class="d-flex flex-column text-end">
-                            <span class="fw-bold small lh-1">@SessionState.DisplayName</span>
+                            <div class="d-flex align-items-center justify-content-end gap-1.5">
+                                <span class="fw-bold small lh-1">@SessionState.DisplayName</span>
+                                @if (SessionState.Role == WebAdminRole.SuperAdmin)
+                                {
+                                    <span class="badge bg-primary-subtle text-primary border border-primary-subtle" style="font-size: 0.65rem;">Super Admin</span>
+                                }
+                                else if (SessionState.Role == WebAdminRole.Operator)
+                                {
+                                    <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle" style="font-size: 0.65rem;">Operator</span>
+                                }
+                                else if (SessionState.Role == WebAdminRole.Auditor)
+                                {
+                                    <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle" style="font-size: 0.65rem;">Auditor</span>
+                                }
+                            </div>
                             <span class="text-muted" style="font-size: 0.75rem;">@SessionState.CurrentUsername</span>
                         </div>
                     </div>
@@ -212,8 +226,8 @@ else
             var result = await LdapAuth.AuthenticateAsync(loginUsername.Trim(), loginPassword);
             if (result.IsSuccess && result.IsAdmin)
             {
-                SessionState.SetUser(result.Username, result.DisplayName, result.IsAdmin);
-                await AuditService.LogAsync("ADMIN_LOGIN", $"Admin login successful for '{result.Username}'", true, result.Username);
+                SessionState.SetUser(result.Username, result.DisplayName, result.IsAdmin, result.Role);
+                await AuditService.LogAsync("ADMIN_LOGIN", $"Admin login successful for '{result.Username}' (Role: {result.Role})", true, result.Username);
 
                 loginPassword = "";
                 loginErrorMessage = null;
