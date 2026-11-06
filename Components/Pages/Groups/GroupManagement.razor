@@ -272,129 +272,235 @@
                     <div class="form-step-header">
                         <div class="form-step-title">
                             <span class="form-step-badge">2</span>
-                            <span>โหมดการเข้าถึงและระดับสิทธิ์ (Access Mode & NTFS Permission)</span>
+                            <span>โหมดการเข้าถึงและระดับสิทธิ์ (Access Mode &amp; NTFS Permission)</span>
                         </div>
+                        <span class="badge bg-primary-subtle text-primary border border-primary-subtle" style="font-size: 0.72rem;">กรอบสีฟ้า = กำลังเลือกอยู่</span>
                     </div>
 
                     <div class="mb-3">
-                        <label class="form-label small fw-bold mb-1.5">เลือกรูปแบบการมองเห็นโฟลเดอร์ (Access Mode)</label>
-                        <div class="row g-2">
+                        <label class="form-label small fw-bold mb-2">เลือกรูปแบบการมองเห็นโฟลเดอร์ (Access Mode)</label>
+                        <div class="row g-3">
                             <div class="col-md-6">
                                 <div class="selection-card @(_createRequest.AccessMode == SftpAccessMode.VirtualFolder ? "active" : "")"
                                      @onclick="() => _createRequest.AccessMode = SftpAccessMode.VirtualFolder">
                                     <div>
-                                        <div class="fw-bold small d-flex align-items-center gap-1.5">
+                                        <div class="fw-bold small d-flex align-items-center gap-2">
+                                            <i class="bi @(_createRequest.AccessMode == SftpAccessMode.VirtualFolder ? "bi-check-circle-fill text-primary" : "bi-circle text-muted") fs-6"></i>
                                             <i class="bi bi-folder-symlink text-primary"></i>
                                             <span>Virtual Folder (NTFS Junction)</span>
                                         </div>
-                                        <div class="text-muted small mt-1" style="font-size: 0.75rem;">
+                                        <div class="text-muted small mt-1" style="font-size: 0.78rem;">
                                             ปรากฏเป็นโฟลเดอร์ย่อยใน Home ของสมาชิก อยู่ได้หลายกลุ่มพร้อมกัน
                                         </div>
                                     </div>
-                                    <span class="badge bg-primary text-white" style="font-size: 0.68rem;">แนะนำ</span>
+                                    @if (_createRequest.AccessMode == SftpAccessMode.VirtualFolder)
+                                    {
+                                        <span class="badge bg-primary text-white flex-shrink-0"><i class="bi bi-check-lg"></i> เลือกอยู่</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge bg-light text-secondary border flex-shrink-0">คลิกเลือก</span>
+                                    }
                                 </div>
                             </div>
                             <div class="col-md-6">
                                 <div class="selection-card @(_createRequest.AccessMode == SftpAccessMode.DirectChroot ? "active" : "")"
                                      @onclick="() => _createRequest.AccessMode = SftpAccessMode.DirectChroot">
                                     <div>
-                                        <div class="fw-bold small d-flex align-items-center gap-1.5">
+                                        <div class="fw-bold small d-flex align-items-center gap-2">
+                                            <i class="bi @(_createRequest.AccessMode == SftpAccessMode.DirectChroot ? "bi-check-circle-fill text-primary" : "bi-circle text-muted") fs-6"></i>
                                             <i class="bi bi-box-arrow-in-down-right text-primary"></i>
                                             <span>Direct Chroot</span>
                                         </div>
-                                        <div class="text-muted small mt-1" style="font-size: 0.75rem;">
+                                        <div class="text-muted small mt-1" style="font-size: 0.78rem;">
                                             ใช้โฟลเดอร์กลุ่มเป็น Root หลักทันทีเมื่อสมาชิกเชื่อมต่อเข้ามา
                                         </div>
                                     </div>
+                                    @if (_createRequest.AccessMode == SftpAccessMode.DirectChroot)
+                                    {
+                                        <span class="badge bg-primary text-white flex-shrink-0"><i class="bi bi-check-lg"></i> เลือกอยู่</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge bg-light text-secondary border flex-shrink-0">คลิกเลือก</span>
+                                    }
                                 </div>
                             </div>
                         </div>
                     </div>
 
                     <div class="mb-4">
-                        <label class="form-label small fw-bold mb-1.5">เลือกระดับสิทธิ์ของสมาชิก (Permission Level)</label>
-                        <div class="row g-2">
+                        <label class="form-label small fw-bold mb-2">เลือกระดับสิทธิ์ของสมาชิก (Permission Level)</label>
+                        <div class="row g-3">
                             <div class="col-md-6">
                                 <div class="selection-card @(_createRequest.PermissionType == SftpPermissionType.ReadWrite ? "active" : "")"
                                      @onclick="() => _createRequest.PermissionType = SftpPermissionType.ReadWrite">
                                     <div>
-                                        <div class="fw-bold small d-flex align-items-center gap-1.5">
+                                        <div class="fw-bold small d-flex align-items-center gap-2">
+                                            <i class="bi @(_createRequest.PermissionType == SftpPermissionType.ReadWrite ? "bi-check-circle-fill text-primary" : "bi-circle text-muted") fs-6"></i>
                                             <i class="bi bi-pencil-square text-success"></i>
                                             <span>Read &amp; Write (อ่านและเขียนไฟล์)</span>
                                         </div>
-                                        <div class="text-muted small mt-1" style="font-size: 0.75rem;">
+                                        <div class="text-muted small mt-1" style="font-size: 0.78rem;">
                                             อัปโหลด ดาวน์โหลด แก้ไข และลบไฟล์ในกลุ่มได้
                                         </div>
                                     </div>
+                                    @if (_createRequest.PermissionType == SftpPermissionType.ReadWrite)
+                                    {
+                                        <span class="badge bg-primary text-white flex-shrink-0"><i class="bi bi-check-lg"></i> เลือกอยู่</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge bg-light text-secondary border flex-shrink-0">คลิกเลือก</span>
+                                    }
                                 </div>
                             </div>
                             <div class="col-md-6">
                                 <div class="selection-card @(_createRequest.PermissionType == SftpPermissionType.ReadOnly ? "active" : "")"
                                      @onclick="() => _createRequest.PermissionType = SftpPermissionType.ReadOnly">
                                     <div>
-                                        <div class="fw-bold small d-flex align-items-center gap-1.5">
+                                        <div class="fw-bold small d-flex align-items-center gap-2">
+                                            <i class="bi @(_createRequest.PermissionType == SftpPermissionType.ReadOnly ? "bi-check-circle-fill text-primary" : "bi-circle text-muted") fs-6"></i>
                                             <i class="bi bi-eye text-secondary"></i>
                                             <span>Read-Only (อ่านอย่างเดียว)</span>
                                         </div>
-                                        <div class="text-muted small mt-1" style="font-size: 0.75rem;">
+                                        <div class="text-muted small mt-1" style="font-size: 0.78rem;">
                                             เปิดดูและดาวน์โหลดไฟล์ได้อย่างเดียว ห้ามแก้ไขหรือลบ
                                         </div>
                                     </div>
+                                    @if (_createRequest.PermissionType == SftpPermissionType.ReadOnly)
+                                    {
+                                        <span class="badge bg-primary text-white flex-shrink-0"><i class="bi bi-check-lg"></i> เลือกอยู่</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge bg-light text-secondary border flex-shrink-0">คลิกเลือก</span>
+                                    }
                                 </div>
                             </div>
                         </div>
                     </div>
 
-                    <!-- Step 3: Initial Members -->
+                    <!-- Step 3: Initial Members (Searchable Dropdown + Blue Highlighted Box) -->
                     <div class="form-step-header">
                         <div class="form-step-title">
                             <span class="form-step-badge">3</span>
                             <span>เลือกสมาชิกเริ่มต้น (Initial Members)</span>
                         </div>
-                        <span class="badge bg-primary-subtle text-primary border border-primary-subtle" style="font-size: 0.7rem;">
-                            เลือกแล้ว @_createRequest.InitialMembers.Count คน
+                        <span class="badge bg-primary text-white px-2.5 py-1">
+                            <i class="bi bi-people-fill"></i>
+                            <span>เลือกแล้ว @_createRequest.InitialMembers.Count คน</span>
                         </span>
                     </div>
 
-                    <div class="border rounded bg-white overflow-hidden mb-3">
-                        <div class="bg-light border-bottom px-2.5 py-1.5 d-flex flex-wrap justify-content-between align-items-center gap-2">
-                            <div class="input-group input-group-sm" style="max-width: 260px;">
-                                <span class="input-group-text bg-white border-end-0 text-muted"><i class="bi bi-search"></i></span>
-                                <input type="text" class="form-control border-start-0" placeholder="ค้นหาชื่อผู้ใช้..." @bind="_memberSearchTerm" @bind:event="oninput" />
+                    <!-- Blue Highlighted Selected Members Box -->
+                    <div class="selected-items-box mb-3">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <span class="small fw-bold text-primary-emphasis d-inline-flex align-items-center gap-1.5">
+                                <i class="bi bi-check-circle-fill text-primary"></i>
+                                <span>รายชื่อสมาชิกที่เลือกอยู่ (@_createRequest.InitialMembers.Count คน):</span>
+                            </span>
+                            @if (_createRequest.InitialMembers.Count > 0)
+                            {
+                                <button type="button" class="btn btn-sm btn-outline-danger py-0 px-2" style="font-size: 0.75rem;" @onclick="() => _createRequest.InitialMembers.Clear()">
+                                    <i class="bi bi-trash3"></i>
+                                    <span>ล้างทั้งหมด</span>
+                                </button>
+                            }
+                        </div>
+                        @if (_createRequest.InitialMembers.Count == 0)
+                        {
+                            <div class="small text-secondary">ยังไม่ได้เลือกสมาชิก — พิมพ์ค้นหาและคลิกเลือกรายชื่อจาก Dropdown ด้านล่าง</div>
+                        }
+                        else
+                        {
+                            <div class="d-flex flex-wrap gap-2">
+                                @foreach (var uname in _createRequest.InitialMembers.ToList())
+                                {
+                                    var uInfo = _allUsers.FirstOrDefault(x => string.Equals(x.Username, uname, StringComparison.OrdinalIgnoreCase));
+                                    <span class="selected-item-pill">
+                                        <i class="bi bi-person-check-fill"></i>
+                                        <span class="font-monospace">@uname</span>
+                                        @if (uInfo != null && !string.IsNullOrEmpty(uInfo.DisplayName) && uInfo.DisplayName != uname)
+                                        {
+                                            <span class="fw-normal opacity-75">(@uInfo.DisplayName)</span>
+                                        }
+                                        <button type="button" class="selected-item-remove" title="นำผู้ใช้นี้ออก" @onclick="() => ToggleMemberByClick(_createRequest.InitialMembers, uname)">
+                                            <i class="bi bi-x"></i>
+                                        </button>
+                                    </span>
+                                }
                             </div>
-                            <div class="d-flex gap-1.5">
-                                <button type="button" class="btn btn-outline-primary btn-sm py-0 px-2" style="font-size: 0.75rem;" @onclick="() => SelectAllMembers(_createRequest.InitialMembers)">เลือกทั้งหมด</button>
-                                <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size: 0.75rem;" @onclick="() => _createRequest.InitialMembers.Clear()">ล้าง</button>
+                        }
+                    </div>
+
+                    <!-- Searchable Vertical Dropdown List -->
+                    <div class="searchable-dropdown-panel mb-4">
+                        <div class="p-2.5 bg-light border-bottom d-flex flex-wrap justify-content-between align-items-center gap-2">
+                            <div class="input-group input-group-sm" style="max-width: 380px;">
+                                <span class="input-group-text bg-white text-primary border-primary"><i class="bi bi-search"></i></span>
+                                <input type="text" class="form-control border-primary" placeholder="พิมพ์ค้นหา Username หรือชื่อ-นามสกุลเพื่อกรองรายการ..."
+                                       @bind="_memberSearchTerm" @bind:event="oninput" @onfocus="() => _isMemberDropdownOpen = true" />
+                                @if (!string.IsNullOrWhiteSpace(_memberSearchTerm))
+                                {
+                                    <button type="button" class="btn btn-outline-secondary" @onclick="() => _memberSearchTerm = string.Empty">
+                                        <i class="bi bi-x"></i>
+                                    </button>
+                                }
+                            </div>
+                            <div class="d-flex align-items-center gap-1.5">
+                                <button type="button" class="btn btn-outline-primary btn-sm py-0.5 px-2" style="font-size: 0.75rem;" @onclick="() => SelectAllMembers(_createRequest.InitialMembers)">
+                                    <i class="bi bi-check2-all"></i>
+                                    <span>เลือกทั้งหมดที่กรอง (@FilteredMemberCandidates.Count())</span>
+                                </button>
+                                <button type="button" class="btn btn-outline-secondary btn-sm py-0.5 px-2" style="font-size: 0.75rem;" @onclick="() => _isMemberDropdownOpen = !_isMemberDropdownOpen">
+                                    <i class="bi @(_isMemberDropdownOpen ? "bi-chevron-up" : "bi-chevron-down")"></i>
+                                    <span>@(_isMemberDropdownOpen ? "พับรายการ" : "กางรายการ")</span>
+                                </button>
                             </div>
                         </div>
-                        <div class="p-2.5" style="max-height: 150px; overflow-y: auto;">
-                            @if (_allUsers.Count == 0)
-                            {
-                                <span class="text-muted small">ยังไม่มีผู้ใช้งานในระบบ (สามารถเพิ่มภายหลังได้)</span>
-                            }
-                            else
-                            {
-                                <div class="row row-cols-2 g-2">
+
+                        @if (_isMemberDropdownOpen)
+                        {
+                            <div class="searchable-dropdown-list">
+                                @if (_allUsers.Count == 0)
+                                {
+                                    <div class="text-muted text-center py-3 small">ยังไม่มีผู้ใช้งานในระบบ (สามารถเพิ่มภายหลังได้)</div>
+                                }
+                                else if (!FilteredMemberCandidates.Any())
+                                {
+                                    <div class="text-muted text-center py-3 small">ไม่พบรายชื่อผู้ใช้ที่ตรงกับคำค้นหา "@_memberSearchTerm"</div>
+                                }
+                                else
+                                {
                                     @foreach (var user in FilteredMemberCandidates)
                                     {
-                                        <div class="col">
-                                            <div class="form-check">
-                                                <input class="form-check-input" type="checkbox" id="chk_user_@user.Username"
-                                                       checked="@_createRequest.InitialMembers.Contains(user.Username)"
-                                                       @onchange="(e) => ToggleMemberSelection(_createRequest.InitialMembers, user.Username, e.Value)" />
-                                                <label class="form-check-label small" for="chk_user_@user.Username">
-                                                    <strong>@user.Username</strong>
+                                        bool isSelected = _createRequest.InitialMembers.Contains(user.Username);
+                                        <button type="button" class="searchable-dropdown-item @(isSelected ? "selected" : "")"
+                                                @onclick="() => ToggleMemberByClick(_createRequest.InitialMembers, user.Username)">
+                                            <div class="d-flex align-items-center gap-2.5">
+                                                <i class="bi @(isSelected ? "bi-check-square-fill text-primary" : "bi-square text-muted") fs-6"></i>
+                                                <div>
+                                                    <span class="font-monospace fw-bold small text-dark">@user.Username</span>
                                                     @if (!string.IsNullOrEmpty(user.DisplayName) && user.DisplayName != user.Username)
                                                     {
-                                                        <span class="text-muted">(@user.DisplayName)</span>
+                                                        <span class="text-muted small ms-2">(@user.DisplayName)</span>
                                                     }
-                                                </label>
+                                                </div>
                                             </div>
-                                        </div>
+                                            @if (isSelected)
+                                            {
+                                                <span class="badge bg-primary text-white"><i class="bi bi-check-lg"></i> เลือกอยู่</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="badge bg-light text-secondary border">@(user.AccountType == SftpAccountType.LocalWindows ? "Local" : "AD")</span>
+                                            }
+                                        </button>
                                     }
-                                </div>
-                            }
-                        </div>
+                                }
+                            </div>
+                        }
                     </div>
 
                     <!-- Live Effective Group Summary -->
@@ -518,121 +624,231 @@
                     <div class="form-step-header">
                         <div class="form-step-title">
                             <span class="form-step-badge">2</span>
-                            <span>โหมดการเข้าถึงและระดับสิทธิ์ (Access Mode & NTFS Permission)</span>
+                            <span>โหมดการเข้าถึงและระดับสิทธิ์ (Access Mode &amp; NTFS Permission)</span>
                         </div>
+                        <span class="badge bg-primary-subtle text-primary border border-primary-subtle" style="font-size: 0.72rem;">กรอบสีฟ้า = กำลังเลือกอยู่</span>
                     </div>
 
                     <div class="mb-3">
-                        <label class="form-label small fw-bold mb-1.5">รูปแบบการมองเห็นโฟลเดอร์ (Access Mode)</label>
-                        <div class="row g-2">
+                        <label class="form-label small fw-bold mb-2">รูปแบบการมองเห็นโฟลเดอร์ (Access Mode)</label>
+                        <div class="row g-3">
                             <div class="col-md-6">
                                 <div class="selection-card @(_editRequest.AccessMode == SftpAccessMode.VirtualFolder ? "active" : "")"
                                      @onclick="() => _editRequest.AccessMode = SftpAccessMode.VirtualFolder">
                                     <div>
-                                        <div class="fw-bold small d-flex align-items-center gap-1.5">
+                                        <div class="fw-bold small d-flex align-items-center gap-2">
+                                            <i class="bi @(_editRequest.AccessMode == SftpAccessMode.VirtualFolder ? "bi-check-circle-fill text-primary" : "bi-circle text-muted") fs-6"></i>
                                             <i class="bi bi-folder-symlink text-primary"></i>
                                             <span>Virtual Folder (NTFS Junction)</span>
                                         </div>
-                                        <div class="text-muted small mt-1" style="font-size: 0.75rem;">
+                                        <div class="text-muted small mt-1" style="font-size: 0.78rem;">
                                             ปรากฏเป็นโฟลเดอร์ย่อยใน Home ของสมาชิก
                                         </div>
                                     </div>
+                                    @if (_editRequest.AccessMode == SftpAccessMode.VirtualFolder)
+                                    {
+                                        <span class="badge bg-primary text-white flex-shrink-0"><i class="bi bi-check-lg"></i> เลือกอยู่</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge bg-light text-secondary border flex-shrink-0">คลิกเลือก</span>
+                                    }
                                 </div>
                             </div>
                             <div class="col-md-6">
                                 <div class="selection-card @(_editRequest.AccessMode == SftpAccessMode.DirectChroot ? "active" : "")"
                                      @onclick="() => _editRequest.AccessMode = SftpAccessMode.DirectChroot">
                                     <div>
-                                        <div class="fw-bold small d-flex align-items-center gap-1.5">
+                                        <div class="fw-bold small d-flex align-items-center gap-2">
+                                            <i class="bi @(_editRequest.AccessMode == SftpAccessMode.DirectChroot ? "bi-check-circle-fill text-primary" : "bi-circle text-muted") fs-6"></i>
                                             <i class="bi bi-box-arrow-in-down-right text-primary"></i>
                                             <span>Direct Chroot</span>
                                         </div>
-                                        <div class="text-muted small mt-1" style="font-size: 0.75rem;">
+                                        <div class="text-muted small mt-1" style="font-size: 0.78rem;">
                                             ใช้โฟลเดอร์กลุ่มเป็น Root หลักโดยตรง
                                         </div>
                                     </div>
+                                    @if (_editRequest.AccessMode == SftpAccessMode.DirectChroot)
+                                    {
+                                        <span class="badge bg-primary text-white flex-shrink-0"><i class="bi bi-check-lg"></i> เลือกอยู่</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge bg-light text-secondary border flex-shrink-0">คลิกเลือก</span>
+                                    }
                                 </div>
                             </div>
                         </div>
                     </div>
 
                     <div class="mb-4">
-                        <label class="form-label small fw-bold mb-1.5">ระดับสิทธิ์ของสมาชิก (Permission Level)</label>
-                        <div class="row g-2">
+                        <label class="form-label small fw-bold mb-2">ระดับสิทธิ์ของสมาชิก (Permission Level)</label>
+                        <div class="row g-3">
                             <div class="col-md-6">
                                 <div class="selection-card @(_editRequest.PermissionType == SftpPermissionType.ReadWrite ? "active" : "")"
                                      @onclick="() => _editRequest.PermissionType = SftpPermissionType.ReadWrite">
                                     <div>
-                                        <div class="fw-bold small d-flex align-items-center gap-1.5">
+                                        <div class="fw-bold small d-flex align-items-center gap-2">
+                                            <i class="bi @(_editRequest.PermissionType == SftpPermissionType.ReadWrite ? "bi-check-circle-fill text-primary" : "bi-circle text-muted") fs-6"></i>
                                             <i class="bi bi-pencil-square text-success"></i>
                                             <span>Read &amp; Write (อ่านและเขียนไฟล์)</span>
                                         </div>
-                                        <div class="text-muted small mt-1" style="font-size: 0.75rem;">
+                                        <div class="text-muted small mt-1" style="font-size: 0.78rem;">
                                             อัปโหลด ดาวน์โหลด แก้ไข และลบไฟล์ได้
                                         </div>
                                     </div>
+                                    @if (_editRequest.PermissionType == SftpPermissionType.ReadWrite)
+                                    {
+                                        <span class="badge bg-primary text-white flex-shrink-0"><i class="bi bi-check-lg"></i> เลือกอยู่</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge bg-light text-secondary border flex-shrink-0">คลิกเลือก</span>
+                                    }
                                 </div>
                             </div>
                             <div class="col-md-6">
                                 <div class="selection-card @(_editRequest.PermissionType == SftpPermissionType.ReadOnly ? "active" : "")"
                                      @onclick="() => _editRequest.PermissionType = SftpPermissionType.ReadOnly">
                                     <div>
-                                        <div class="fw-bold small d-flex align-items-center gap-1.5">
+                                        <div class="fw-bold small d-flex align-items-center gap-2">
+                                            <i class="bi @(_editRequest.PermissionType == SftpPermissionType.ReadOnly ? "bi-check-circle-fill text-primary" : "bi-circle text-muted") fs-6"></i>
                                             <i class="bi bi-eye text-secondary"></i>
                                             <span>Read-Only (อ่านอย่างเดียว)</span>
                                         </div>
-                                        <div class="text-muted small mt-1" style="font-size: 0.75rem;">
+                                        <div class="text-muted small mt-1" style="font-size: 0.78rem;">
                                             เปิดดูและดาวน์โหลดไฟล์ได้อย่างเดียว
                                         </div>
                                     </div>
+                                    @if (_editRequest.PermissionType == SftpPermissionType.ReadOnly)
+                                    {
+                                        <span class="badge bg-primary text-white flex-shrink-0"><i class="bi bi-check-lg"></i> เลือกอยู่</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="badge bg-light text-secondary border flex-shrink-0">คลิกเลือก</span>
+                                    }
                                 </div>
                             </div>
                         </div>
                     </div>
 
-                    <!-- Step 3: Members -->
+                    <!-- Step 3: Members (Searchable Dropdown + Blue Highlighted Box) -->
                     <div class="form-step-header">
                         <div class="form-step-title">
                             <span class="form-step-badge">3</span>
                             <span>สมาชิกในกลุ่ม (Group Members)</span>
                         </div>
-                        <span class="badge bg-primary-subtle text-primary border border-primary-subtle" style="font-size: 0.7rem;">
-                            เลือกแล้ว @_editRequest.Members.Count คน
+                        <span class="badge bg-primary text-white px-2.5 py-1">
+                            <i class="bi bi-people-fill"></i>
+                            <span>เลือกแล้ว @_editRequest.Members.Count คน</span>
                         </span>
                     </div>
 
-                    <div class="border rounded bg-white overflow-hidden">
-                        <div class="bg-light border-bottom px-2.5 py-1.5 d-flex flex-wrap justify-content-between align-items-center gap-2">
-                            <div class="input-group input-group-sm" style="max-width: 260px;">
-                                <span class="input-group-text bg-white border-end-0 text-muted"><i class="bi bi-search"></i></span>
-                                <input type="text" class="form-control border-start-0" placeholder="ค้นหาชื่อผู้ใช้..." @bind="_memberSearchTerm" @bind:event="oninput" />
-                            </div>
-                            <div class="d-flex gap-1.5">
-                                <button type="button" class="btn btn-outline-primary btn-sm py-0 px-2" style="font-size: 0.75rem;" @onclick="() => SelectAllMembers(_editRequest.Members)">เลือกทั้งหมด</button>
-                                <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size: 0.75rem;" @onclick="() => _editRequest.Members.Clear()">ล้าง</button>
-                            </div>
+                    <!-- Blue Highlighted Selected Members Box -->
+                    <div class="selected-items-box mb-3">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <span class="small fw-bold text-primary-emphasis d-inline-flex align-items-center gap-1.5">
+                                <i class="bi bi-check-circle-fill text-primary"></i>
+                                <span>รายชื่อสมาชิกที่เลือกอยู่ (@_editRequest.Members.Count คน):</span>
+                            </span>
+                            @if (_editRequest.Members.Count > 0)
+                            {
+                                <button type="button" class="btn btn-sm btn-outline-danger py-0 px-2" style="font-size: 0.75rem;" @onclick="() => _editRequest.Members.Clear()">
+                                    <i class="bi bi-trash3"></i>
+                                    <span>ล้างทั้งหมด</span>
+                                </button>
+                            }
                         </div>
-                        <div class="p-2.5" style="max-height: 160px; overflow-y: auto;">
-                            <div class="row row-cols-2 g-2">
-                                @foreach (var user in FilteredMemberCandidates)
+                        @if (_editRequest.Members.Count == 0)
+                        {
+                            <div class="small text-secondary">ยังไม่มีสมาชิกในกลุ่มนี้ — พิมพ์ค้นหาและคลิกเลือกรายชื่อจาก Dropdown ด้านล่าง</div>
+                        }
+                        else
+                        {
+                            <div class="d-flex flex-wrap gap-2">
+                                @foreach (var uname in _editRequest.Members.ToList())
                                 {
-                                    <div class="col">
-                                        <div class="form-check">
-                                            <input class="form-check-input" type="checkbox" id="chk_edit_user_@user.Username"
-                                                   checked="@_editRequest.Members.Contains(user.Username)"
-                                                   @onchange="(e) => ToggleMemberSelection(_editRequest.Members, user.Username, e.Value)" />
-                                            <label class="form-check-label small" for="chk_edit_user_@user.Username">
-                                                <strong>@user.Username</strong>
-                                                @if (!string.IsNullOrEmpty(user.DisplayName) && user.DisplayName != user.Username)
-                                                {
-                                                    <span class="text-muted">(@user.DisplayName)</span>
-                                                }
-                                            </label>
-                                        </div>
-                                    </div>
+                                    var uInfo = _allUsers.FirstOrDefault(x => string.Equals(x.Username, uname, StringComparison.OrdinalIgnoreCase));
+                                    <span class="selected-item-pill">
+                                        <i class="bi bi-person-check-fill"></i>
+                                        <span class="font-monospace">@uname</span>
+                                        @if (uInfo != null && !string.IsNullOrEmpty(uInfo.DisplayName) && uInfo.DisplayName != uname)
+                                        {
+                                            <span class="fw-normal opacity-75">(@uInfo.DisplayName)</span>
+                                        }
+                                        <button type="button" class="selected-item-remove" title="นำผู้ใช้นี้ออก" @onclick="() => ToggleMemberByClick(_editRequest.Members, uname)">
+                                            <i class="bi bi-x"></i>
+                                        </button>
+                                    </span>
                                 }
                             </div>
+                        }
+                    </div>
+
+                    <!-- Searchable Vertical Dropdown List -->
+                    <div class="searchable-dropdown-panel">
+                        <div class="p-2.5 bg-light border-bottom d-flex flex-wrap justify-content-between align-items-center gap-2">
+                            <div class="input-group input-group-sm" style="max-width: 380px;">
+                                <span class="input-group-text bg-white text-primary border-primary"><i class="bi bi-search"></i></span>
+                                <input type="text" class="form-control border-primary" placeholder="พิมพ์ค้นหา Username หรือชื่อ-นามสกุลเพื่อกรองรายการ..."
+                                       @bind="_memberSearchTerm" @bind:event="oninput" @onfocus="() => _isMemberDropdownOpen = true" />
+                                @if (!string.IsNullOrWhiteSpace(_memberSearchTerm))
+                                {
+                                    <button type="button" class="btn btn-outline-secondary" @onclick="() => _memberSearchTerm = string.Empty">
+                                        <i class="bi bi-x"></i>
+                                    </button>
+                                }
+                            </div>
+                            <div class="d-flex align-items-center gap-1.5">
+                                <button type="button" class="btn btn-outline-primary btn-sm py-0.5 px-2" style="font-size: 0.75rem;" @onclick="() => SelectAllMembers(_editRequest.Members)">
+                                    <i class="bi bi-check2-all"></i>
+                                    <span>เลือกทั้งหมดที่กรอง (@FilteredMemberCandidates.Count())</span>
+                                </button>
+                                <button type="button" class="btn btn-outline-secondary btn-sm py-0.5 px-2" style="font-size: 0.75rem;" @onclick="() => _isMemberDropdownOpen = !_isMemberDropdownOpen">
+                                    <i class="bi @(_isMemberDropdownOpen ? "bi-chevron-up" : "bi-chevron-down")"></i>
+                                    <span>@(_isMemberDropdownOpen ? "พับรายการ" : "กางรายการ")</span>
+                                </button>
+                            </div>
                         </div>
+
+                        @if (_isMemberDropdownOpen)
+                        {
+                            <div class="searchable-dropdown-list">
+                                @if (!FilteredMemberCandidates.Any())
+                                {
+                                    <div class="text-muted text-center py-3 small">ไม่พบรายชื่อผู้ใช้ที่ตรงกับคำค้นหา "@_memberSearchTerm"</div>
+                                }
+                                else
+                                {
+                                    @foreach (var user in FilteredMemberCandidates)
+                                    {
+                                        bool isSelected = _editRequest.Members.Contains(user.Username);
+                                        <button type="button" class="searchable-dropdown-item @(isSelected ? "selected" : "")"
+                                                @onclick="() => ToggleMemberByClick(_editRequest.Members, user.Username)">
+                                            <div class="d-flex align-items-center gap-2.5">
+                                                <i class="bi @(isSelected ? "bi-check-square-fill text-primary" : "bi-square text-muted") fs-6"></i>
+                                                <div>
+                                                    <span class="font-monospace fw-bold small text-dark">@user.Username</span>
+                                                    @if (!string.IsNullOrEmpty(user.DisplayName) && user.DisplayName != user.Username)
+                                                    {
+                                                        <span class="text-muted small ms-2">(@user.DisplayName)</span>
+                                                    }
+                                                </div>
+                                            </div>
+                                            @if (isSelected)
+                                            {
+                                                <span class="badge bg-primary text-white"><i class="bi bi-check-lg"></i> เลือกอยู่</span>
+                                            }
+                                            else
+                                            {
+                                                <span class="badge bg-light text-secondary border">@(user.AccountType == SftpAccountType.LocalWindows ? "Local" : "AD")</span>
+                                            }
+                                        </button>
+                                    }
+                                }
+                            </div>
+                        }
                     </div>
                 </div>
                 <div class="modal-footer bg-light d-flex justify-content-between align-items-center">
@@ -764,6 +980,19 @@
     private string _searchTerm = string.Empty;
     private string _modeFilter = string.Empty;
     private string _memberSearchTerm = string.Empty;
+    private bool _isMemberDropdownOpen = true;
+
+    private void ToggleMemberByClick(List<string> memberList, string username)
+    {
+        if (memberList.Contains(username))
+        {
+            memberList.Remove(username);
+        }
+        else
+        {
+            memberList.Add(username);
+        }
+    }
 
     private bool IsCreateGroupValid =>
         !string.IsNullOrWhiteSpace(_createRequest.Name) &&
@@ -877,6 +1106,7 @@
             PermissionType = SftpPermissionType.ReadWrite
         };
         _memberSearchTerm = string.Empty;
+        _isMemberDropdownOpen = true;
         _modalError = null;
         _showCreateModal = true;
     }
@@ -894,6 +1124,7 @@
             Members = group.Members.Select(m => m.Username).ToList()
         };
         _memberSearchTerm = string.Empty;
+        _isMemberDropdownOpen = true;
         _modalError = null;
         _showEditModal = true;
     }

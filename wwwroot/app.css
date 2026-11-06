@@ -372,73 +372,184 @@ h1:focus, h3:focus {
 }
 
 /* ==========================================================================
+   Fractional Spacing Utilities (Polyfill for Bootstrap 5.1)
+   ========================================================================== */
+.p-2\.5 { padding: 0.65rem !important; }
+.px-1\.5 { padding-left: 0.375rem !important; padding-right: 0.375rem !important; }
+.px-2\.5 { padding-left: 0.65rem !important; padding-right: 0.65rem !important; }
+.py-0\.5 { padding-top: 0.15rem !important; padding-bottom: 0.15rem !important; }
+.py-1\.5 { padding-top: 0.375rem !important; padding-bottom: 0.375rem !important; }
+.py-2\.5 { padding-top: 0.65rem !important; padding-bottom: 0.65rem !important; }
+.mt-0\.5 { margin-top: 0.15rem !important; }
+.mt-1\.5 { margin-top: 0.375rem !important; }
+.mb-1\.5 { margin-bottom: 0.45rem !important; }
+.gap-1\.5 { gap: 0.375rem !important; }
+.gap-2\.5 { gap: 0.65rem !important; }
+.space-y-1 > * + * { margin-top: 0.25rem !important; }
+.space-y-3 > * + * { margin-top: 0.75rem !important; }
+
+/* ==========================================================================
    Guided Form Workflow, Selection Cards & Live Preview Components
    ========================================================================== */
 .form-step-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    margin-bottom: 0.75rem;
-    padding-bottom: 0.4rem;
-    border-bottom: 1px solid #e2e8f0;
+    margin-top: 0.5rem;
+    margin-bottom: 0.9rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 2px solid #e2e8f0;
 }
 
 .form-step-title {
     display: inline-flex;
     align-items: center;
-    gap: 0.5rem;
+    gap: 0.6rem;
     font-weight: 700;
-    font-size: 0.875rem;
+    font-size: 0.925rem;
     color: #0f172a;
     margin: 0;
+    line-height: 1.4;
 }
 
 .form-step-badge {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 1.4rem;
-    height: 1.4rem;
+    width: 1.55rem;
+    height: 1.55rem;
     border-radius: 9999px;
-    background-color: #1b6ec2;
+    background-color: #2563eb;
     color: #ffffff;
-    font-size: 0.75rem;
+    font-size: 0.8rem;
     font-weight: 700;
     line-height: 1;
     flex-shrink: 0;
+    box-shadow: 0 1px 3px rgba(37, 99, 235, 0.3);
 }
 
 .selection-card {
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
-    gap: 0.75rem;
-    padding: 0.75rem 0.9rem;
-    border: 1.5px solid #cbd5e1;
-    border-radius: 0.625rem;
-    background-color: #ffffff;
+    gap: 0.85rem;
+    padding: 0.9rem 1.05rem;
+    border: 2px solid #cbd5e1 !important;
+    border-radius: 0.75rem;
+    background-color: #ffffff !important;
     cursor: pointer;
     transition: all 0.15s ease-in-out;
     text-align: left;
     width: 100%;
+    line-height: 1.5;
 }
 
 .selection-card:hover {
-    border-color: #60a5fa;
-    background-color: #f8fafc;
+    border-color: #60a5fa !important;
+    background-color: #f8fafc !important;
 }
 
 .selection-card.active {
-    border-color: #1b6ec2;
-    background-color: #eff6ff;
-    box-shadow: 0 0 0 2px rgba(27, 110, 194, 0.12);
+    border: 2px solid #2563eb !important;
+    background-color: #eff6ff !important;
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.18) !important;
+}
+
+/* Searchable Dropdown & Blue Highlighted Selected Items Box */
+.selected-items-box {
+    border: 2px solid #3b82f6 !important;
+    background-color: #eff6ff !important;
+    border-radius: 0.75rem;
+    padding: 0.85rem 1rem;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12);
+}
+
+.selected-item-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    padding: 0.35rem 0.65rem;
+    border-radius: 0.5rem;
+    background-color: #2563eb;
+    border: 1.5px solid #1d4ed8;
+    color: #ffffff;
+    font-size: 0.8rem;
+    font-weight: 600;
+    line-height: 1.3;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+.selected-item-remove {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background-color: rgba(255, 255, 255, 0.2);
+    color: #ffffff;
+    border: none;
+    border-radius: 0.25rem;
+    width: 1.2rem;
+    height: 1.2rem;
+    padding: 0;
+    font-size: 0.85rem;
+    line-height: 1;
+    cursor: pointer;
+    transition: background-color 0.15s ease;
+}
+
+.selected-item-remove:hover {
+    background-color: #dc2626;
+    color: #ffffff;
+}
+
+.searchable-dropdown-panel {
+    border: 2px solid #93c5fd;
+    border-radius: 0.75rem;
+    background-color: #ffffff;
+    overflow: hidden;
+    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.06);
+}
+
+.searchable-dropdown-list {
+    max-height: 210px;
+    overflow-y: auto;
+    padding: 0.4rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+}
+
+.searchable-dropdown-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    width: 100%;
+    text-align: left;
+    padding: 0.55rem 0.8rem;
+    border-radius: 0.5rem;
+    border: 2px solid transparent;
+    background-color: #ffffff;
+    cursor: pointer;
+    transition: all 0.12s ease-in-out;
+    line-height: 1.45;
+}
+
+.searchable-dropdown-item:hover {
+    background-color: #f1f5f9;
+    border-color: #cbd5e1;
+}
+
+.searchable-dropdown-item.selected {
+    border: 2px solid #2563eb !important;
+    background-color: #eff6ff !important;
+    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.12);
 }
 
 .auto-fill-chip {
     display: inline-flex;
     align-items: center;
-    gap: 0.25rem;
-    padding: 0.15rem 0.5rem;
+    gap: 0.3rem;
+    padding: 0.2rem 0.6rem;
     font-size: 0.75rem;
     font-weight: 600;
     color: #1d4ed8;
@@ -457,10 +568,11 @@ h1:focus, h3:focus {
 
 .effective-preview-box {
     background-color: #eff6ff;
-    border: 1px solid #93c5fd;
-    border-radius: 0.625rem;
-    padding: 0.75rem 1rem;
+    border: 2px solid #60a5fa;
+    border-radius: 0.75rem;
+    padding: 0.85rem 1.05rem;
     color: #1e3a8a;
+    line-height: 1.5;
 }
 
 .form-section-dimmed {

@@ -282,22 +282,29 @@
                         <span class="badge bg-danger-subtle text-danger border border-danger-subtle" style="font-size: 0.7rem;">จำเป็น</span>
                     </div>
 
-                    <div class="row g-2 mb-3">
+                    <div class="row g-3 mb-3">
                         <div class="col-md-6">
                             <div class="selection-card @(newUser.AccountType == SftpAccountType.LocalWindows ? "active" : "")"
                                  @onclick="OnSelectLocalAccountType">
                                 <div>
-                                    <div class="fw-bold small d-flex align-items-center gap-1.5">
+                                    <div class="fw-bold small d-flex align-items-center gap-2">
+                                        <i class="bi @(newUser.AccountType == SftpAccountType.LocalWindows ? "bi-check-circle-fill text-primary" : "bi-circle text-muted") fs-6"></i>
                                         <i class="bi bi-person-badge text-primary"></i>
                                         <span>Local Windows User</span>
                                     </div>
-                                    <div class="text-muted small mt-1" style="font-size: 0.75rem;">
+                                    <div class="text-muted small mt-1.5" style="font-size: 0.78rem; padding-left: 1.6rem;">
                                         สร้างบัญชีผู้ใช้ใหม่บนเครื่องเซิร์ฟเวอร์นี้โดยตรง
                                     </div>
                                 </div>
                                 @if (newUser.AccountType == SftpAccountType.LocalWindows)
                                 {
-                                    <span class="badge bg-primary text-white" style="font-size: 0.68rem;">เลือกอยู่</span>
+                                    <span class="badge bg-primary text-white flex-shrink-0" style="font-size: 0.72rem;">
+                                        <i class="bi bi-check-lg"></i> เลือกอยู่
+                                    </span>
+                                }
+                                else
+                                {
+                                    <span class="badge bg-light text-secondary border flex-shrink-0" style="font-size: 0.7rem;">คลิกเลือก</span>
                                 }
                             </div>
                         </div>
@@ -305,17 +312,24 @@
                             <div class="selection-card @(newUser.AccountType == SftpAccountType.ActiveDirectory ? "active" : "")"
                                  @onclick="OnSelectAdAccountType">
                                 <div>
-                                    <div class="fw-bold small d-flex align-items-center gap-1.5">
+                                    <div class="fw-bold small d-flex align-items-center gap-2">
+                                        <i class="bi @(newUser.AccountType == SftpAccountType.ActiveDirectory ? "bi-check-circle-fill text-primary" : "bi-circle text-muted") fs-6"></i>
                                         <i class="bi bi-diagram-3 text-info"></i>
                                         <span>Active Directory (LDAP)</span>
                                     </div>
-                                    <div class="text-muted small mt-1" style="font-size: 0.75rem;">
+                                    <div class="text-muted small mt-1.5" style="font-size: 0.78rem; padding-left: 1.6rem;">
                                         ผูกสิทธิ์เข้ากับบัญชีโดเมนขององค์กรที่มีอยู่แล้ว
                                     </div>
                                 </div>
                                 @if (newUser.AccountType == SftpAccountType.ActiveDirectory)
                                 {
-                                    <span class="badge bg-primary text-white" style="font-size: 0.68rem;">เลือกอยู่</span>
+                                    <span class="badge bg-primary text-white flex-shrink-0" style="font-size: 0.72rem;">
+                                        <i class="bi bi-check-lg"></i> เลือกอยู่
+                                    </span>
+                                }
+                                else
+                                {
+                                    <span class="badge bg-light text-secondary border flex-shrink-0" style="font-size: 0.7rem;">คลิกเลือก</span>
                                 }
                             </div>
                         </div>
@@ -507,34 +521,132 @@
                             <span class="form-step-badge">2</span>
                             <span>กลุ่มสังกัดและพื้นที่จัดเก็บไฟล์ (Groups &amp; Chroot Path)</span>
                         </div>
-                        <span class="badge bg-primary-subtle text-primary border border-primary-subtle" style="font-size: 0.7rem;">
-                            เลือกแล้ว @newUser.GroupIds.Count กลุ่ม
+                        <span class="badge bg-primary text-white" style="font-size: 0.72rem;">
+                            <i class="bi bi-collection-fill"></i> เลือกแล้ว @newUser.GroupIds.Count กลุ่ม
                         </span>
                     </div>
 
                     <div class="mb-3">
-                        <label class="form-label fw-bold small mb-1">สังกัดกลุ่มแชร์ไฟล์ (Assign SFTP Groups)</label>
-                        <div class="border rounded p-2.5 bg-white" style="max-height: 130px; overflow-y: auto;">
-                            @if (availableGroups.Count == 0)
+                        <label class="form-label fw-bold small mb-1.5">สังกัดกลุ่มแชร์ไฟล์ (Assign SFTP Groups)</label>
+
+                        <!-- Blue Highlighted Selected Groups Box -->
+                        <div class="selected-items-box mb-2.5">
+                            <div class="d-flex justify-content-between align-items-center mb-1.5">
+                                <span class="small fw-bold text-primary d-flex align-items-center gap-1.5">
+                                    <i class="bi bi-check2-square"></i>
+                                    <span>กลุ่มที่เลือกอยู่ (@newUser.GroupIds.Count กลุ่ม)</span>
+                                </span>
+                                @if (newUser.GroupIds.Count > 0)
+                                {
+                                    <button type="button" class="btn btn-link btn-sm text-danger text-decoration-none p-0 small"
+                                            @onclick="() => newUser.GroupIds.Clear()">
+                                        <i class="bi bi-x-circle"></i> ล้างทั้งหมด
+                                    </button>
+                                }
+                            </div>
+                            @if (newUser.GroupIds.Count == 0)
                             {
-                                <div class="text-muted small">ยังไม่มี SFTP Group ในระบบ (สามารถสร้างได้ที่เมนู กลุ่มผู้ใช้)</div>
+                                <div class="text-muted small py-1">
+                                    ยังไม่ได้เลือกกลุ่มแชร์ไฟล์ — สามารถพิมพ์ค้นหาและคลิกเลือกกลุ่มจากรายการด้านล่าง (ไม่บังคับ)
+                                </div>
                             }
                             else
                             {
-                                <div class="row row-cols-2 g-2">
-                                    @foreach (var g in availableGroups)
+                                <div class="d-flex flex-wrap gap-1.5">
+                                    @foreach (var gid in newUser.GroupIds.ToList())
                                     {
-                                        <div class="col">
-                                            <div class="form-check">
-                                                <input class="form-check-input" type="checkbox" id="create_grp_@g.Id"
-                                                       checked="@newUser.GroupIds.Contains(g.Id)"
-                                                       @onchange="(e) => ToggleGroupSelection(newUser.GroupIds, g.Id, e.Value)" />
-                                                <label class="form-check-label small" for="create_grp_@g.Id">
-                                                    <strong>@g.Name</strong>
-                                                    <span class="text-muted font-monospace small">(@g.RootPath)</span>
-                                                </label>
-                                            </div>
-                                        </div>
+                                        var grpObj = availableGroups.FirstOrDefault(g => g.Id == gid);
+                                        if (grpObj != null)
+                                        {
+                                            <span class="selected-item-pill">
+                                                <i class="bi bi-folder-symlink text-primary"></i>
+                                                <span>@grpObj.Name</span>
+                                                <span class="text-muted font-monospace" style="font-size: 0.7rem;">(@grpObj.RootPath)</span>
+                                                <button type="button" class="selected-item-remove" title="นำกลุ่มนี้ออก"
+                                                        @onclick="() => newUser.GroupIds.Remove(gid)">
+                                                    <i class="bi bi-x"></i>
+                                                </button>
+                                            </span>
+                                        }
+                                    }
+                                </div>
+                            }
+                        </div>
+
+                        <!-- Searchable Vertical Dropdown List (1-Column) -->
+                        <div class="searchable-dropdown-panel">
+                            <div class="p-2 bg-light border-bottom d-flex flex-wrap align-items-center gap-2">
+                                <div class="input-group input-group-sm flex-grow-1">
+                                    <span class="input-group-text bg-white text-muted"><i class="bi bi-search"></i></span>
+                                    <input type="text" class="form-control" placeholder="พิมพ์ค้นหาชื่อกลุ่ม หรือ Path โฟลเดอร์แชร์..."
+                                           @bind="groupSearchTerm" @bind:event="oninput"
+                                           @onfocus="() => isGroupDropdownOpen = true" />
+                                    @if (!string.IsNullOrEmpty(groupSearchTerm))
+                                    {
+                                        <button class="btn btn-outline-secondary" type="button" @onclick='() => groupSearchTerm = ""'>
+                                            <i class="bi bi-x-lg"></i>
+                                        </button>
+                                    }
+                                </div>
+                                <div class="d-flex align-items-center gap-1.5">
+                                    @if (FilteredGroupCandidates.Any())
+                                    {
+                                        <button type="button" class="btn btn-outline-primary btn-sm py-0.5 px-2"
+                                                @onclick="() => SelectAllFilteredGroups(newUser.GroupIds)">
+                                            <i class="bi bi-check-all"></i> เลือกทั้งหมดที่กรอง
+                                        </button>
+                                    }
+                                    <button type="button" class="btn btn-outline-secondary btn-sm py-0.5 px-2"
+                                            @onclick="() => isGroupDropdownOpen = !isGroupDropdownOpen">
+                                        <i class="bi @(isGroupDropdownOpen ? "bi-chevron-up" : "bi-chevron-down")"></i>
+                                        <span>@(isGroupDropdownOpen ? "พับรายการ" : $"กางรายการ ({FilteredGroupCandidates.Count()})")</span>
+                                    </button>
+                                </div>
+                            </div>
+
+                            @if (isGroupDropdownOpen)
+                            {
+                                <div class="searchable-dropdown-list">
+                                    @if (availableGroups.Count == 0)
+                                    {
+                                        <div class="text-muted small text-center py-3">ยังไม่มี SFTP Group ในระบบ (สามารถสร้างได้ที่เมนู กลุ่มผู้ใช้)</div>
+                                    }
+                                    else if (!FilteredGroupCandidates.Any())
+                                    {
+                                        <div class="text-muted small text-center py-3">ไม่พบกลุ่มที่ตรงกับคำค้นหา "@groupSearchTerm"</div>
+                                    }
+                                    else
+                                    {
+                                        @foreach (var g in FilteredGroupCandidates)
+                                        {
+                                            bool isSelected = newUser.GroupIds.Contains(g.Id);
+                                            <button type="button"
+                                                    class="searchable-dropdown-item @(isSelected ? "selected" : "")"
+                                                    @onclick="() => ToggleGroupByClick(newUser.GroupIds, g.Id)">
+                                                <div class="d-flex align-items-center gap-2.5">
+                                                    <i class="bi @(isSelected ? "bi-check-square-fill text-primary" : "bi-square text-muted") fs-6"></i>
+                                                    <div class="text-start">
+                                                        <span class="fw-bold small @(isSelected ? "text-primary" : "text-dark")">@g.Name</span>
+                                                        <span class="text-muted font-monospace small ms-1.5">(@g.RootPath)</span>
+                                                    </div>
+                                                </div>
+                                                <div class="d-flex align-items-center gap-2">
+                                                    <span class="badge @(g.PermissionType == SftpPermissionType.ReadWrite ? "bg-success-subtle text-success border border-success-subtle" : "bg-secondary-subtle text-secondary border border-secondary-subtle")" style="font-size: 0.68rem;">
+                                                        @(g.PermissionType == SftpPermissionType.ReadWrite ? "Read/Write" : "Read-Only")
+                                                    </span>
+                                                    @if (isSelected)
+                                                    {
+                                                        <span class="badge bg-primary text-white" style="font-size: 0.7rem;">
+                                                            <i class="bi bi-check-lg"></i> เลือกอยู่
+                                                        </span>
+                                                    }
+                                                    else
+                                                    {
+                                                        <span class="text-muted small" style="font-size: 0.72rem;">คลิกเพื่อเลือก</span>
+                                                    }
+                                                </div>
+                                            </button>
+                                        }
                                     }
                                 </div>
                             }
@@ -542,14 +654,18 @@
                     </div>
 
                     <!-- Progressive Disclosure: Custom Root Path Override -->
-                    <div class="card border rounded-3 p-3 bg-light mb-3">
+                    <div class="card rounded-3 p-3 mb-3 @(useCustomRootCreate ? "border-primary border-2 bg-primary-subtle bg-opacity-10" : "border bg-light")">
                         <div class="d-flex justify-content-between align-items-center">
                             <div>
                                 <div class="fw-bold small text-dark d-flex align-items-center gap-1.5">
-                                    <i class="bi bi-folder-symlink text-primary"></i>
+                                    <i class="bi @(useCustomRootCreate ? "bi-check-circle-fill text-primary" : "bi-folder-symlink text-primary")"></i>
                                     <span>กำหนดโฟลเดอร์หลักเฉพาะบุคคล (Custom Root Override)</span>
+                                    @if (useCustomRootCreate)
+                                    {
+                                        <span class="badge bg-primary text-white ms-1" style="font-size: 0.68rem;">เปิดใช้งานอยู่</span>
+                                    }
                                 </div>
-                                <div class="text-muted" style="font-size: 0.75rem;">
+                                <div class="text-muted mt-0.5" style="font-size: 0.76rem;">
                                     ปิดไว้เพื่อใช้โฟลเดอร์มาตรฐานอัตโนมัติ (<code>@($"{SshManager.SftpRoot}\\{{username}}")</code>)
                                 </div>
                             </div>
@@ -713,34 +829,132 @@
                             <span class="form-step-badge">2</span>
                             <span>กลุ่มสังกัดและพื้นที่จัดเก็บไฟล์ (Groups &amp; Chroot Path)</span>
                         </div>
-                        <span class="badge bg-primary-subtle text-primary border border-primary-subtle" style="font-size: 0.7rem;">
-                            เลือกแล้ว @editUserRequest.GroupIds.Count กลุ่ม
+                        <span class="badge bg-primary text-white" style="font-size: 0.72rem;">
+                            <i class="bi bi-collection-fill"></i> เลือกแล้ว @editUserRequest.GroupIds.Count กลุ่ม
                         </span>
                     </div>
 
                     <div class="mb-3">
-                        <label class="form-label fw-bold small mb-1">สังกัดกลุ่ม SFTP (Assign Groups)</label>
-                        <div class="border rounded p-2.5 bg-white" style="max-height: 140px; overflow-y: auto;">
-                            @if (availableGroups.Count == 0)
+                        <label class="form-label fw-bold small mb-1.5">สังกัดกลุ่ม SFTP (Assign Groups)</label>
+
+                        <!-- Blue Highlighted Selected Groups Box -->
+                        <div class="selected-items-box mb-2.5">
+                            <div class="d-flex justify-content-between align-items-center mb-1.5">
+                                <span class="small fw-bold text-primary d-flex align-items-center gap-1.5">
+                                    <i class="bi bi-check2-square"></i>
+                                    <span>กลุ่มที่เลือกอยู่ (@editUserRequest.GroupIds.Count กลุ่ม)</span>
+                                </span>
+                                @if (editUserRequest.GroupIds.Count > 0)
+                                {
+                                    <button type="button" class="btn btn-link btn-sm text-danger text-decoration-none p-0 small"
+                                            @onclick="() => editUserRequest.GroupIds.Clear()">
+                                        <i class="bi bi-x-circle"></i> ล้างทั้งหมด
+                                    </button>
+                                }
+                            </div>
+                            @if (editUserRequest.GroupIds.Count == 0)
                             {
-                                <div class="text-muted small">ยังไม่มี SFTP Group ในระบบ</div>
+                                <div class="text-muted small py-1">
+                                    ยังไม่ได้เลือกกลุ่มแชร์ไฟล์ — สามารถพิมพ์ค้นหาและคลิกเลือกกลุ่มจากรายการด้านล่าง
+                                </div>
                             }
                             else
                             {
-                                <div class="row row-cols-2 g-2">
-                                    @foreach (var g in availableGroups)
+                                <div class="d-flex flex-wrap gap-1.5">
+                                    @foreach (var gid in editUserRequest.GroupIds.ToList())
                                     {
-                                        <div class="col">
-                                            <div class="form-check">
-                                                <input class="form-check-input" type="checkbox" id="edit_grp_@g.Id"
-                                                       checked="@editUserRequest.GroupIds.Contains(g.Id)"
-                                                       @onchange="(e) => ToggleGroupSelection(editUserRequest.GroupIds, g.Id, e.Value)" />
-                                                <label class="form-check-label small" for="edit_grp_@g.Id">
-                                                    <strong>@g.Name</strong>
-                                                    <span class="text-muted font-monospace small">(@g.RootPath)</span>
-                                                </label>
-                                            </div>
-                                        </div>
+                                        var grpObj = availableGroups.FirstOrDefault(g => g.Id == gid);
+                                        if (grpObj != null)
+                                        {
+                                            <span class="selected-item-pill">
+                                                <i class="bi bi-folder-symlink text-primary"></i>
+                                                <span>@grpObj.Name</span>
+                                                <span class="text-muted font-monospace" style="font-size: 0.7rem;">(@grpObj.RootPath)</span>
+                                                <button type="button" class="selected-item-remove" title="นำกลุ่มนี้ออก"
+                                                        @onclick="() => editUserRequest.GroupIds.Remove(gid)">
+                                                    <i class="bi bi-x"></i>
+                                                </button>
+                                            </span>
+                                        }
+                                    }
+                                </div>
+                            }
+                        </div>
+
+                        <!-- Searchable Vertical Dropdown List (1-Column) -->
+                        <div class="searchable-dropdown-panel">
+                            <div class="p-2 bg-light border-bottom d-flex flex-wrap align-items-center gap-2">
+                                <div class="input-group input-group-sm flex-grow-1">
+                                    <span class="input-group-text bg-white text-muted"><i class="bi bi-search"></i></span>
+                                    <input type="text" class="form-control" placeholder="พิมพ์ค้นหาชื่อกลุ่ม หรือ Path โฟลเดอร์แชร์..."
+                                           @bind="groupSearchTerm" @bind:event="oninput"
+                                           @onfocus="() => isGroupDropdownOpen = true" />
+                                    @if (!string.IsNullOrEmpty(groupSearchTerm))
+                                    {
+                                        <button class="btn btn-outline-secondary" type="button" @onclick='() => groupSearchTerm = ""'>
+                                            <i class="bi bi-x-lg"></i>
+                                        </button>
+                                    }
+                                </div>
+                                <div class="d-flex align-items-center gap-1.5">
+                                    @if (FilteredGroupCandidates.Any())
+                                    {
+                                        <button type="button" class="btn btn-outline-primary btn-sm py-0.5 px-2"
+                                                @onclick="() => SelectAllFilteredGroups(editUserRequest.GroupIds)">
+                                            <i class="bi bi-check-all"></i> เลือกทั้งหมดที่กรอง
+                                        </button>
+                                    }
+                                    <button type="button" class="btn btn-outline-secondary btn-sm py-0.5 px-2"
+                                            @onclick="() => isGroupDropdownOpen = !isGroupDropdownOpen">
+                                        <i class="bi @(isGroupDropdownOpen ? "bi-chevron-up" : "bi-chevron-down")"></i>
+                                        <span>@(isGroupDropdownOpen ? "พับรายการ" : $"กางรายการ ({FilteredGroupCandidates.Count()})")</span>
+                                    </button>
+                                </div>
+                            </div>
+
+                            @if (isGroupDropdownOpen)
+                            {
+                                <div class="searchable-dropdown-list">
+                                    @if (availableGroups.Count == 0)
+                                    {
+                                        <div class="text-muted small text-center py-3">ยังไม่มี SFTP Group ในระบบ</div>
+                                    }
+                                    else if (!FilteredGroupCandidates.Any())
+                                    {
+                                        <div class="text-muted small text-center py-3">ไม่พบกลุ่มที่ตรงกับคำค้นหา "@groupSearchTerm"</div>
+                                    }
+                                    else
+                                    {
+                                        @foreach (var g in FilteredGroupCandidates)
+                                        {
+                                            bool isSelected = editUserRequest.GroupIds.Contains(g.Id);
+                                            <button type="button"
+                                                    class="searchable-dropdown-item @(isSelected ? "selected" : "")"
+                                                    @onclick="() => ToggleGroupByClick(editUserRequest.GroupIds, g.Id)">
+                                                <div class="d-flex align-items-center gap-2.5">
+                                                    <i class="bi @(isSelected ? "bi-check-square-fill text-primary" : "bi-square text-muted") fs-6"></i>
+                                                    <div class="text-start">
+                                                        <span class="fw-bold small @(isSelected ? "text-primary" : "text-dark")">@g.Name</span>
+                                                        <span class="text-muted font-monospace small ms-1.5">(@g.RootPath)</span>
+                                                    </div>
+                                                </div>
+                                                <div class="d-flex align-items-center gap-2">
+                                                    <span class="badge @(g.PermissionType == SftpPermissionType.ReadWrite ? "bg-success-subtle text-success border border-success-subtle" : "bg-secondary-subtle text-secondary border border-secondary-subtle")" style="font-size: 0.68rem;">
+                                                        @(g.PermissionType == SftpPermissionType.ReadWrite ? "Read/Write" : "Read-Only")
+                                                    </span>
+                                                    @if (isSelected)
+                                                    {
+                                                        <span class="badge bg-primary text-white" style="font-size: 0.7rem;">
+                                                            <i class="bi bi-check-lg"></i> เลือกอยู่
+                                                        </span>
+                                                    }
+                                                    else
+                                                    {
+                                                        <span class="text-muted small" style="font-size: 0.72rem;">คลิกเพื่อเลือก</span>
+                                                    }
+                                                </div>
+                                            </button>
+                                        }
                                     }
                                 </div>
                             }
@@ -748,14 +962,18 @@
                     </div>
 
                     <!-- Custom Root Path Override -->
-                    <div class="card border rounded-3 p-3 bg-light mb-3">
+                    <div class="card rounded-3 p-3 mb-3 @(useCustomRootEdit ? "border-primary border-2 bg-primary-subtle bg-opacity-10" : "border bg-light")">
                         <div class="d-flex justify-content-between align-items-center">
                             <div>
                                 <div class="fw-bold small text-dark d-flex align-items-center gap-1.5">
-                                    <i class="bi bi-folder-symlink text-primary"></i>
+                                    <i class="bi @(useCustomRootEdit ? "bi-check-circle-fill text-primary" : "bi-folder-symlink text-primary")"></i>
                                     <span>กำหนด Root Path เฉพาะบุคคล (Custom Root Override)</span>
+                                    @if (useCustomRootEdit)
+                                    {
+                                        <span class="badge bg-primary text-white ms-1" style="font-size: 0.68rem;">เปิดใช้งานอยู่</span>
+                                    }
                                 </div>
-                                <div class="text-muted" style="font-size: 0.75rem;">
+                                <div class="text-muted mt-0.5" style="font-size: 0.76rem;">
                                     ปิดไว้เพื่อใช้โฟลเดอร์ Default Home (<code>@($"{SshManager.SftpRoot}\\{editUserRequest.Username}")</code>)
                                 </div>
                             </div>
@@ -957,34 +1175,56 @@
                                 }
 
                                 <div class="mb-3">
-                                    <label class="form-label small fw-bold mb-1">เลือกอัลกอริทึม (Key Algorithm)</label>
-                                    <div class="row g-2">
+                                    <label class="form-label small fw-bold mb-1.5">เลือกอัลกอริทึม (Key Algorithm)</label>
+                                    <div class="row g-3">
                                         <div class="col-sm-6">
-                                            <div class="card p-2.5 h-100 border @(genKeyType == "ed25519" ? "border-primary bg-primary bg-opacity-10" : "bg-white")" style="cursor: pointer;" @onclick='() => genKeyType = "ed25519"'>
-                                                <div class="d-flex align-items-center justify-content-between mb-1">
-                                                    <div class="form-check mb-0">
-                                                        <input class="form-check-input" type="radio" name="genKeyTypeRadio" checked="@(genKeyType == "ed25519")" />
-                                                        <label class="form-check-label fw-bold small ms-1">Ed25519</label>
+                                            <div class="selection-card @(genKeyType == "ed25519" ? "active" : "")"
+                                                 @onclick='() => genKeyType = "ed25519"'>
+                                                <div>
+                                                    <div class="d-flex align-items-center gap-2 mb-1">
+                                                        <i class="bi @(genKeyType == "ed25519" ? "bi-check-circle-fill text-primary" : "bi-circle text-muted") fs-6"></i>
+                                                        <span class="fw-bold small">Ed25519</span>
+                                                        <span class="badge bg-primary-subtle text-primary border border-primary-subtle font-monospace" style="font-size: 10px;">แนะนำ</span>
                                                     </div>
-                                                    <span class="badge bg-primary text-white font-monospace" style="font-size: 10px;">แนะนำ</span>
+                                                    <div class="text-muted" style="font-size: 11.5px; padding-left: 1.6rem;">
+                                                        ขนาดกะทัดรัด รวดเร็ว ปลอดภัยสูง เหมาะสำหรับ Python, PowerShell และ Linux
+                                                    </div>
                                                 </div>
-                                                <div class="text-muted" style="font-size: 11px; padding-left: 1.5rem;">
-                                                    ขนาดกะทัดรัด รวดเร็ว ปลอดภัยสูง เหมาะสำหรับ Python, PowerShell และ Linux
-                                                </div>
+                                                @if (genKeyType == "ed25519")
+                                                {
+                                                    <span class="badge bg-primary text-white flex-shrink-0" style="font-size: 0.7rem;">
+                                                        <i class="bi bi-check-lg"></i> เลือกอยู่
+                                                    </span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="badge bg-light text-secondary border flex-shrink-0" style="font-size: 0.7rem;">คลิกเลือก</span>
+                                                }
                                             </div>
                                         </div>
                                         <div class="col-sm-6">
-                                            <div class="card p-2.5 h-100 border @(genKeyType == "rsa" ? "border-primary bg-primary bg-opacity-10" : "bg-white")" style="cursor: pointer;" @onclick='() => genKeyType = "rsa"'>
-                                                <div class="d-flex align-items-center justify-content-between mb-1">
-                                                    <div class="form-check mb-0">
-                                                        <input class="form-check-input" type="radio" name="genKeyTypeRadio" checked="@(genKeyType == "rsa")" />
-                                                        <label class="form-check-label fw-bold small ms-1">RSA 4096-bit</label>
+                                            <div class="selection-card @(genKeyType == "rsa" ? "active" : "")"
+                                                 @onclick='() => genKeyType = "rsa"'>
+                                                <div>
+                                                    <div class="d-flex align-items-center gap-2 mb-1">
+                                                        <i class="bi @(genKeyType == "rsa" ? "bi-check-circle-fill text-primary" : "bi-circle text-muted") fs-6"></i>
+                                                        <span class="fw-bold small">RSA 4096-bit</span>
+                                                        <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle font-monospace" style="font-size: 10px;">Compatibility</span>
                                                     </div>
-                                                    <span class="badge bg-secondary text-white font-monospace" style="font-size: 10px;">Compatibility</span>
+                                                    <div class="text-muted" style="font-size: 11.5px; padding-left: 1.6rem;">
+                                                        รองรับระบบเดิมและโปรแกรม Legacy (เช่น SSIS เก่า, ไคลเอนต์รุ่นเก่า)
+                                                    </div>
                                                 </div>
-                                                <div class="text-muted" style="font-size: 11px; padding-left: 1.5rem;">
-                                                    รองรับระบบเดิมและโปรแกรม Legacy (เช่น SSIS เก่า, ไคลเอนต์รุ่นเก่า)
-                                                </div>
+                                                @if (genKeyType == "rsa")
+                                                {
+                                                    <span class="badge bg-primary text-white flex-shrink-0" style="font-size: 0.7rem;">
+                                                        <i class="bi bi-check-lg"></i> เลือกอยู่
+                                                    </span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="badge bg-light text-secondary border flex-shrink-0" style="font-size: 0.7rem;">คลิกเลือก</span>
+                                                }
                                             </div>
                                         </div>
                                     </div>
@@ -1017,8 +1257,9 @@
                                 </div>
 
                                 <div class="d-flex justify-content-between align-items-center">
-                                    <span class="small @(string.IsNullOrWhiteSpace(genComment) ? "text-warning-emphasis" : "text-success fw-semibold")">
-                                        @(string.IsNullOrWhiteSpace(genComment) ? "โปรดระบุชื่องาน/วัตถุประสงค์ (*) ก่อนสร้างคีย์" : "✓ พร้อมสร้างคู่คีย์ในหน่วยความจำ")
+                                    <span class="small d-inline-flex align-items-center gap-1 @(string.IsNullOrWhiteSpace(genComment) ? "text-warning-emphasis" : "text-success fw-semibold")">
+                                        <i class="bi @(string.IsNullOrWhiteSpace(genComment) ? "bi-info-circle-fill" : "bi-check-circle-fill")"></i>
+                                        <span>@(string.IsNullOrWhiteSpace(genComment) ? "โปรดระบุชื่องาน/วัตถุประสงค์ (*) ก่อนสร้างคีย์" : "พร้อมสร้างคู่คีย์ในหน่วยความจำ")</span>
                                     </span>
                                     <button type="button" class="btn btn-primary btn-sm d-flex align-items-center gap-1.5" @onclick="HandleGenerateKey" disabled="@(isGeneratingKey || string.IsNullOrWhiteSpace(genComment))">
                                         @if (isGeneratingKey)
@@ -1365,6 +1606,10 @@ $Batch | & sftp.exe -i $KeyPath -b - "@(selectedUser.Username)@@localhost"</pre>
     private UpdateUserRequest? editUserRequest;
     private bool useCustomRootEdit;
 
+    // Group Searchable Dropdown state (shared between Create & Edit User modals)
+    private string groupSearchTerm = "";
+    private bool isGroupDropdownOpen = true;
+
     // Folder Picker state
     private bool isFolderPickerOpen;
     private string pickerTarget = ""; // "create" or "edit"
@@ -1579,6 +1824,8 @@ $Batch | & sftp.exe -i $KeyPath -b - "@(selectedUser.Username)@@localhost"</pre>
         confirmPassword = "";
         showCreatePassword = false;
         useCustomRootCreate = false;
+        groupSearchTerm = "";
+        isGroupDropdownOpen = true;
         modalErrorMessage = null;
         adSearchQuery = "";
         adSearchResults.Clear();
@@ -1614,8 +1861,52 @@ $Batch | & sftp.exe -i $KeyPath -b - "@(selectedUser.Username)@@localhost"</pre>
             GroupIds = user.UserGroups.Select(ug => ug.GroupId).ToList()
         };
         useCustomRootEdit = !string.IsNullOrWhiteSpace(user.CustomRootPath);
+        groupSearchTerm = "";
+        isGroupDropdownOpen = true;
         modalErrorMessage = null;
         isEditModalOpen = true;
+    }
+
+    private IEnumerable<SftpGroup> FilteredGroupCandidates
+    {
+        get
+        {
+            if (availableGroups == null || availableGroups.Count == 0)
+            {
+                return Enumerable.Empty<SftpGroup>();
+            }
+            if (string.IsNullOrWhiteSpace(groupSearchTerm))
+            {
+                return availableGroups;
+            }
+            return availableGroups.Where(g =>
+                g.Name.Contains(groupSearchTerm, StringComparison.OrdinalIgnoreCase) ||
+                g.RootPath.Contains(groupSearchTerm, StringComparison.OrdinalIgnoreCase) ||
+                (!string.IsNullOrWhiteSpace(g.Description) && g.Description.Contains(groupSearchTerm, StringComparison.OrdinalIgnoreCase)));
+        }
+    }
+
+    private void ToggleGroupByClick(List<string> groupList, string groupId)
+    {
+        if (groupList.Contains(groupId))
+        {
+            groupList.Remove(groupId);
+        }
+        else
+        {
+            groupList.Add(groupId);
+        }
+    }
+
+    private void SelectAllFilteredGroups(List<string> groupList)
+    {
+        foreach (var g in FilteredGroupCandidates)
+        {
+            if (!groupList.Contains(g.Id))
+            {
+                groupList.Add(g.Id);
+            }
+        }
     }
 
     private void ToggleGroupSelection(List<string> groupList, string groupId, object? isChecked)
