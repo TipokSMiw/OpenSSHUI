@@ -68,118 +68,200 @@
                         </div>
                     </div>
                     <div class="card-body">
-                        <div class="row g-3 mb-3">
-                            <div class="col-md-8">
-                                <label class="form-label small fw-bold">LDAP / Domain Controller Host</label>
-                                <input type="text" class="form-control form-control-sm" placeholder="เช่น 192.168.1.10 หรือ dc01.corp.local" @bind="config.Server" />
+                        @if (!config.IsLdapEnabled)
+                        {
+                            <div class="alert alert-secondary py-2 px-3 small d-flex align-items-center justify-content-between gap-2 mb-3">
+                                <div class="d-flex align-items-center gap-2">
+                                    <i class="bi bi-info-circle-fill text-secondary"></i>
+                                    <span>ขณะนี้<strong>ปิดใช้งาน Active Directory</strong> ระบบจะอนุญาตเฉพาะบัญชี <strong>Local Admin ฉุกเฉิน</strong> ด้านขวามือเท่านั้น</span>
+                                </div>
+                                <button type="button" class="btn btn-sm btn-outline-primary py-0.5 px-2 text-nowrap" @onclick="() => config.IsLdapEnabled = true">
+                                    เปิดใช้งาน AD
+                                </button>
                             </div>
-                            <div class="col-md-4">
-                                <label class="form-label small fw-bold">Port</label>
-                                <input type="number" class="form-control form-control-sm" placeholder="389 หรือ 636" @bind="config.Port" />
-                            </div>
-                        </div>
+                        }
 
-                        <div class="mb-3 p-2.5 bg-light rounded border">
-                            <div class="form-check mb-1">
-                                <input class="form-check-input" type="checkbox" id="sslCheck" @bind="config.UseSsl" />
-                                <label class="form-check-label small fw-bold" for="sslCheck">
-                                    ใช้งาน SSL/TLS (LDAPS - แนะนำสำหรับ Port 636)
-                                </label>
+                        <div class="@(!config.IsLdapEnabled ? "form-section-dimmed" : "")">
+                            <!-- Step 1: Host & SSL -->
+                            <div class="form-step-header">
+                                <div class="form-step-title">
+                                    <span class="form-step-badge">1</span>
+                                    <span>เซิร์ฟเวอร์และความปลอดภัย (Domain Controller & SSL)</span>
+                                </div>
+                                <span class="badge bg-primary-subtle text-primary border border-primary-subtle" style="font-size: 0.7rem;">การเชื่อมต่อเครือข่าย</span>
                             </div>
-                            @if (config.UseSsl)
-                            {
-                                <div class="form-check ms-3 mt-1">
-                                    <input class="form-check-input" type="checkbox" id="trustCertCheck" @bind="config.TrustSslCertificates" />
-                                    <label class="form-check-label small text-muted" for="trustCertCheck">
-                                        ยอมรับใบรับรอง SSL ภายในโดเมน (Enterprise CA / Self-Signed Certificate)
+
+                            <div class="row g-3 mb-3">
+                                <div class="col-md-8">
+                                    <label class="form-label small fw-bold mb-1">LDAP / Domain Controller Host <span class="text-danger">*</span></label>
+                                    <input type="text" class="form-control form-control-sm font-monospace" placeholder="เช่น 192.168.1.10 หรือ dc01.corp.local" @bind="config.Server" @bind:event="oninput" />
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label small fw-bold mb-1">Port <span class="text-danger">*</span></label>
+                                    <input type="number" class="form-control form-control-sm font-monospace" placeholder="389 หรือ 636" @bind="config.Port" />
+                                </div>
+                            </div>
+
+                            <div class="mb-4 p-2.5 bg-light rounded border">
+                                <div class="form-check mb-1">
+                                    <input class="form-check-input" type="checkbox" id="sslCheck" @bind="config.UseSsl" />
+                                    <label class="form-check-label small fw-bold" for="sslCheck">
+                                        ใช้งาน SSL/TLS (LDAPS - แนะนำสำหรับ Port 636)
                                     </label>
                                 </div>
-                            }
-                            @if (config.UseSsl && config.Port == 389)
-                            {
-                                <div class="small text-warning-emphasis mt-1.5 d-flex align-items-center gap-1.5 ms-1">
-                                    <i class="bi bi-exclamation-triangle-fill"></i>
-                                    <span>เปิดใช้ SSL แต่เลือกพอร์ต 389:</span>
-                                    <button type="button" class="btn btn-link btn-sm p-0 text-decoration-none" @onclick="() => config.Port = 636">สลับเป็นพอร์ต 636</button>
+                                @if (config.UseSsl)
+                                {
+                                    <div class="form-check ms-3 mt-1">
+                                        <input class="form-check-input" type="checkbox" id="trustCertCheck" @bind="config.TrustSslCertificates" />
+                                        <label class="form-check-label small text-muted" for="trustCertCheck">
+                                            ยอมรับใบรับรอง SSL ภายในโดเมน (Enterprise CA / Self-Signed Certificate)
+                                        </label>
+                                    </div>
+                                }
+                                @if (config.UseSsl && config.Port == 389)
+                                {
+                                    <div class="small text-warning-emphasis mt-1.5 d-flex align-items-center gap-1.5 ms-1">
+                                        <i class="bi bi-exclamation-triangle-fill"></i>
+                                        <span>เปิดใช้ SSL แต่เลือกพอร์ต 389:</span>
+                                        <button type="button" class="auto-fill-chip" @onclick="() => config.Port = 636">
+                                            <i class="bi bi-magic"></i>
+                                            <span>สลับเป็นพอร์ต 636</span>
+                                        </button>
+                                    </div>
+                                }
+                                else if (!config.UseSsl && config.Port == 636)
+                                {
+                                    <div class="small text-warning-emphasis mt-1.5 d-flex align-items-center gap-1.5 ms-1">
+                                        <i class="bi bi-exclamation-triangle-fill"></i>
+                                        <span>ปิด SSL แต่เลือกพอร์ต 636:</span>
+                                        <button type="button" class="auto-fill-chip" @onclick="() => config.Port = 389">
+                                            <i class="bi bi-magic"></i>
+                                            <span>สลับเป็นพอร์ต 389</span>
+                                        </button>
+                                    </div>
+                                }
+                            </div>
+
+                            <!-- Step 2: Domain & Base DN -->
+                            <div class="form-step-header">
+                                <div class="form-step-title">
+                                    <span class="form-step-badge">2</span>
+                                    <span>ชื่อโดเมนและโครงสร้างค้นหา (Domain & Base DN)</span>
                                 </div>
-                            }
-                            else if (!config.UseSsl && config.Port == 636)
-                            {
-                                <div class="small text-warning-emphasis mt-1.5 d-flex align-items-center gap-1.5 ms-1">
-                                    <i class="bi bi-exclamation-triangle-fill"></i>
-                                    <span>ปิด SSL แต่เลือกพอร์ต 636:</span>
-                                    <button type="button" class="btn btn-link btn-sm p-0 text-decoration-none" @onclick="() => config.Port = 389">สลับเป็นพอร์ต 389</button>
+                                <span class="badge bg-secondary-subtle text-secondary-emphasis border border-secondary-subtle" style="font-size: 0.7rem;">ตัวช่วยสร้าง Base DN อัตโนมัติ</span>
+                            </div>
+
+                            <div class="row g-3 mb-4">
+                                <div class="col-md-6">
+                                    <label class="form-label small fw-bold mb-1">Domain Name <span class="text-danger">*</span></label>
+                                    <input type="text" class="form-control form-control-sm font-monospace" placeholder="เช่น corp.local หรือ example.com" @bind="config.Domain" @bind:event="oninput" />
                                 </div>
-                            }
+                                <div class="col-md-6">
+                                    <div class="d-flex justify-content-between align-items-center mb-1">
+                                        <label class="form-label small fw-bold mb-0">Base DN <span class="text-danger">*</span></label>
+                                        @if (!string.IsNullOrEmpty(SuggestedBaseDn) && !string.Equals(config.BaseDn, SuggestedBaseDn, StringComparison.OrdinalIgnoreCase))
+                                        {
+                                            <button type="button" class="auto-fill-chip" title="คลิกเพื่อเติมค่า Base DN จากชื่อ Domain อัตโนมัติ" @onclick="ApplySuggestedBaseDn">
+                                                <i class="bi bi-lightning-charge-fill"></i>
+                                                <span>เติม: @SuggestedBaseDn</span>
+                                            </button>
+                                        }
+                                    </div>
+                                    <input type="text" class="form-control form-control-sm font-monospace" placeholder="เช่น DC=corp,DC=local" @bind="config.BaseDn" @bind:event="oninput" />
+                                </div>
+                            </div>
+
+                            <!-- Step 3: Bind Account & Admin Group -->
+                            <div class="form-step-header">
+                                <div class="form-step-title">
+                                    <span class="form-step-badge">3</span>
+                                    <span>บัญชีสำหรับค้นหา AD และกลุ่มผู้ดูแลระบบ (Service Bind & Admin Role)</span>
+                                </div>
+                            </div>
+
+                            <div class="row g-3 mb-3">
+                                <div class="col-md-6">
+                                    <label class="form-label small fw-bold mb-1">Admin Bind Account (DN หรือ user@domain)</label>
+                                    <input type="text" class="form-control form-control-sm font-monospace" placeholder="เช่น sftp_svc@corp.local" @bind="config.EncryptedBindDn" />
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label small fw-bold d-flex align-items-center justify-content-between mb-1">
+                                        <span>Bind Account Password</span>
+                                        @if (hasSavedBindPassword)
+                                        {
+                                            <span class="badge bg-success-subtle text-success border border-success-subtle font-monospace" style="font-size: 0.7rem;">
+                                                <i class="bi bi-shield-check"></i> มีรหัสผ่านในระบบแล้ว
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                            <span class="badge bg-secondary-subtle text-secondary-emphasis border border-secondary-subtle font-monospace" style="font-size: 0.7rem;">
+                                                <i class="bi bi-shield-slash"></i> ยังไม่ได้ตั้งรหัสผ่าน
+                                            </span>
+                                        }
+                                    </label>
+                                    <div class="input-group input-group-sm">
+                                        <input type="@(showBindPassword ? "text" : "password")" class="form-control" placeholder="@(hasSavedBindPassword ? "เว้นว่างไว้หากใช้รหัสผ่านเดิมที่บันทึกอยู่" : "ระบุรหัสผ่านของ Bind Account")" @bind="newBindPassword" @bind:event="oninput" />
+                                        <button class="btn btn-outline-secondary" type="button" title="@(showBindPassword ? "ซ่อนรหัสผ่าน" : "แสดงรหัสผ่าน")" @onclick="() => showBindPassword = !showBindPassword">
+                                            <i class="bi @(showBindPassword ? "bi-eye-slash" : "bi-eye")"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="mb-4">
+                                <div class="d-flex justify-content-between align-items-center mb-1">
+                                    <label class="form-label small fw-bold mb-0">Allowed Admin Group Name (Active Directory)</label>
+                                    <span class="badge bg-secondary-subtle text-secondary-emphasis border border-secondary-subtle" style="font-size: 0.7rem;">ไม่บังคับ</span>
+                                </div>
+                                <input type="text" class="form-control form-control-sm" placeholder="เช่น Domain Admins หรือ SFTP-Admins (เว้นว่างไว้เพื่ออนุญาตทุกคนใน AD)" @bind="config.AdminGroup" />
+                                <small class="text-muted">เฉพาะสมาชิกใน Group นี้เท่านั้นที่จะมีสิทธิ์เข้าสู่ระบบ Web UI เพื่อจัดการ SFTP</small>
+                            </div>
                         </div>
 
-                        <div class="row g-3 mb-3">
-                            <div class="col-md-6">
-                                <label class="form-label small fw-bold">Domain Name</label>
-                                <input type="text" class="form-control form-control-sm" placeholder="เช่น corp.local หรือ example.com" @bind="config.Domain" />
+                        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 pt-3 border-top">
+                            <div class="small">
+                                @if (testResult?.Success == true)
+                                {
+                                    <span class="text-success fw-bold d-inline-flex align-items-center gap-1">
+                                        <i class="bi bi-check-circle-fill"></i>
+                                        <span>ตรวจสอบการเชื่อมต่อผ่านแล้ว พร้อมบันทึกการตั้งค่า</span>
+                                    </span>
+                                }
+                                else
+                                {
+                                    <span class="text-muted d-inline-flex align-items-center gap-1">
+                                        <i class="bi bi-lightbulb text-warning"></i>
+                                        <span>แนะนำ: กด <strong>ขั้นที่ 1: ทดสอบเชื่อมต่อ</strong> ก่อนบันทึก</span>
+                                    </span>
+                                }
                             </div>
-                            <div class="col-md-6">
-                                <label class="form-label small fw-bold">Base DN</label>
-                                <input type="text" class="form-control form-control-sm" placeholder="เช่น DC=corp,DC=local" @bind="config.BaseDn" />
-                            </div>
-                        </div>
-
-                        <div class="row g-3 mb-3">
-                            <div class="col-md-6">
-                                <label class="form-label small fw-bold">Admin Bind Account (DN หรือ username@domain)</label>
-                                <input type="text" class="form-control form-control-sm" placeholder="เช่น sftp_svc@corp.local" @bind="config.EncryptedBindDn" />
-                            </div>
-                            <div class="col-md-6">
-                                <label class="form-label small fw-bold d-flex align-items-center justify-content-between">
-                                    <span>Bind Account Password</span>
-                                    @if (hasSavedBindPassword)
+                            <div class="d-flex align-items-center gap-2">
+                                <button class="btn btn-outline-primary btn-sm" @onclick="TestLdapConnection" disabled="@(isTesting || string.IsNullOrWhiteSpace(config.Server))">
+                                    @if (isTesting)
                                     {
-                                        <span class="badge bg-success-subtle text-success border border-success-subtle font-monospace" style="font-size: 0.7rem;">
-                                            <i class="bi bi-shield-check"></i> บันทึกรหัสผ่านแล้ว
-                                        </span>
+                                        <span class="spinner-border spinner-border-sm me-1"></span>
+                                        <span>กำลังตรวจสอบ...</span>
                                     }
                                     else
                                     {
-                                        <span class="badge bg-secondary-subtle text-secondary-emphasis border border-secondary-subtle font-monospace" style="font-size: 0.7rem;">
-                                            <i class="bi bi-shield-slash"></i> ยังไม่มีรหัสผ่านในระบบ
-                                        </span>
+                                        <i class="bi bi-broadcast me-1"></i>
+                                        <span>ขั้นที่ 1: ทดสอบเชื่อมต่อ LDAP</span>
                                     }
-                                </label>
-                                <input type="password" class="form-control form-control-sm" placeholder="กรอกเฉพาะเมื่อต้องการตั้ง/เปลี่ยนรหัสผ่าน" @bind="newBindPassword" />
+                                </button>
+                                <button class="btn @(testResult?.Success == true ? "btn-success" : "btn-primary") btn-sm px-3" @onclick="SaveSettings" disabled="@isSaving">
+                                    @if (isSaving)
+                                    {
+                                        <span class="spinner-border spinner-border-sm me-1"></span>
+                                        <span>กำลังบันทึก...</span>
+                                    }
+                                    else
+                                    {
+                                        <i class="bi bi-check-lg me-1"></i>
+                                        <span>ขั้นที่ 2: บันทึกการตั้งค่า</span>
+                                    }
+                                </button>
                             </div>
-                        </div>
-
-                        <div class="mb-4">
-                            <label class="form-label small fw-bold">Allowed Admin Group Name (Active Directory)</label>
-                            <input type="text" class="form-control form-control-sm" placeholder="เช่น Domain Admins หรือ SFTP-Admins (เว้นว่างไว้เพื่ออนุญาตทุกคนใน AD)" @bind="config.AdminGroup" />
-                            <small class="text-muted">เฉพาะสมาชิกใน Group นี้เท่านั้นที่จะมีสิทธิ์เข้าสู่ระบบ Web UI เพื่อจัดการ SFTP</small>
-                        </div>
-
-                        <div class="d-flex justify-content-between align-items-center pt-3 border-top">
-                            <button class="btn btn-outline-primary btn-sm" @onclick="TestLdapConnection" disabled="@isTesting">
-                                @if (isTesting)
-                                {
-                                    <span class="spinner-border spinner-border-sm me-1"></span>
-                                    <span>กำลังตรวจสอบ...</span>
-                                }
-                                else
-                                {
-                                    <i class="bi bi-broadcast me-1"></i>
-                                    <span>ทดสอบเชื่อมต่อ LDAP</span>
-                                }
-                            </button>
-                            <button class="btn btn-primary btn-sm" @onclick="SaveSettings" disabled="@isSaving">
-                                @if (isSaving)
-                                {
-                                    <span class="spinner-border spinner-border-sm me-1"></span>
-                                    <span>กำลังบันทึก...</span>
-                                }
-                                else
-                                {
-                                    <i class="bi bi-check-lg me-1"></i>
-                                    <span>บันทึกการตั้งค่า</span>
-                                }
-                            </button>
                         </div>
 
                         @if (testResult != null)
@@ -292,23 +374,47 @@
                         </p>
 
                         <div class="mb-3">
-                            <label class="form-label small fw-bold">Admin Username</label>
-                            <input type="text" class="form-control form-control-sm" @bind="config.FallbackAdminUsername" />
+                            <label class="form-label small fw-bold mb-1">Admin Username <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control form-control-sm font-monospace" placeholder="เช่น admin" @bind="config.FallbackAdminUsername" @bind:event="oninput" />
                         </div>
 
                         <div class="mb-3">
-                            <label class="form-label small fw-bold">ตั้งรหัสผ่านใหม่ (PBKDF2 SHA-256)</label>
-                            <input type="password" class="form-control form-control-sm" placeholder="รหัสผ่านใหม่" @bind="newFallbackAdminPassword" />
+                            <label class="form-label small fw-bold mb-1">ตั้งรหัสผ่านใหม่ (PBKDF2 SHA-256) <span class="text-danger">*</span></label>
+                            <div class="input-group input-group-sm">
+                                <input type="@(showFallbackPassword ? "text" : "password")" class="form-control" placeholder="ระบุรหัสผ่านใหม่..." @bind="newFallbackAdminPassword" @bind:event="oninput" />
+                                <button class="btn btn-outline-secondary" type="button" title="@(showFallbackPassword ? "ซ่อนรหัสผ่าน" : "แสดงรหัสผ่าน")" @onclick="() => showFallbackPassword = !showFallbackPassword">
+                                    <i class="bi @(showFallbackPassword ? "bi-eye-slash" : "bi-eye")"></i>
+                                </button>
+                            </div>
                         </div>
 
                         <div class="mb-3">
-                            <label class="form-label small fw-bold">ยืนยันรหัสผ่านใหม่</label>
-                            <input type="password" class="form-control form-control-sm" placeholder="ยืนยันรหัสผ่าน" @bind="confirmFallbackAdminPassword" />
+                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                <label class="form-label small fw-bold mb-0">ยืนยันรหัสผ่านใหม่ <span class="text-danger">*</span></label>
+                                @if (!string.IsNullOrEmpty(newFallbackAdminPassword) || !string.IsNullOrEmpty(confirmFallbackAdminPassword))
+                                {
+                                    @if (IsFallbackPasswordValid)
+                                    {
+                                        <span class="text-success small fw-bold d-inline-flex align-items-center gap-1">
+                                            <i class="bi bi-check-circle-fill"></i>
+                                            <span>รหัสผ่านตรงกัน</span>
+                                        </span>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-danger small fw-bold d-inline-flex align-items-center gap-1">
+                                            <i class="bi bi-x-circle-fill"></i>
+                                            <span>รหัสผ่านไม่ตรงกัน</span>
+                                        </span>
+                                    }
+                                }
+                            </div>
+                            <input type="@(showFallbackPassword ? "text" : "password")" class="form-control form-control-sm" placeholder="พิมพ์รหัสผ่านใหม่อีกครั้ง..." @bind="confirmFallbackAdminPassword" @bind:event="oninput" />
                         </div>
 
-                        <button class="btn btn-warning btn-sm w-100 fw-bold text-dark justify-content-center" @onclick="ChangeFallbackAdminPassword">
+                        <button class="btn btn-primary btn-sm w-100 fw-bold justify-content-center" @onclick="ChangeFallbackAdminPassword" disabled="@(!IsFallbackPasswordValid)">
                             <i class="bi bi-key-fill"></i>
-                            <span>เปลี่ยนรหัสผ่าน Local Admin</span>
+                            <span>@(IsFallbackPasswordValid ? "บันทึกรหัสผ่าน Local Admin ใหม่" : "กรอกรหัสผ่านให้ตรงกันเพื่อบันทึก")</span>
                         </button>
                     </div>
                 </div>
@@ -325,11 +431,36 @@
 
     private bool isTesting;
     private bool isSaving;
+    private bool showBindPassword;
+    private bool showFallbackPassword;
     private string? alertMessage;
     private bool isAlertSuccess;
     private bool isUsingDefaultAdminPassword;
     private bool hasSavedBindPassword;
     private LdapConnectionTestResult? testResult;
+
+    private bool IsFallbackPasswordValid =>
+        !string.IsNullOrWhiteSpace(newFallbackAdminPassword) &&
+        newFallbackAdminPassword == confirmFallbackAdminPassword;
+
+    private string SuggestedBaseDn
+    {
+        get
+        {
+            if (config == null || string.IsNullOrWhiteSpace(config.Domain)) return string.Empty;
+            var parts = config.Domain.Trim().Split('.', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            if (parts.Length == 0) return string.Empty;
+            return string.Join(",", parts.Select(p => $"DC={p}"));
+        }
+    }
+
+    private void ApplySuggestedBaseDn()
+    {
+        if (config != null && !string.IsNullOrEmpty(SuggestedBaseDn))
+        {
+            config.BaseDn = SuggestedBaseDn;
+        }
+    }
 
     protected override async Task OnInitializedAsync()
     {

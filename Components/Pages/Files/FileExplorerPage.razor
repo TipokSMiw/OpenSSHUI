@@ -130,7 +130,7 @@
                         <i class="bi bi-arrow-clockwise"></i>
                         <span>รีเฟรช</span>
                     </button>
-                    <button class="btn btn-sm btn-outline-primary" @onclick="() => isNewFolderModalOpen = true">
+                    <button class="btn btn-sm btn-outline-primary" @onclick="OpenNewFolderModal">
                         <i class="bi bi-folder-plus"></i>
                         <span>สร้างโฟลเดอร์</span>
                     </button>
@@ -258,20 +258,41 @@
                 <div class="modal-header bg-dark text-white">
                     <h5 class="modal-title d-flex align-items-center gap-2">
                         <i class="bi bi-folder-plus text-primary"></i>
-                        <span>สร้างโฟลเดอร์ใหม่</span>
+                        <span>สร้างโฟลเดอร์ย่อยใหม่</span>
                     </h5>
                     <button type="button" class="btn-close btn-close-white" @onclick="() => isNewFolderModalOpen = false"></button>
                 </div>
                 <div class="modal-body p-4">
-                    <label class="form-label small fw-bold">ชื่อโฟลเดอร์</label>
-                    <input type="text" class="form-control" @bind="newFolderName" placeholder="เช่น uploads, documents" autofocus />
+                    @if (!string.IsNullOrEmpty(newFolderError))
+                    {
+                        <div class="alert alert-danger py-2 small d-flex align-items-center gap-2 mb-3">
+                            <i class="bi bi-exclamation-triangle-fill flex-shrink-0"></i>
+                            <div>@newFolderError</div>
+                        </div>
+                    }
+
+                    <div class="effective-preview-box mb-3 py-2 px-3 small">
+                        <div class="text-muted small">ตำแหน่งที่จะสร้างโฟลเดอร์ใหม่:</div>
+                        <div class="font-monospace fw-bold">
+                            @(string.IsNullOrEmpty(currentSubPath) ? $"/{CurrentTargetName} (Root)" : $"/{CurrentTargetName}/{currentSubPath}")/@(string.IsNullOrWhiteSpace(newFolderName) ? "{ชื่อโฟลเดอร์}" : newFolderName.Trim())
+                        </div>
+                    </div>
+
+                    <div class="d-flex justify-content-between align-items-center mb-1">
+                        <label class="form-label small fw-bold mb-0">ชื่อโฟลเดอร์ <span class="text-danger">*</span></label>
+                        <span class="text-muted" style="font-size: 0.75rem;">ห้ามใช้ \ / : * ? " &lt; &gt; |</span>
+                    </div>
+                    <input type="text" class="form-control" @bind="newFolderName" @bind:event="oninput" @onkeyup="HandleNewFolderKeyUp" placeholder="เช่น Inbound_2026, Reports, Invoices" autofocus />
                 </div>
-                <div class="modal-footer bg-light">
-                    <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="() => isNewFolderModalOpen = false">ยกเลิก</button>
-                    <button type="button" class="btn btn-primary btn-sm" @onclick="SubmitCreateFolder">
-                        <i class="bi bi-check-lg"></i>
-                        <span>สร้างโฟลเดอร์</span>
-                    </button>
+                <div class="modal-footer bg-light d-flex justify-content-between align-items-center">
+                    <span class="small text-muted">กด Enter เพื่อสร้างได้ทันที</span>
+                    <div class="d-flex gap-2">
+                        <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="() => isNewFolderModalOpen = false">ยกเลิก</button>
+                        <button type="button" class="btn btn-primary btn-sm px-3" @onclick="SubmitCreateFolder" disabled="@(string.IsNullOrWhiteSpace(newFolderName))">
+                            <i class="bi bi-check-lg"></i>
+                            <span>สร้างโฟลเดอร์</span>
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -298,6 +319,7 @@
 
     private bool isNewFolderModalOpen;
     private string newFolderName = "";
+    private string? newFolderError;
     private string? _loadedTarget;
 
     protected override async Task OnInitializedAsync()
@@ -422,12 +444,28 @@
         await LoadDirectoryContents();
     }
 
+    private void OpenNewFolderModal()
+    {
+        newFolderName = "";
+        newFolderError = null;
+        isNewFolderModalOpen = true;
+    }
+
+    private async Task HandleNewFolderKeyUp(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !string.IsNullOrWhiteSpace(newFolderName))
+        {
+            await SubmitCreateFolder();
+        }
+    }
+
     private async Task SubmitCreateFolder()
     {
         if (string.IsNullOrWhiteSpace(newFolderName) || string.IsNullOrWhiteSpace(CurrentTargetName)) return;
 
         var op = string.IsNullOrEmpty(SessionState.CurrentUsername) ? "admin" : SessionState.CurrentUsername;
         var folderName = newFolderName.Trim();
+        newFolderError = null;
         try
         {
             if (IsGroupMode)
@@ -450,7 +488,7 @@
         {
             var action = IsGroupMode ? "GROUP_FOLDER_CREATE_FAIL" : "FOLDER_CREATE_FAIL";
             await AuditService.LogAsync(action, $"Failed to create folder '{folderName}' for '{CurrentTargetName}': {ex.Message}", false, op);
-            SetAlert(ex.Message, false);
+            newFolderError = ex.Message;
         }
     }
 

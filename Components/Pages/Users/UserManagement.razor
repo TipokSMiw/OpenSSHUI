@@ -47,14 +47,16 @@
     <!-- Search & Filter Bar -->
     <div class="card border-0 shadow-sm rounded-3 mb-3">
         <div class="card-body py-2.5 px-3">
-            <div class="row g-2 align-items-center">
+            <div class="row g-2 align-items-end">
                 <div class="col-md-4">
+                    <label class="form-label small fw-bold mb-1">ค้นหาผู้ใช้งาน</label>
                     <div class="input-group input-group-sm">
                         <span class="input-group-text bg-white border-end-0 text-muted"><i class="bi bi-search"></i></span>
                         <input type="text" class="form-control border-start-0" placeholder="ค้นหา Username หรือชื่อ-นามสกุล..." @bind="searchTerm" @bind:event="oninput" />
                     </div>
                 </div>
                 <div class="col-md-2">
+                    <label class="form-label small fw-bold mb-1">ประเภทบัญชี</label>
                     <select class="form-select form-select-sm" @bind="accountTypeFilter">
                         <option value="">ทุกประเภทบัญชี</option>
                         <option value="LocalWindows">Local Windows</option>
@@ -62,6 +64,7 @@
                     </select>
                 </div>
                 <div class="col-md-2">
+                    <label class="form-label small fw-bold mb-1">สถานะบัญชี</label>
                     <select class="form-select form-select-sm" @bind="statusFilter">
                         <option value="">ทุกสถานะ</option>
                         <option value="Active">ใช้งานอยู่ (Active)</option>
@@ -69,8 +72,9 @@
                     </select>
                 </div>
                 <div class="col-md-2">
+                    <label class="form-label small fw-bold mb-1">กลุ่มสังกัด (Groups)</label>
                     <select class="form-select form-select-sm" @bind="groupFilter">
-                        <option value="">ทุกกลุ่ม (Groups)</option>
+                        <option value="">ทุกกลุ่ม (All Groups)</option>
                         @foreach (var g in availableGroups)
                         {
                             <option value="@g.Id">@g.Name</option>
@@ -256,21 +260,63 @@
                 <div class="modal-header bg-dark text-white">
                     <h5 class="modal-title d-flex align-items-center gap-2">
                         <i class="bi bi-person-plus-fill text-primary"></i>
-                        <span>สร้างผู้ใช้งาน SFTP ใหม่</span>
+                        <span>สร้างผู้ใช้งาน SFTP ใหม่ (Guided Workflow)</span>
                     </h5>
                     <button type="button" class="btn-close btn-close-white" @onclick="() => isCreateModalOpen = false"></button>
                 </div>
                 <div class="modal-body p-4">
-                    <div class="mb-3">
-                        <label class="form-label fw-bold small">ประเภทบัญชี (Account Type)</label>
-                        <div class="d-flex gap-4">
-                            <div class="form-check">
-                                <input class="form-check-input" type="radio" id="accLocal" name="accType" checked="@(newUser.AccountType == SftpAccountType.LocalWindows)" @onchange="OnSelectLocalAccountType" />
-                                <label class="form-check-label small" for="accLocal">Local Windows User</label>
+                    @if (!string.IsNullOrEmpty(modalErrorMessage))
+                    {
+                        <div class="alert alert-danger py-2 small d-flex align-items-center gap-2 mb-3">
+                            <i class="bi bi-exclamation-triangle-fill flex-shrink-0"></i>
+                            <div>@modalErrorMessage</div>
+                        </div>
+                    }
+
+                    <!-- Step 1: Account Type & Identity -->
+                    <div class="form-step-header">
+                        <div class="form-step-title">
+                            <span class="form-step-badge">1</span>
+                            <span>ประเภทบัญชีและข้อมูลผู้ใช้ (Identity &amp; Authentication)</span>
+                        </div>
+                        <span class="badge bg-danger-subtle text-danger border border-danger-subtle" style="font-size: 0.7rem;">จำเป็น</span>
+                    </div>
+
+                    <div class="row g-2 mb-3">
+                        <div class="col-md-6">
+                            <div class="selection-card @(newUser.AccountType == SftpAccountType.LocalWindows ? "active" : "")"
+                                 @onclick="OnSelectLocalAccountType">
+                                <div>
+                                    <div class="fw-bold small d-flex align-items-center gap-1.5">
+                                        <i class="bi bi-person-badge text-primary"></i>
+                                        <span>Local Windows User</span>
+                                    </div>
+                                    <div class="text-muted small mt-1" style="font-size: 0.75rem;">
+                                        สร้างบัญชีผู้ใช้ใหม่บนเครื่องเซิร์ฟเวอร์นี้โดยตรง
+                                    </div>
+                                </div>
+                                @if (newUser.AccountType == SftpAccountType.LocalWindows)
+                                {
+                                    <span class="badge bg-primary text-white" style="font-size: 0.68rem;">เลือกอยู่</span>
+                                }
                             </div>
-                            <div class="form-check">
-                                <input class="form-check-input" type="radio" id="accAd" name="accType" checked="@(newUser.AccountType == SftpAccountType.ActiveDirectory)" @onchange="OnSelectAdAccountType" />
-                                <label class="form-check-label small" for="accAd">Active Directory User</label>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="selection-card @(newUser.AccountType == SftpAccountType.ActiveDirectory ? "active" : "")"
+                                 @onclick="OnSelectAdAccountType">
+                                <div>
+                                    <div class="fw-bold small d-flex align-items-center gap-1.5">
+                                        <i class="bi bi-diagram-3 text-info"></i>
+                                        <span>Active Directory (LDAP)</span>
+                                    </div>
+                                    <div class="text-muted small mt-1" style="font-size: 0.75rem;">
+                                        ผูกสิทธิ์เข้ากับบัญชีโดเมนขององค์กรที่มีอยู่แล้ว
+                                    </div>
+                                </div>
+                                @if (newUser.AccountType == SftpAccountType.ActiveDirectory)
+                                {
+                                    <span class="badge bg-primary text-white" style="font-size: 0.68rem;">เลือกอยู่</span>
+                                }
                             </div>
                         </div>
                     </div>
@@ -292,7 +338,7 @@
                         <div class="p-3 mb-3 bg-light rounded border">
                             <label class="form-label fw-bold small d-flex align-items-center gap-1.5 mb-2">
                                 <i class="bi bi-diagram-3-fill text-primary"></i>
-                                <span>ค้นหาผู้ใช้จาก Active Directory (LDAP)</span>
+                                <span>ค้นหาและดึงข้อมูลผู้ใช้จาก Active Directory (LDAP)</span>
                             </label>
 
                             <div class="input-group input-group-sm mb-2">
@@ -356,7 +402,7 @@
                                                 else
                                                 {
                                                     <button type="button" class="btn btn-sm btn-primary py-0.5 px-2.5" @onclick="() => SelectAdUser(adUser)">
-                                                        <i class="bi bi-check-lg"></i> เลือก
+                                                        <i class="bi bi-check-lg"></i> เลือกผู้ใช้นี้
                                                     </button>
                                                 }
                                             </div>
@@ -398,38 +444,76 @@
 
                     <div class="row g-3 mb-3">
                         <div class="col-md-6">
-                            <label class="form-label fw-bold small">
-                                Username <span class="text-danger">*</span>
-                                @if (newUser.AccountType == SftpAccountType.ActiveDirectory)
-                                {
-                                    <small class="text-muted fw-normal">(sAMAccountName ใน AD)</small>
-                                }
-                            </label>
-                            <input type="text" class="form-control form-control-sm" @bind="newUser.Username" placeholder="เช่น sftp_user1" disabled="@(selectedAdUser != null)" />
+                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                <label class="form-label fw-bold small mb-0">
+                                    Username <span class="text-danger">*</span>
+                                </label>
+                                <span class="text-muted" style="font-size: 0.72rem;">
+                                    @(newUser.AccountType == SftpAccountType.ActiveDirectory ? "sAMAccountName ใน AD" : "a-z, 0-9, _, -")
+                                </span>
+                            </div>
+                            <input type="text" class="form-control form-control-sm font-monospace" @bind="newUser.Username" @bind:event="oninput" placeholder="เช่น sftp_partner01 หรือ somchai.k" disabled="@(selectedAdUser != null)" />
                         </div>
                         <div class="col-md-6">
-                            <label class="form-label fw-bold small">Display Name</label>
-                            <input type="text" class="form-control form-control-sm" @bind="newUser.DisplayName" placeholder="ชื่อ-นามสกุล หรือ แผนก" />
+                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                <label class="form-label fw-bold small mb-0">ชื่อ-นามสกุล / แผนก (Display Name)</label>
+                                <span class="text-muted" style="font-size: 0.72rem;">ไม่บังคับ</span>
+                            </div>
+                            <input type="text" class="form-control form-control-sm" @bind="newUser.DisplayName" placeholder="เช่น บจก. เอซีมี (ฝ่ายบัญชี)" />
                         </div>
                     </div>
 
                     @if (newUser.AccountType == SftpAccountType.LocalWindows)
                     {
-                        <div class="row g-3 mb-3">
+                        <div class="row g-3 mb-4">
                             <div class="col-md-6">
-                                <label class="form-label fw-bold small">Password <span class="text-danger">*</span></label>
-                                <input type="password" class="form-control form-control-sm" @bind="newUser.Password" placeholder="รหัสผ่าน Windows User" />
+                                <label class="form-label fw-bold small mb-1">Password <span class="text-danger">*</span></label>
+                                <div class="input-group input-group-sm">
+                                    <input type="@(showCreatePassword ? "text" : "password")" class="form-control" @bind="newUser.Password" @bind:event="oninput" placeholder="รหัสผ่าน Windows User" />
+                                    <button class="btn btn-outline-secondary" type="button" title="@(showCreatePassword ? "ซ่อนรหัสผ่าน" : "แสดงรหัสผ่าน")" @onclick="() => showCreatePassword = !showCreatePassword">
+                                        <i class="bi @(showCreatePassword ? "bi-eye-slash" : "bi-eye")"></i>
+                                    </button>
+                                </div>
                             </div>
                             <div class="col-md-6">
-                                <label class="form-label fw-bold small">Confirm Password <span class="text-danger">*</span></label>
-                                <input type="password" class="form-control form-control-sm" @bind="confirmPassword" placeholder="ยืนยันรหัสผ่าน" />
+                                <div class="d-flex justify-content-between align-items-center mb-1">
+                                    <label class="form-label fw-bold small mb-0">Confirm Password <span class="text-danger">*</span></label>
+                                    @if (!string.IsNullOrEmpty(newUser.Password) || !string.IsNullOrEmpty(confirmPassword))
+                                    {
+                                        @if (IsCreatePasswordMatch)
+                                        {
+                                            <span class="text-success small fw-bold d-inline-flex align-items-center gap-1" style="font-size: 0.75rem;">
+                                                <i class="bi bi-check-circle-fill"></i>
+                                                <span>รหัสผ่านตรงกัน</span>
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-danger small fw-bold d-inline-flex align-items-center gap-1" style="font-size: 0.75rem;">
+                                                <i class="bi bi-x-circle-fill"></i>
+                                                <span>รหัสผ่านไม่ตรงกัน</span>
+                                            </span>
+                                        }
+                                    }
+                                </div>
+                                <input type="@(showCreatePassword ? "text" : "password")" class="form-control form-control-sm" @bind="confirmPassword" @bind:event="oninput" placeholder="พิมพ์รหัสผ่านเดิมอีกครั้ง" />
                             </div>
                         </div>
                     }
 
-                    <!-- Group Assignment -->
+                    <!-- Step 2: Group Assignment & Folder Access -->
+                    <div class="form-step-header">
+                        <div class="form-step-title">
+                            <span class="form-step-badge">2</span>
+                            <span>กลุ่มสังกัดและพื้นที่จัดเก็บไฟล์ (Groups &amp; Chroot Path)</span>
+                        </div>
+                        <span class="badge bg-primary-subtle text-primary border border-primary-subtle" style="font-size: 0.7rem;">
+                            เลือกแล้ว @newUser.GroupIds.Count กลุ่ม
+                        </span>
+                    </div>
+
                     <div class="mb-3">
-                        <label class="form-label fw-bold small">สังกัดกลุ่ม SFTP (Assign Groups)</label>
+                        <label class="form-label fw-bold small mb-1">สังกัดกลุ่มแชร์ไฟล์ (Assign SFTP Groups)</label>
                         <div class="border rounded p-2.5 bg-white" style="max-height: 130px; overflow-y: auto;">
                             @if (availableGroups.Count == 0)
                             {
@@ -457,64 +541,121 @@
                         </div>
                     </div>
 
-                    <!-- Custom Root Path (Optional) -->
+                    <!-- Progressive Disclosure: Custom Root Path Override -->
                     <div class="card border rounded-3 p-3 bg-light mb-3">
-                        <h6 class="fw-bold small mb-2 text-primary d-flex align-items-center gap-1.5">
-                            <i class="bi bi-folder-symlink"></i>
-                            <span>กำหนด Root Path เฉพาะบุคคล (Custom Root Override - ไม่บังคับ)</span>
-                        </h6>
-                        <div class="row g-2">
-                            <div class="col-12">
-                                <label class="form-label small fw-bold">Custom Root Path</label>
-                                <div class="input-group input-group-sm">
-                                    <input type="text" class="form-control font-monospace" placeholder="@($"ปล่อยว่างหากใช้ Default Home ({SshManager.SftpRoot}\\{{username}})")" @bind="newUser.CustomRootPath" />
-                                    <button class="btn btn-outline-secondary" type="button" @onclick="OpenFolderBrowserForCreate">
-                                        <i class="bi bi-folder2-open"></i>
-                                        <span>เลือกโฟลเดอร์...</span>
-                                    </button>
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <div class="fw-bold small text-dark d-flex align-items-center gap-1.5">
+                                    <i class="bi bi-folder-symlink text-primary"></i>
+                                    <span>กำหนดโฟลเดอร์หลักเฉพาะบุคคล (Custom Root Override)</span>
+                                </div>
+                                <div class="text-muted" style="font-size: 0.75rem;">
+                                    ปิดไว้เพื่อใช้โฟลเดอร์มาตรฐานอัตโนมัติ (<code>@($"{SshManager.SftpRoot}\\{{username}}")</code>)
                                 </div>
                             </div>
-                            <div class="col-md-6">
-                                <label class="form-label small fw-bold">Access Mode</label>
-                                <select class="form-select form-select-sm" @bind="newUser.AccessMode">
-                                    <option value="@SftpAccessMode.VirtualFolder">Virtual Folder (โฟลเดอร์กลุ่มปรากฏข้างใน)</option>
-                                    <option value="@SftpAccessMode.DirectChroot">Direct Chroot (เข้าสู่ Root Path ทันที)</option>
-                                </select>
-                            </div>
-                            <div class="col-md-6">
-                                <label class="form-label small fw-bold">ระดับสิทธิ์ (Permission)</label>
-                                <select class="form-select form-select-sm" @bind="newUser.CustomPermissionType">
-                                    <option value="@SftpPermissionType.ReadWrite">Read & Write (อ่านและเขียนไฟล์ได้)</option>
-                                    <option value="@SftpPermissionType.ReadOnly">Read-Only (ดาวน์โหลดอ่านไฟล์ได้อย่างเดียว)</option>
-                                </select>
+                            <div class="form-check form-switch mb-0">
+                                <input class="form-check-input" type="checkbox" id="chkCustomRootCreate" @bind="useCustomRootCreate" @bind:after="OnToggleCustomRootCreate" />
                             </div>
                         </div>
+
+                        @if (useCustomRootCreate)
+                        {
+                            <div class="row g-2 mt-2 pt-2 border-top">
+                                <div class="col-12">
+                                    <label class="form-label small fw-bold mb-1">Custom Root Path</label>
+                                    <div class="input-group input-group-sm">
+                                        <input type="text" class="form-control font-monospace" placeholder="เช่น D:\PartnerData\Vendor01" @bind="newUser.CustomRootPath" @bind:event="oninput" />
+                                        <button class="btn btn-outline-secondary" type="button" @onclick="OpenFolderBrowserForCreate">
+                                            <i class="bi bi-folder2-open"></i>
+                                            <span>เลือกโฟลเดอร์...</span>
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label small fw-bold mb-1">Access Mode</label>
+                                    <select class="form-select form-select-sm" @bind="newUser.AccessMode">
+                                        <option value="@SftpAccessMode.VirtualFolder">Virtual Folder (โฟลเดอร์กลุ่มปรากฏข้างใน)</option>
+                                        <option value="@SftpAccessMode.DirectChroot">Direct Chroot (เข้าสู่ Root Path ทันที)</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label small fw-bold mb-1">ระดับสิทธิ์ (Permission)</label>
+                                    <select class="form-select form-select-sm" @bind="newUser.CustomPermissionType">
+                                        <option value="@SftpPermissionType.ReadWrite">Read &amp; Write (อ่านและเขียนไฟล์ได้)</option>
+                                        <option value="@SftpPermissionType.ReadOnly">Read-Only (ดาวน์โหลดอ่านไฟล์ได้อย่างเดียว)</option>
+                                    </select>
+                                </div>
+                            </div>
+                        }
+                    </div>
+
+                    <!-- Live Effective Path Preview -->
+                    <div class="effective-preview-box mb-4 d-flex flex-wrap justify-content-between align-items-center gap-2">
+                        <div class="small">
+                            <div class="fw-bold d-flex align-items-center gap-1.5">
+                                <i class="bi bi-folder-check"></i>
+                                <span>สรุปเส้นทางเมื่อล็อกอิน (Effective Chroot Preview):</span>
+                            </div>
+                            <div class="font-monospace fw-bold mt-0.5">
+                                @GetCreateEffectivePathPreview()
+                            </div>
+                        </div>
+                        <span class="badge bg-white text-primary border border-primary-subtle">
+                            @(newUser.GroupIds.Count > 0 ? $"เชื่อมโยง {newUser.GroupIds.Count} กลุ่ม" : "โฟลเดอร์ส่วนตัว")
+                        </span>
+                    </div>
+
+                    <!-- Step 3: Optional Key & Notes -->
+                    <div class="form-step-header">
+                        <div class="form-step-title">
+                            <span class="form-step-badge">3</span>
+                            <span>คีย์เชื่อมต่อเริ่มต้นและบันทึกช่วยจำ (Optional)</span>
+                        </div>
+                        <span class="text-muted" style="font-size: 0.72rem;">เว้นว่างเพื่อตั้งค่าภายหลังได้</span>
                     </div>
 
                     <div class="mb-3">
-                        <label class="form-label fw-bold small">SSH Public Key (ไม่บังคับ - วางได้ทั้งแบบ OpenSSH หรือ PuTTY)</label>
-                        <textarea class="form-control form-control-sm font-monospace" rows="2" placeholder="ssh-rsa AAAAB3... หรือ ---- BEGIN SSH2 PUBLIC KEY ----" @bind="newUser.SshPublicKey"></textarea>
+                        <label class="form-label fw-bold small mb-1">SSH Public Key (วางได้ทั้งแบบ OpenSSH หรือ PuTTY)</label>
+                        <textarea class="form-control form-control-sm font-monospace" rows="2" placeholder="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5... หรือ ---- BEGIN SSH2 PUBLIC KEY ----" @bind="newUser.SshPublicKey"></textarea>
                     </div>
 
                     <div class="mb-0">
-                        <label class="form-label fw-bold small">Notes / หมายเหตุ</label>
-                        <input type="text" class="form-control form-control-sm" @bind="newUser.Notes" placeholder="บันทึกช่วยจำเกี่ยวกับผู้ใช้รายนี้" />
+                        <label class="form-label fw-bold small mb-1">Notes / หมายเหตุ</label>
+                        <input type="text" class="form-control form-control-sm" @bind="newUser.Notes" placeholder="เช่น ผู้ติดต่อ: คุณสมชาย โทร 081-xxx-xxxx" />
                     </div>
                 </div>
-                <div class="modal-footer bg-light">
-                    <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="() => isCreateModalOpen = false">ยกเลิก</button>
-                    <button type="button" class="btn btn-primary btn-sm" @onclick="SubmitCreateUser" disabled="@isSubmitting">
-                        @if (isSubmitting)
+                <div class="modal-footer bg-light d-flex justify-content-between align-items-center">
+                    <div class="small">
+                        @if (IsCreateUserFormValid)
                         {
-                            <span class="spinner-border spinner-border-sm"></span>
-                            <span>กำลังสร้าง...</span>
+                            <span class="text-success fw-semibold d-inline-flex align-items-center gap-1">
+                                <i class="bi bi-check-circle-fill"></i>
+                                <span>ข้อมูลครบถ้วน พร้อมสร้างบัญชีทันที</span>
+                            </span>
                         }
                         else
                         {
-                            <i class="bi bi-check-lg"></i>
-                            <span>บันทึกและสร้าง Chroot</span>
+                            <span class="text-warning-emphasis d-inline-flex align-items-center gap-1">
+                                <i class="bi bi-info-circle-fill"></i>
+                                <span>กรุณากรอกข้อมูลที่มีเครื่องหมาย * ให้ครบถ้วน</span>
+                            </span>
                         }
-                    </button>
+                    </div>
+                    <div class="d-flex gap-2">
+                        <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="() => isCreateModalOpen = false">ยกเลิก</button>
+                        <button type="button" class="btn btn-primary btn-sm px-3" @onclick="SubmitCreateUser" disabled="@(isSubmitting || !IsCreateUserFormValid)">
+                            @if (isSubmitting)
+                            {
+                                <span class="spinner-border spinner-border-sm"></span>
+                                <span>กำลังสร้าง...</span>
+                            }
+                            else
+                            {
+                                <i class="bi bi-check-lg"></i>
+                                <span>@(IsCreateUserFormValid ? $"สร้างผู้ใช้ {newUser.Username.Trim()} และตั้งค่า Chroot" : "กรุณากรอกข้อมูลให้ครบ")</span>
+                            }
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -535,20 +676,50 @@
                     <button type="button" class="btn-close btn-close-white" @onclick="() => isEditModalOpen = false"></button>
                 </div>
                 <div class="modal-body p-4">
-                    <div class="row g-3 mb-3">
-                        <div class="col-md-6">
-                            <label class="form-label fw-bold small">Username</label>
-                            <input type="text" class="form-control form-control-sm" value="@editUserRequest.Username" disabled />
+                    @if (!string.IsNullOrEmpty(modalErrorMessage))
+                    {
+                        <div class="alert alert-danger py-2 small d-flex align-items-center gap-2 mb-3">
+                            <i class="bi bi-exclamation-triangle-fill flex-shrink-0"></i>
+                            <div>@modalErrorMessage</div>
                         </div>
-                        <div class="col-md-6">
-                            <label class="form-label fw-bold small">Display Name</label>
-                            <input type="text" class="form-control form-control-sm" @bind="editUserRequest.DisplayName" />
+                    }
+
+                    <!-- Step 1: Identity -->
+                    <div class="form-step-header">
+                        <div class="form-step-title">
+                            <span class="form-step-badge">1</span>
+                            <span>ข้อมูลทั่วไปและหมายเหตุ (User Profile)</span>
                         </div>
                     </div>
 
-                    <!-- Groups Selection -->
+                    <div class="row g-3 mb-4">
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold small mb-1">Username</label>
+                            <input type="text" class="form-control form-control-sm font-monospace" value="@editUserRequest.Username" disabled />
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold small mb-1">ชื่อ-นามสกุล / แผนก (Display Name)</label>
+                            <input type="text" class="form-control form-control-sm" placeholder="เช่น บจก. เอซีมี (ฝ่ายบัญชี)" @bind="editUserRequest.DisplayName" />
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label fw-bold small mb-1">Notes / หมายเหตุ</label>
+                            <input type="text" class="form-control form-control-sm" placeholder="บันทึกช่วยจำเกี่ยวกับผู้ใช้รายนี้..." @bind="editUserRequest.Notes" />
+                        </div>
+                    </div>
+
+                    <!-- Step 2: Groups & Folder Access -->
+                    <div class="form-step-header">
+                        <div class="form-step-title">
+                            <span class="form-step-badge">2</span>
+                            <span>กลุ่มสังกัดและพื้นที่จัดเก็บไฟล์ (Groups &amp; Chroot Path)</span>
+                        </div>
+                        <span class="badge bg-primary-subtle text-primary border border-primary-subtle" style="font-size: 0.7rem;">
+                            เลือกแล้ว @editUserRequest.GroupIds.Count กลุ่ม
+                        </span>
+                    </div>
+
                     <div class="mb-3">
-                        <label class="form-label fw-bold small">สังกัดกลุ่ม SFTP (Assign Groups)</label>
+                        <label class="form-label fw-bold small mb-1">สังกัดกลุ่ม SFTP (Assign Groups)</label>
                         <div class="border rounded p-2.5 bg-white" style="max-height: 140px; overflow-y: auto;">
                             @if (availableGroups.Count == 0)
                             {
@@ -578,57 +749,85 @@
 
                     <!-- Custom Root Path Override -->
                     <div class="card border rounded-3 p-3 bg-light mb-3">
-                        <h6 class="fw-bold small mb-2 text-primary d-flex align-items-center gap-1.5">
-                            <i class="bi bi-folder-symlink"></i>
-                            <span>กำหนด Root Path เฉพาะบุคคล (Custom Root Override)</span>
-                        </h6>
-                        <div class="row g-2">
-                            <div class="col-12">
-                                <label class="form-label small fw-bold">Custom Root Path</label>
-                                <div class="input-group input-group-sm">
-                                    <input type="text" class="form-control font-monospace" placeholder="ปล่อยว่างหากใช้ Default Home" @bind="editUserRequest.CustomRootPath" />
-                                    <button class="btn btn-outline-secondary" type="button" @onclick="OpenFolderBrowserForEdit">
-                                        <i class="bi bi-folder2-open"></i>
-                                        <span>เลือกโฟลเดอร์...</span>
-                                    </button>
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <div class="fw-bold small text-dark d-flex align-items-center gap-1.5">
+                                    <i class="bi bi-folder-symlink text-primary"></i>
+                                    <span>กำหนด Root Path เฉพาะบุคคล (Custom Root Override)</span>
+                                </div>
+                                <div class="text-muted" style="font-size: 0.75rem;">
+                                    ปิดไว้เพื่อใช้โฟลเดอร์ Default Home (<code>@($"{SshManager.SftpRoot}\\{editUserRequest.Username}")</code>)
                                 </div>
                             </div>
-                            <div class="col-md-6">
-                                <label class="form-label small fw-bold">Access Mode</label>
-                                <select class="form-select form-select-sm" @bind="editUserRequest.AccessMode">
-                                    <option value="@SftpAccessMode.VirtualFolder">Virtual Folder</option>
-                                    <option value="@SftpAccessMode.DirectChroot">Direct Chroot</option>
-                                </select>
-                            </div>
-                            <div class="col-md-6">
-                                <label class="form-label small fw-bold">ระดับสิทธิ์ (Permission)</label>
-                                <select class="form-select form-select-sm" @bind="editUserRequest.CustomPermissionType">
-                                    <option value="@SftpPermissionType.ReadWrite">Read & Write</option>
-                                    <option value="@SftpPermissionType.ReadOnly">Read-Only</option>
-                                </select>
+                            <div class="form-check form-switch mb-0">
+                                <input class="form-check-input" type="checkbox" id="chkCustomRootEdit" @bind="useCustomRootEdit" @bind:after="OnToggleCustomRootEdit" />
                             </div>
                         </div>
+
+                        @if (useCustomRootEdit)
+                        {
+                            <div class="row g-2 mt-2 pt-2 border-top">
+                                <div class="col-12">
+                                    <label class="form-label small fw-bold mb-1">Custom Root Path</label>
+                                    <div class="input-group input-group-sm">
+                                        <input type="text" class="form-control font-monospace" placeholder="เช่น D:\PartnerData\Vendor01" @bind="editUserRequest.CustomRootPath" @bind:event="oninput" />
+                                        <button class="btn btn-outline-secondary" type="button" @onclick="OpenFolderBrowserForEdit">
+                                            <i class="bi bi-folder2-open"></i>
+                                            <span>เลือกโฟลเดอร์...</span>
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label small fw-bold mb-1">Access Mode</label>
+                                    <select class="form-select form-select-sm" @bind="editUserRequest.AccessMode">
+                                        <option value="@SftpAccessMode.VirtualFolder">Virtual Folder (โฟลเดอร์กลุ่มปรากฏข้างใน)</option>
+                                        <option value="@SftpAccessMode.DirectChroot">Direct Chroot (เข้าสู่ Root Path ทันที)</option>
+                                    </select>
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label small fw-bold mb-1">ระดับสิทธิ์ (Permission)</label>
+                                    <select class="form-select form-select-sm" @bind="editUserRequest.CustomPermissionType">
+                                        <option value="@SftpPermissionType.ReadWrite">Read &amp; Write (อ่านและเขียนไฟล์ได้)</option>
+                                        <option value="@SftpPermissionType.ReadOnly">Read-Only (ดาวน์โหลดอ่านไฟล์ได้อย่างเดียว)</option>
+                                    </select>
+                                </div>
+                            </div>
+                        }
                     </div>
 
-                    <div class="mb-0">
-                        <label class="form-label fw-bold small">Notes / หมายเหตุ</label>
-                        <input type="text" class="form-control form-control-sm" @bind="editUserRequest.Notes" />
+                    <!-- Live Effective Path Preview -->
+                    <div class="effective-preview-box d-flex flex-wrap justify-content-between align-items-center gap-2">
+                        <div class="small">
+                            <div class="fw-bold d-flex align-items-center gap-1.5">
+                                <i class="bi bi-folder-check"></i>
+                                <span>สรุปเส้นทางเมื่อล็อกอิน (Effective Chroot Preview):</span>
+                            </div>
+                            <div class="font-monospace fw-bold mt-0.5">
+                                @GetEditEffectivePathPreview()
+                            </div>
+                        </div>
+                        <span class="badge bg-white text-primary border border-primary-subtle">
+                            @(editUserRequest.GroupIds.Count > 0 ? $"เชื่อมโยง {editUserRequest.GroupIds.Count} กลุ่ม" : "โฟลเดอร์ส่วนตัว")
+                        </span>
                     </div>
                 </div>
-                <div class="modal-footer bg-light">
-                    <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="() => isEditModalOpen = false">ยกเลิก</button>
-                    <button type="button" class="btn btn-primary btn-sm" @onclick="SubmitEditUser" disabled="@isSubmitting">
-                        @if (isSubmitting)
-                        {
-                            <span class="spinner-border spinner-border-sm"></span>
-                            <span>กำลังบันทึก...</span>
-                        }
-                        else
-                        {
-                            <i class="bi bi-check-lg"></i>
-                            <span>บันทึกการแก้ไข</span>
-                        }
-                    </button>
+                <div class="modal-footer bg-light d-flex justify-content-between align-items-center">
+                    <span class="small text-muted">การปรับสิทธิ์และกลุ่มจะมีผลทันทีโดยไม่ต้อง Restart Service</span>
+                    <div class="d-flex gap-2">
+                        <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="() => isEditModalOpen = false">ยกเลิก</button>
+                        <button type="button" class="btn btn-primary btn-sm px-3" @onclick="SubmitEditUser" disabled="@isSubmitting">
+                            @if (isSubmitting)
+                            {
+                                <span class="spinner-border spinner-border-sm"></span>
+                                <span>กำลังบันทึก...</span>
+                            }
+                            else
+                            {
+                                <i class="bi bi-check-lg"></i>
+                                <span>บันทึกการแก้ไข</span>
+                            }
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -796,7 +995,7 @@
                                         ชื่องาน / วัตถุประสงค์ (Comment / Task Name)
                                         <span class="text-danger">*</span>
                                     </label>
-                                    <input type="text" class="form-control form-control-sm font-monospace" placeholder="เช่น automation-user-sales-to-sql-etl" @bind="genComment" />
+                                    <input type="text" class="form-control form-control-sm font-monospace" placeholder="เช่น automation-user-sales-to-sql-etl" @bind="genComment" @bind:event="oninput" />
                                     <div class="form-text small" style="font-size: 11px;">
                                         ช่วยให้ระบุวัตถุประสงค์ใน Audit Log และง่ายต่อการเพิกถอน (Revoke) เมื่อยกเลิกงาน
                                     </div>
@@ -817,8 +1016,11 @@
                                     </div>
                                 </div>
 
-                                <div class="d-flex justify-content-end">
-                                    <button type="button" class="btn btn-primary btn-sm d-flex align-items-center gap-1.5" @onclick="HandleGenerateKey" disabled="@isGeneratingKey">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <span class="small @(string.IsNullOrWhiteSpace(genComment) ? "text-warning-emphasis" : "text-success fw-semibold")">
+                                        @(string.IsNullOrWhiteSpace(genComment) ? "โปรดระบุชื่องาน/วัตถุประสงค์ (*) ก่อนสร้างคีย์" : "✓ พร้อมสร้างคู่คีย์ในหน่วยความจำ")
+                                    </span>
+                                    <button type="button" class="btn btn-primary btn-sm d-flex align-items-center gap-1.5" @onclick="HandleGenerateKey" disabled="@(isGeneratingKey || string.IsNullOrWhiteSpace(genComment))">
                                         @if (isGeneratingKey)
                                         {
                                             <span class="spinner-border spinner-border-sm"></span>
@@ -951,7 +1153,10 @@ $Batch | & sftp.exe -i $KeyPath -b - "@(selectedUser.Username)@@localhost"</pre>
                                     <div class="alert alert-success py-2 small mb-2">
                                         <div><strong>Key Type:</strong> @keyParsePreview.KeyType</div>
                                         <div><strong>SHA-256 Fingerprint:</strong> <code>@keyParsePreview.FingerprintSha256</code></div>
-                                        <div><strong>Comment:</strong> @(keyParsePreview.Comment ?? "-")</div>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label small fw-bold mb-1">ชื่อเรียกคีย์ / หมายเหตุ (Comment)</label>
+                                        <input type="text" class="form-control form-control-sm font-monospace" placeholder="เช่น laptop-somchai หรือ backup-server" @bind="customPasteComment" />
                                     </div>
                                 }
                                 else
@@ -1030,17 +1235,57 @@ $Batch | & sftp.exe -i $KeyPath -b - "@(selectedUser.Username)@@localhost"</pre>
                     <button type="button" class="btn-close btn-close-white" @onclick="() => isResetPasswordModalOpen = false"></button>
                 </div>
                 <div class="modal-body p-4">
+                    @if (!string.IsNullOrEmpty(resetPasswordError))
+                    {
+                        <div class="alert alert-danger py-2 small d-flex align-items-center gap-2 mb-3">
+                            <i class="bi bi-exclamation-triangle-fill flex-shrink-0"></i>
+                            <div>@resetPasswordError</div>
+                        </div>
+                    }
+
                     <div class="mb-3">
-                        <label class="form-label fw-bold small">รหัสผ่านใหม่</label>
-                        <input type="password" class="form-control" @bind="newResetPassword" placeholder="ระบุรหัสผ่านใหม่" />
+                        <label class="form-label fw-bold small mb-1">รหัสผ่านใหม่ (New Password) <span class="text-danger">*</span></label>
+                        <div class="input-group input-group-sm">
+                            <input type="@(showResetPassword ? "text" : "password")" class="form-control" @bind="newResetPassword" @bind:event="oninput" placeholder="ระบุรหัสผ่านใหม่ของ Windows User" autofocus />
+                            <button class="btn btn-outline-secondary" type="button" title="@(showResetPassword ? "ซ่อนรหัสผ่าน" : "แสดงรหัสผ่าน")" @onclick="() => showResetPassword = !showResetPassword">
+                                <i class="bi @(showResetPassword ? "bi-eye-slash" : "bi-eye")"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="mb-1">
+                        <div class="d-flex justify-content-between align-items-center mb-1">
+                            <label class="form-label fw-bold small mb-0">ยืนยันรหัสผ่านใหม่ (Confirm Password) <span class="text-danger">*</span></label>
+                            @if (!string.IsNullOrEmpty(newResetPassword) || !string.IsNullOrEmpty(confirmResetPassword))
+                            {
+                                @if (IsResetPasswordValid)
+                                {
+                                    <span class="text-success small fw-bold d-inline-flex align-items-center gap-1" style="font-size: 0.75rem;">
+                                        <i class="bi bi-check-circle-fill"></i>
+                                        <span>รหัสผ่านตรงกัน</span>
+                                    </span>
+                                }
+                                else
+                                {
+                                    <span class="text-danger small fw-bold d-inline-flex align-items-center gap-1" style="font-size: 0.75rem;">
+                                        <i class="bi bi-x-circle-fill"></i>
+                                        <span>รหัสผ่านไม่ตรงกัน</span>
+                                    </span>
+                                }
+                            }
+                        </div>
+                        <input type="@(showResetPassword ? "text" : "password")" class="form-control form-control-sm" @bind="confirmResetPassword" @bind:event="oninput" placeholder="พิมพ์รหัสผ่านใหม่อีกครั้ง" />
                     </div>
                 </div>
-                <div class="modal-footer bg-light">
-                    <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="() => isResetPasswordModalOpen = false">ยกเลิก</button>
-                    <button type="button" class="btn btn-primary btn-sm" @onclick="SubmitResetPassword">
-                        <i class="bi bi-check-lg"></i>
-                        <span>บันทึกรหัสผ่าน</span>
-                    </button>
+                <div class="modal-footer bg-light d-flex justify-content-between align-items-center">
+                    <span class="small text-muted">มีผลกับบัญชี Windows ทันที</span>
+                    <div class="d-flex gap-2">
+                        <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="() => isResetPasswordModalOpen = false">ยกเลิก</button>
+                        <button type="button" class="btn btn-primary btn-sm px-3" @onclick="SubmitResetPassword" disabled="@(!IsResetPasswordValid)">
+                            <i class="bi bi-check-lg"></i>
+                            <span>@(IsResetPasswordValid ? "บันทึกรหัสผ่านใหม่" : "กรอกรหัสผ่านให้ตรงกัน")</span>
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -1071,9 +1316,9 @@ $Batch | & sftp.exe -i $KeyPath -b - "@(selectedUser.Username)@@localhost"</pre>
                 </div>
                 <div class="modal-footer bg-light">
                     <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="() => isDeleteModalOpen = false">ยกเลิก</button>
-                    <button type="button" class="btn btn-danger btn-sm" @onclick="SubmitDeleteUser">
+                    <button type="button" class="btn btn-danger btn-sm px-3" @onclick="SubmitDeleteUser">
                         <i class="bi bi-trash3"></i>
-                        <span>ยืนยันการลบ</span>
+                        <span>@(deleteUserFiles ? "ยืนยันลบบัญชีและทำลายไฟล์ถาวร" : "ลบเฉพาะบัญชีผู้ใช้ (เก็บไฟล์ไว้)")</span>
                     </button>
                 </div>
             </div>
@@ -1098,11 +1343,14 @@ $Batch | & sftp.exe -i $KeyPath -b - "@(selectedUser.Username)@@localhost"</pre>
 
     private string? alertMessage;
     private bool isAlertSuccess;
+    private string? modalErrorMessage;
 
     // Create Modal state
     private bool isCreateModalOpen;
     private CreateUserRequest newUser = new();
     private string confirmPassword = "";
+    private bool showCreatePassword;
+    private bool useCustomRootCreate;
     private bool isSubmitting;
     private string adSearchQuery = "";
     private List<AdUserInfo> adSearchResults = new();
@@ -1115,6 +1363,7 @@ $Batch | & sftp.exe -i $KeyPath -b - "@(selectedUser.Username)@@localhost"</pre>
     // Edit Modal state
     private bool isEditModalOpen;
     private UpdateUserRequest? editUserRequest;
+    private bool useCustomRootEdit;
 
     // Folder Picker state
     private bool isFolderPickerOpen;
@@ -1128,6 +1377,7 @@ $Batch | & sftp.exe -i $KeyPath -b - "@(selectedUser.Username)@@localhost"</pre>
 
     // Paste Key
     private string newRawKey = "";
+    private string customPasteComment = "";
     private SshKeyParseResult? keyParsePreview;
     private bool isAddingKey;
 
@@ -1149,6 +1399,9 @@ $Batch | & sftp.exe -i $KeyPath -b - "@(selectedUser.Username)@@localhost"</pre>
     // Reset Password state
     private bool isResetPasswordModalOpen;
     private string newResetPassword = "";
+    private string confirmResetPassword = "";
+    private bool showResetPassword;
+    private string? resetPasswordError;
 
     // Delete state
     private bool isDeleteModalOpen;
@@ -1256,6 +1509,54 @@ $Batch | & sftp.exe -i $KeyPath -b - "@(selectedUser.Username)@@localhost"</pre>
         }
     }
 
+    private bool IsCreatePasswordMatch =>
+        !string.IsNullOrWhiteSpace(newUser.Password) &&
+        newUser.Password == confirmPassword;
+
+    private bool IsCreateUserFormValid =>
+        !string.IsNullOrWhiteSpace(newUser.Username) &&
+        (newUser.AccountType == SftpAccountType.ActiveDirectory || IsCreatePasswordMatch);
+
+    private bool IsResetPasswordValid =>
+        !string.IsNullOrWhiteSpace(newResetPassword) &&
+        newResetPassword == confirmResetPassword;
+
+    private void OnToggleCustomRootCreate()
+    {
+        if (!useCustomRootCreate)
+        {
+            newUser.CustomRootPath = null;
+        }
+    }
+
+    private void OnToggleCustomRootEdit()
+    {
+        if (!useCustomRootEdit && editUserRequest != null)
+        {
+            editUserRequest.CustomRootPath = null;
+        }
+    }
+
+    private string GetCreateEffectivePathPreview()
+    {
+        if (useCustomRootCreate && !string.IsNullOrWhiteSpace(newUser.CustomRootPath))
+        {
+            return newUser.CustomRootPath.Trim();
+        }
+        var u = string.IsNullOrWhiteSpace(newUser.Username) ? "{username}" : newUser.Username.Trim();
+        return $"{SshManager.SftpRoot}\\{u}";
+    }
+
+    private string GetEditEffectivePathPreview()
+    {
+        if (editUserRequest == null) return "-";
+        if (useCustomRootEdit && !string.IsNullOrWhiteSpace(editUserRequest.CustomRootPath))
+        {
+            return editUserRequest.CustomRootPath.Trim();
+        }
+        return $"{SshManager.SftpRoot}\\{editUserRequest.Username}";
+    }
+
     private void OnSelectLocalAccountType()
     {
         newUser.AccountType = SftpAccountType.LocalWindows;
@@ -1276,6 +1577,9 @@ $Batch | & sftp.exe -i $KeyPath -b - "@(selectedUser.Username)@@localhost"</pre>
             CustomPermissionType = SftpPermissionType.ReadWrite
         };
         confirmPassword = "";
+        showCreatePassword = false;
+        useCustomRootCreate = false;
+        modalErrorMessage = null;
         adSearchQuery = "";
         adSearchResults.Clear();
         adSearchError = null;
@@ -1309,6 +1613,8 @@ $Batch | & sftp.exe -i $KeyPath -b - "@(selectedUser.Username)@@localhost"</pre>
             AccessMode = user.AccessMode,
             GroupIds = user.UserGroups.Select(ug => ug.GroupId).ToList()
         };
+        useCustomRootEdit = !string.IsNullOrWhiteSpace(user.CustomRootPath);
+        modalErrorMessage = null;
         isEditModalOpen = true;
     }
 
@@ -1413,9 +1719,10 @@ $Batch | & sftp.exe -i $KeyPath -b - "@(selectedUser.Username)@@localhost"</pre>
 
     private async Task SubmitCreateUser()
     {
+        modalErrorMessage = null;
         if (string.IsNullOrWhiteSpace(newUser.Username))
         {
-            SetAlert("กรุณากรอก Username", false);
+            modalErrorMessage = "กรุณากรอก Username";
             return;
         }
 
@@ -1423,14 +1730,19 @@ $Batch | & sftp.exe -i $KeyPath -b - "@(selectedUser.Username)@@localhost"</pre>
         {
             if (string.IsNullOrWhiteSpace(newUser.Password))
             {
-                SetAlert("กรุณาระบุรหัสผ่านสำหรับ Local Windows Account", false);
+                modalErrorMessage = "กรุณาระบุรหัสผ่านสำหรับ Local Windows Account";
                 return;
             }
             if (newUser.Password != confirmPassword)
             {
-                SetAlert("รหัสผ่านและการยืนยันรหัสผ่านไม่ตรงกัน", false);
+                modalErrorMessage = "รหัสผ่านและการยืนยันรหัสผ่านไม่ตรงกัน";
                 return;
             }
+        }
+
+        if (!useCustomRootCreate)
+        {
+            newUser.CustomRootPath = null;
         }
 
         isSubmitting = true;
@@ -1446,13 +1758,19 @@ $Batch | & sftp.exe -i $KeyPath -b - "@(selectedUser.Username)@@localhost"</pre>
         }
         else
         {
-            SetAlert(result.Message, false);
+            modalErrorMessage = result.Message;
         }
     }
 
     private async Task SubmitEditUser()
     {
         if (editUserRequest == null) return;
+        modalErrorMessage = null;
+
+        if (!useCustomRootEdit)
+        {
+            editUserRequest.CustomRootPath = null;
+        }
 
         isSubmitting = true;
         var op = string.IsNullOrEmpty(SessionState.CurrentUsername) ? "admin" : SessionState.CurrentUsername;
@@ -1467,7 +1785,7 @@ $Batch | & sftp.exe -i $KeyPath -b - "@(selectedUser.Username)@@localhost"</pre>
         }
         else
         {
-            SetAlert(result.Message, false);
+            modalErrorMessage = result.Message;
         }
     }
 
@@ -1603,9 +1921,14 @@ $Batch | & sftp.exe -i $KeyPath -b - "@(selectedUser.Username)@@localhost"</pre>
         if (string.IsNullOrWhiteSpace(newRawKey))
         {
             keyParsePreview = null;
+            customPasteComment = "";
             return;
         }
         keyParsePreview = SshKeyConverter.ParseAndNormalizeKey(newRawKey);
+        if (keyParsePreview.IsSuccess)
+        {
+            customPasteComment = keyParsePreview.Comment ?? "";
+        }
     }
 
     private async Task SubmitAddKey()
@@ -1614,12 +1937,14 @@ $Batch | & sftp.exe -i $KeyPath -b - "@(selectedUser.Username)@@localhost"</pre>
 
         isAddingKey = true;
         var op = string.IsNullOrEmpty(SessionState.CurrentUsername) ? "admin" : SessionState.CurrentUsername;
-        var result = await UserService.AddPublicKeyAsync(selectedUser.Username, keyParsePreview.RawPublicKey, keyParsePreview.Comment, op);
+        var finalComment = string.IsNullOrWhiteSpace(customPasteComment) ? keyParsePreview.Comment : customPasteComment.Trim();
+        var result = await UserService.AddPublicKeyAsync(selectedUser.Username, keyParsePreview.RawPublicKey, finalComment, op);
         isAddingKey = false;
 
         if (result.Success)
         {
             newRawKey = "";
+            customPasteComment = "";
             keyParsePreview = null;
             await LoadData();
             selectedUser = users?.FirstOrDefault(u => u.Username == selectedUser.Username);
@@ -1652,16 +1977,37 @@ $Batch | & sftp.exe -i $KeyPath -b - "@(selectedUser.Username)@@localhost"</pre>
     {
         selectedUser = user;
         newResetPassword = "";
+        confirmResetPassword = "";
+        showResetPassword = false;
+        resetPasswordError = null;
         isResetPasswordModalOpen = true;
     }
 
     private async Task SubmitResetPassword()
     {
-        if (selectedUser == null || string.IsNullOrWhiteSpace(newResetPassword)) return;
+        if (selectedUser == null) return;
+        resetPasswordError = null;
+        if (string.IsNullOrWhiteSpace(newResetPassword))
+        {
+            resetPasswordError = "กรุณาระบุรหัสผ่านใหม่";
+            return;
+        }
+        if (newResetPassword != confirmResetPassword)
+        {
+            resetPasswordError = "รหัสผ่านใหม่และการยืนยันรหัสผ่านไม่ตรงกัน";
+            return;
+        }
         var op = string.IsNullOrEmpty(SessionState.CurrentUsername) ? "admin" : SessionState.CurrentUsername;
         var res = await UserService.ResetPasswordAsync(selectedUser.Username, newResetPassword, op);
-        isResetPasswordModalOpen = false;
-        SetAlert(res.Message, res.Success);
+        if (res.Success)
+        {
+            isResetPasswordModalOpen = false;
+            SetAlert(res.Message, true);
+        }
+        else
+        {
+            resetPasswordError = res.Message;
+        }
     }
 
     private void OpenDeleteUserModal(SftpUser user)

@@ -15,19 +15,23 @@
                 <div class="modal-body p-4">
                     <!-- Current Selected / Typed Path -->
                     <div class="mb-3">
-                        <label class="form-label small fw-bold">โฟลเดอร์ที่เลือก (Selected Path)</label>
+                        <div class="d-flex justify-content-between align-items-center mb-1">
+                            <label class="form-label small fw-bold mb-0">1. โฟลเดอร์เป้าหมายที่เลือก (Selected Path)</label>
+                            <span class="badge bg-primary-subtle text-primary border border-primary-subtle font-monospace" style="font-size: 0.7rem;">พิมพ์ Path หรือคลิกเลือกด้านล่าง</span>
+                        </div>
                         <div class="input-group input-group-sm">
-                            <input type="text" class="form-control font-monospace" @bind="CurrentPath" @bind:event="oninput" placeholder="เช่น D:\SFTPShare\Data" />
-                            <button class="btn btn-outline-secondary" type="button" @onclick="GoToCurrentPath" title="ไปยัง Path ที่ระบุ">
-                                <i class="bi bi-arrow-right"></i>
-                                <span>ไปยังโฟลเดอร์</span>
+                            <span class="input-group-text bg-light"><i class="bi bi-folder-check text-primary"></i></span>
+                            <input type="text" class="form-control font-monospace" @bind="CurrentPath" @bind:event="oninput" @onkeyup="HandlePathKeyUp" placeholder="เช่น D:\SFTPShare\Marketing" />
+                            <button class="btn btn-outline-primary" type="button" @onclick="GoToCurrentPath" title="เปิดดูโฟลเดอร์ตาม Path ที่ระบุ">
+                                <i class="bi bi-arrow-right-circle"></i>
+                                <span>เปิดดู Path นี้</span>
                             </button>
                         </div>
                     </div>
 
                     <!-- Drive Selection Buttons -->
                     <div class="mb-3">
-                        <label class="form-label small fw-bold">ไดรฟ์ในระบบ (Available Drives)</label>
+                        <label class="form-label small fw-bold mb-1">2. เลือกไดรฟ์และสำรวจโฟลเดอร์ย่อย (Browse Drives & Folders)</label>
                         <div class="d-flex flex-wrap gap-2">
                             @foreach (var drive in _availableDrives)
                             {
@@ -43,7 +47,7 @@
 
                     <!-- Directory Navigation Breadcrumbs -->
                     <nav aria-label="breadcrumb">
-                        <ol class="breadcrumb bg-light border p-2 rounded small mb-3 align-items-center">
+                        <ol class="breadcrumb bg-light border p-2 rounded small mb-2 align-items-center">
                             <li class="breadcrumb-item">
                                 <a href="javascript:void(0)" class="text-decoration-none d-inline-flex align-items-center gap-1" @onclick="() => LoadDrives()">
                                     <i class="bi bi-pc-display"></i>
@@ -66,66 +70,81 @@
                         </ol>
                     </nav>
 
-                    <!-- New Folder Action -->
-                    <div class="row g-2 mb-3">
-                        <div class="col-8">
-                            <input type="text" class="form-control form-control-sm" placeholder="ระบุชื่อโฟลเดอร์ใหม่..." @bind="_newFolderName" />
-                        </div>
-                        <div class="col-4">
-                            <button type="button" class="btn btn-sm btn-outline-primary w-100 justify-content-center" @onclick="CreateNewFolder" disabled="@(string.IsNullOrWhiteSpace(_newFolderName) || string.IsNullOrWhiteSpace(CurrentPath))">
-                                <i class="bi bi-folder-plus"></i>
-                                <span>สร้างโฟลเดอร์ใหม่</span>
-                            </button>
-                        </div>
-                    </div>
-
                     @if (!string.IsNullOrEmpty(_errorMessage))
                     {
-                        <div class="alert alert-danger py-2 small d-flex align-items-center gap-2">
+                        <div class="alert alert-danger py-2 small d-flex align-items-center gap-2 mb-2">
                             <i class="bi bi-exclamation-triangle-fill flex-shrink-0"></i>
                             <div>@_errorMessage</div>
                         </div>
                     }
 
-                    <!-- Folder List -->
-                    <div class="border rounded bg-white p-2" style="max-height: 280px; overflow-y: auto;">
-                        @if (_currentFolders.Count == 0)
-                        {
-                            <div class="text-muted text-center py-4 small">
-                                <i class="bi bi-folder2-open fs-2 d-block mb-2"></i>
-                                <span>ไม่มีโฟลเดอร์ย่อยภายในไดเรกทอรีนี้</span>
+                    <!-- Folder List Card with Integrated Subfolder Creator -->
+                    <div class="border rounded bg-white overflow-hidden">
+                        <div class="bg-light border-bottom px-2.5 py-2 d-flex flex-wrap justify-content-between align-items-center gap-2">
+                            <span class="small fw-bold text-secondary d-inline-flex align-items-center gap-1">
+                                <i class="bi bi-diagram-2"></i>
+                                <span>โฟลเดอร์ย่อยภายใน (@_currentFolders.Count)</span>
+                            </span>
+                            <div class="input-group input-group-sm" style="max-width: 340px;">
+                                <input type="text" class="form-control" placeholder="ชื่อโฟลเดอร์ย่อยใหม่ (เช่น Data, Inbound)..." @bind="_newFolderName" @bind:event="oninput" @onkeyup="HandleNewFolderKeyUp" />
+                                <button type="button" class="btn btn-outline-primary" @onclick="CreateNewFolder" disabled="@(string.IsNullOrWhiteSpace(_newFolderName) || string.IsNullOrWhiteSpace(CurrentPath))">
+                                    <i class="bi bi-folder-plus"></i>
+                                    <span>สร้างโฟลเดอร์</span>
+                                </button>
                             </div>
+                        </div>
+                        <div class="p-2" style="max-height: 260px; overflow-y: auto;">
+                            @if (_currentFolders.Count == 0)
+                            {
+                                <div class="text-muted text-center py-4 small">
+                                    <i class="bi bi-folder2-open fs-2 d-block mb-2"></i>
+                                    <span>ไม่มีโฟลเดอร์ย่อยภายในไดเรกทอรีนี้ (สามารถพิมพ์ชื่อเพื่อสร้างโฟลเดอร์ใหม่ที่มุมขวาบน)</span>
+                                </div>
+                            }
+                            else
+                            {
+                                <div class="list-group list-group-flush">
+                                    @if (!string.IsNullOrEmpty(GetParentPath(CurrentPath)))
+                                    {
+                                        <button type="button" class="list-group-item list-group-item-action py-1.5 px-2.5 d-flex align-items-center gap-2 text-primary fw-semibold" @onclick="() => NavigateTo(GetParentPath(CurrentPath)!)">
+                                            <i class="bi bi-arrow-90deg-up"></i>
+                                            <span class="small font-monospace">.. (ย้อนกลับขึ้นหนึ่งระดับ)</span>
+                                        </button>
+                                    }
+                                    @foreach (var folder in _currentFolders)
+                                    {
+                                        <button type="button" class="list-group-item list-group-item-action py-1.5 px-2.5 d-flex align-items-center justify-content-between" @onclick="() => NavigateTo(folder.FullPath)">
+                                            <div class="d-flex align-items-center gap-2 text-truncate">
+                                                <i class="bi bi-folder-fill text-primary"></i>
+                                                <span class="small font-monospace">@folder.Name</span>
+                                            </div>
+                                            <i class="bi bi-chevron-right text-muted small"></i>
+                                        </button>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer bg-light d-flex justify-content-between align-items-center">
+                    <div class="small text-truncate" style="max-width: 60%;">
+                        @if (!string.IsNullOrWhiteSpace(CurrentPath))
+                        {
+                            <span class="text-muted">จะเลือก: </span>
+                            <code class="fw-bold text-primary">@CurrentPath</code>
                         }
                         else
                         {
-                            <div class="list-group list-group-flush">
-                                @if (!string.IsNullOrEmpty(GetParentPath(CurrentPath)))
-                                {
-                                    <button type="button" class="list-group-item list-group-item-action py-1.5 px-2.5 d-flex align-items-center gap-2 text-primary fw-semibold" @onclick="() => NavigateTo(GetParentPath(CurrentPath)!)">
-                                        <i class="bi bi-arrow-90deg-up"></i>
-                                        <span class="small font-monospace">.. (ย้อนกลับขึ้นหนึ่งระดับ)</span>
-                                    </button>
-                                }
-                                @foreach (var folder in _currentFolders)
-                                {
-                                    <button type="button" class="list-group-item list-group-item-action py-1.5 px-2.5 d-flex align-items-center justify-content-between" @onclick="() => NavigateTo(folder.FullPath)">
-                                        <div class="d-flex align-items-center gap-2 text-truncate">
-                                            <i class="bi bi-folder-fill text-primary"></i>
-                                            <span class="small font-monospace">@folder.Name</span>
-                                        </div>
-                                        <i class="bi bi-chevron-right text-muted small"></i>
-                                    </button>
-                                }
-                            </div>
+                            <span class="text-warning-emphasis">กรุณาเลือกไดรฟ์หรือโฟลเดอร์</span>
                         }
                     </div>
-                </div>
-                <div class="modal-footer bg-light">
-                    <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="Close">ยกเลิก</button>
-                    <button type="button" class="btn btn-primary btn-sm px-3" @onclick="ConfirmSelection" disabled="@(string.IsNullOrWhiteSpace(CurrentPath))">
-                        <i class="bi bi-check-lg"></i>
-                        <span>เลือกโฟลเดอร์นี้</span>
-                    </button>
+                    <div class="d-flex align-items-center gap-2">
+                        <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="Close">ยกเลิก</button>
+                        <button type="button" class="btn btn-primary btn-sm px-3" @onclick="ConfirmSelection" disabled="@(string.IsNullOrWhiteSpace(CurrentPath))">
+                            <i class="bi bi-check-lg"></i>
+                            <span>ยืนยันเลือกโฟลเดอร์นี้</span>
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -203,6 +222,22 @@
         if (!string.IsNullOrWhiteSpace(CurrentPath))
         {
             NavigateTo(CurrentPath);
+        }
+    }
+
+    private void HandlePathKeyUp(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            GoToCurrentPath();
+        }
+    }
+
+    private void HandleNewFolderKeyUp(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !string.IsNullOrWhiteSpace(_newFolderName) && !string.IsNullOrWhiteSpace(CurrentPath))
+        {
+            CreateNewFolder();
         }
     }
 

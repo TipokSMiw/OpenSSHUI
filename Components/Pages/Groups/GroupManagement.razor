@@ -2,6 +2,7 @@
 @rendermode InteractiveServer
 @inject ISftpGroupService GroupService
 @inject ISftpUserService UserService
+@inject IOpenSshServiceManager SshManager
 @inject UserSessionState SessionState
 @inject NavigationManager Navigation
 
@@ -41,18 +42,20 @@
     <!-- Search & Filter Bar -->
     <div class="card border-0 shadow-sm rounded-3 mb-3">
         <div class="card-body py-2.5 px-3">
-            <div class="row g-2 align-items-center">
+            <div class="row g-2 align-items-end">
                 <div class="col-md-5">
+                    <label class="form-label small fw-bold mb-1">ค้นหากลุ่มแชร์ไฟล์</label>
                     <div class="input-group input-group-sm">
                         <span class="input-group-text bg-white border-end-0 text-muted"><i class="bi bi-search"></i></span>
-                        <input type="text" class="form-control border-start-0" placeholder="ค้นหาชื่อกลุ่ม หรือ Shared Root Path..." @bind="_searchTerm" @bind:event="oninput" />
+                        <input type="text" class="form-control border-start-0" placeholder="เช่น Marketing, Finance หรือ D:\SFTPShare..." @bind="_searchTerm" @bind:event="oninput" />
                     </div>
                 </div>
                 <div class="col-md-3">
+                    <label class="form-label small fw-bold mb-1">โหมดการเข้าถึง (Access Mode)</label>
                     <select class="form-select form-select-sm" @bind="_modeFilter">
-                        <option value="">ทุกโหมดการเข้าถึง (Access Modes)</option>
-                        <option value="VirtualFolder">Virtual Folder</option>
-                        <option value="DirectChroot">Direct Chroot</option>
+                        <option value="">ทุกโหมดการเข้าถึง (All Modes)</option>
+                        <option value="VirtualFolder">Virtual Folder (โฟลเดอร์ย่อยใน Home)</option>
+                        <option value="DirectChroot">Direct Chroot (โฟลเดอร์หลักโดยตรง)</option>
                     </select>
                 </div>
                 <div class="col-md-4 d-flex justify-content-end align-items-center gap-2">
@@ -60,7 +63,7 @@
                     {
                         <button class="btn btn-outline-secondary btn-sm py-0.5 px-2" title="ล้างตัวกรองทั้งหมด" @onclick="ClearFilters">
                             <i class="bi bi-x-circle"></i>
-                            <span>ล้าง</span>
+                            <span>ล้างตัวกรอง</span>
                         </button>
                     }
                     <span class="text-muted small text-nowrap">
@@ -200,107 +203,255 @@
                 <div class="modal-header bg-dark text-white">
                     <h5 class="modal-title d-flex align-items-center gap-2">
                         <i class="bi bi-collection-fill text-primary"></i>
-                        <span>สร้างกลุ่มผู้ใช้งาน SFTP ใหม่</span>
+                        <span>สร้างกลุ่มผู้ใช้งาน SFTP ใหม่ (Guided Setup)</span>
                     </h5>
                     <button type="button" class="btn-close btn-close-white" @onclick="CloseModals"></button>
                 </div>
                 <div class="modal-body p-4">
                     @if (!string.IsNullOrEmpty(_modalError))
                     {
-                        <div class="alert alert-danger py-2 small d-flex align-items-center gap-2">
+                        <div class="alert alert-danger py-2 small d-flex align-items-center gap-2 mb-3">
                             <i class="bi bi-exclamation-triangle-fill flex-shrink-0"></i>
                             <div>@_modalError</div>
                         </div>
                     }
 
-                    <div class="row g-3">
+                    <!-- Step 1: Identity & Shared Folder -->
+                    <div class="form-step-header">
+                        <div class="form-step-title">
+                            <span class="form-step-badge">1</span>
+                            <span>ข้อมูลกลุ่มและโฟลเดอร์หลัก (Group Identity & Shared Path)</span>
+                        </div>
+                        <span class="badge bg-danger-subtle text-danger border border-danger-subtle" style="font-size: 0.7rem;">จำเป็น</span>
+                    </div>
+
+                    <div class="row g-3 mb-4">
                         <div class="col-md-6">
-                            <label class="form-label small fw-bold">ชื่อกลุ่ม (Group Name) <span class="text-danger">*</span></label>
-                            <input type="text" class="form-control form-control-sm" placeholder="เช่น Marketing, FinanceTeam" @bind="_createRequest.Name" />
-                            <div class="form-text small">ระบบจะสร้าง Windows Local Group ที่ขึ้นต้นด้วย <code>SFTP-</code> อัตโนมัติ</div>
+                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                <label class="form-label small fw-bold mb-0">ชื่อกลุ่ม (Group Name) <span class="text-danger">*</span></label>
+                                @if (!string.IsNullOrWhiteSpace(_createRequest.Name))
+                                {
+                                    <span class="badge bg-primary-subtle text-primary border border-primary-subtle font-monospace" style="font-size: 0.7rem;">
+                                        OS Group: SFTP-@(_createRequest.Name.Trim())
+                                    </span>
+                                }
+                            </div>
+                            <input type="text" class="form-control form-control-sm" placeholder="เช่น Marketing, FinanceTeam, VendorShare" @bind="_createRequest.Name" @bind:event="oninput" />
                         </div>
 
                         <div class="col-md-6">
-                            <label class="form-label small fw-bold">คำอธิบาย (Description)</label>
-                            <input type="text" class="form-control form-control-sm" placeholder="รายละเอียดเพิ่มเติมเกี่ยวกับกลุ่มนี้" @bind="_createRequest.Description" />
+                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                <label class="form-label small fw-bold mb-0">คำอธิบาย (Description)</label>
+                                <span class="text-muted" style="font-size: 0.75rem;">ไม่บังคับ</span>
+                            </div>
+                            <input type="text" class="form-control form-control-sm" placeholder="เช่น โฟลเดอร์แลกเปลี่ยนเอกสารฝ่ายการตลาด" @bind="_createRequest.Description" />
                         </div>
 
                         <div class="col-12">
-                            <label class="form-label small fw-bold">โฟลเดอร์หลักของกลุ่ม (Shared Root Path) <span class="text-danger">*</span></label>
+                            <div class="d-flex flex-wrap justify-content-between align-items-center gap-1 mb-1">
+                                <label class="form-label small fw-bold mb-0">โฟลเดอร์หลักของกลุ่ม (Shared Root Path) <span class="text-danger">*</span></label>
+                                @if (!string.IsNullOrEmpty(SuggestedCreateGroupPath) && !string.Equals(_createRequest.RootPath, SuggestedCreateGroupPath, StringComparison.OrdinalIgnoreCase))
+                                {
+                                    <button type="button" class="auto-fill-chip" title="คลิกเพื่อเติม Path มาตรฐานของกลุ่มอัตโนมัติ" @onclick="ApplySuggestedCreateGroupPath">
+                                        <i class="bi bi-lightning-charge-fill"></i>
+                                        <span>เติมอัตโนมัติ: @SuggestedCreateGroupPath</span>
+                                    </button>
+                                }
+                            </div>
                             <div class="input-group input-group-sm">
-                                <input type="text" class="form-control font-monospace" placeholder="เช่น D:\SFTPShare\Marketing" @bind="_createRequest.RootPath" />
+                                <input type="text" class="form-control font-monospace" placeholder="เช่น D:\SFTPShare\Marketing (หากยังไม่มี ระบบจะสร้างให้อัตโนมัติ)" @bind="_createRequest.RootPath" @bind:event="oninput" />
                                 <button class="btn btn-outline-secondary" type="button" @onclick="OpenFolderBrowserForCreate">
                                     <i class="bi bi-folder2-open"></i>
                                     <span>เลือกโฟลเดอร์...</span>
                                 </button>
                             </div>
-                            <div class="form-text small">หากโฟลเดอร์ยังไม่มีอยู่ ระบบจะสร้างและกำหนดสิทธิ์ NTFS ACL ให้อัตโนมัติ</div>
                         </div>
+                    </div>
 
-                        <div class="col-md-6">
-                            <label class="form-label small fw-bold">โหมดการเข้าถึง (Access Mode)</label>
-                            <select class="form-select form-select-sm" @bind="_createRequest.AccessMode">
-                                <option value="@SftpAccessMode.VirtualFolder">Virtual Folder (ปรากฏเป็นโฟลเดอร์ย่อยใน Home)</option>
-                                <option value="@SftpAccessMode.DirectChroot">Direct Chroot (ใช้โฟลเดอร์กลุ่มเป็น Root โดยตรง)</option>
-                            </select>
-                            <div class="form-text small">โหมด Virtual Folder ช่วยให้ผู้ใช้อยู่ได้หลายกลุ่มพร้อมกันผ่าน NTFS Junction</div>
+                    <!-- Step 2: Access Mode & Permissions -->
+                    <div class="form-step-header">
+                        <div class="form-step-title">
+                            <span class="form-step-badge">2</span>
+                            <span>โหมดการเข้าถึงและระดับสิทธิ์ (Access Mode & NTFS Permission)</span>
                         </div>
+                    </div>
 
-                        <div class="col-md-6">
-                            <label class="form-label small fw-bold">ระดับสิทธิ์ (Permission Level)</label>
-                            <select class="form-select form-select-sm" @bind="_createRequest.PermissionType">
-                                <option value="@SftpPermissionType.ReadWrite">Read & Write (อัปโหลด แก้ไข และลบไฟล์ได้)</option>
-                                <option value="@SftpPermissionType.ReadOnly">Read-Only (ดาวน์โหลดและเปิดดูได้อย่างเดียว)</option>
-                            </select>
-                        </div>
-
-                        <div class="col-12">
-                            <label class="form-label small fw-bold">เลือกสมาชิกเริ่มต้น (Initial Members)</label>
-                            <div class="border rounded p-2.5 bg-white" style="max-height: 160px; overflow-y: auto;">
-                                @if (_allUsers.Count == 0)
-                                {
-                                    <span class="text-muted small">ยังไม่มีผู้ใช้งานในระบบ</span>
-                                }
-                                else
-                                {
-                                    <div class="row row-cols-2 g-2">
-                                        @foreach (var user in _allUsers)
-                                        {
-                                            <div class="col">
-                                                <div class="form-check">
-                                                    <input class="form-check-input" type="checkbox" id="chk_user_@user.Username"
-                                                           checked="@_createRequest.InitialMembers.Contains(user.Username)"
-                                                           @onchange="(e) => ToggleMemberSelection(_createRequest.InitialMembers, user.Username, e.Value)" />
-                                                    <label class="form-check-label small" for="chk_user_@user.Username">
-                                                        <strong>@user.Username</strong>
-                                                        @if (!string.IsNullOrEmpty(user.DisplayName) && user.DisplayName != user.Username)
-                                                        {
-                                                            <span class="text-muted">(@user.DisplayName)</span>
-                                                        }
-                                                    </label>
-                                                </div>
-                                            </div>
-                                        }
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold mb-1.5">เลือกรูปแบบการมองเห็นโฟลเดอร์ (Access Mode)</label>
+                        <div class="row g-2">
+                            <div class="col-md-6">
+                                <div class="selection-card @(_createRequest.AccessMode == SftpAccessMode.VirtualFolder ? "active" : "")"
+                                     @onclick="() => _createRequest.AccessMode = SftpAccessMode.VirtualFolder">
+                                    <div>
+                                        <div class="fw-bold small d-flex align-items-center gap-1.5">
+                                            <i class="bi bi-folder-symlink text-primary"></i>
+                                            <span>Virtual Folder (NTFS Junction)</span>
+                                        </div>
+                                        <div class="text-muted small mt-1" style="font-size: 0.75rem;">
+                                            ปรากฏเป็นโฟลเดอร์ย่อยใน Home ของสมาชิก อยู่ได้หลายกลุ่มพร้อมกัน
+                                        </div>
                                     </div>
-                                }
+                                    <span class="badge bg-primary text-white" style="font-size: 0.68rem;">แนะนำ</span>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="selection-card @(_createRequest.AccessMode == SftpAccessMode.DirectChroot ? "active" : "")"
+                                     @onclick="() => _createRequest.AccessMode = SftpAccessMode.DirectChroot">
+                                    <div>
+                                        <div class="fw-bold small d-flex align-items-center gap-1.5">
+                                            <i class="bi bi-box-arrow-in-down-right text-primary"></i>
+                                            <span>Direct Chroot</span>
+                                        </div>
+                                        <div class="text-muted small mt-1" style="font-size: 0.75rem;">
+                                            ใช้โฟลเดอร์กลุ่มเป็น Root หลักทันทีเมื่อสมาชิกเชื่อมต่อเข้ามา
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
+
+                    <div class="mb-4">
+                        <label class="form-label small fw-bold mb-1.5">เลือกระดับสิทธิ์ของสมาชิก (Permission Level)</label>
+                        <div class="row g-2">
+                            <div class="col-md-6">
+                                <div class="selection-card @(_createRequest.PermissionType == SftpPermissionType.ReadWrite ? "active" : "")"
+                                     @onclick="() => _createRequest.PermissionType = SftpPermissionType.ReadWrite">
+                                    <div>
+                                        <div class="fw-bold small d-flex align-items-center gap-1.5">
+                                            <i class="bi bi-pencil-square text-success"></i>
+                                            <span>Read &amp; Write (อ่านและเขียนไฟล์)</span>
+                                        </div>
+                                        <div class="text-muted small mt-1" style="font-size: 0.75rem;">
+                                            อัปโหลด ดาวน์โหลด แก้ไข และลบไฟล์ในกลุ่มได้
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="selection-card @(_createRequest.PermissionType == SftpPermissionType.ReadOnly ? "active" : "")"
+                                     @onclick="() => _createRequest.PermissionType = SftpPermissionType.ReadOnly">
+                                    <div>
+                                        <div class="fw-bold small d-flex align-items-center gap-1.5">
+                                            <i class="bi bi-eye text-secondary"></i>
+                                            <span>Read-Only (อ่านอย่างเดียว)</span>
+                                        </div>
+                                        <div class="text-muted small mt-1" style="font-size: 0.75rem;">
+                                            เปิดดูและดาวน์โหลดไฟล์ได้อย่างเดียว ห้ามแก้ไขหรือลบ
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Step 3: Initial Members -->
+                    <div class="form-step-header">
+                        <div class="form-step-title">
+                            <span class="form-step-badge">3</span>
+                            <span>เลือกสมาชิกเริ่มต้น (Initial Members)</span>
+                        </div>
+                        <span class="badge bg-primary-subtle text-primary border border-primary-subtle" style="font-size: 0.7rem;">
+                            เลือกแล้ว @_createRequest.InitialMembers.Count คน
+                        </span>
+                    </div>
+
+                    <div class="border rounded bg-white overflow-hidden mb-3">
+                        <div class="bg-light border-bottom px-2.5 py-1.5 d-flex flex-wrap justify-content-between align-items-center gap-2">
+                            <div class="input-group input-group-sm" style="max-width: 260px;">
+                                <span class="input-group-text bg-white border-end-0 text-muted"><i class="bi bi-search"></i></span>
+                                <input type="text" class="form-control border-start-0" placeholder="ค้นหาชื่อผู้ใช้..." @bind="_memberSearchTerm" @bind:event="oninput" />
+                            </div>
+                            <div class="d-flex gap-1.5">
+                                <button type="button" class="btn btn-outline-primary btn-sm py-0 px-2" style="font-size: 0.75rem;" @onclick="() => SelectAllMembers(_createRequest.InitialMembers)">เลือกทั้งหมด</button>
+                                <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size: 0.75rem;" @onclick="() => _createRequest.InitialMembers.Clear()">ล้าง</button>
+                            </div>
+                        </div>
+                        <div class="p-2.5" style="max-height: 150px; overflow-y: auto;">
+                            @if (_allUsers.Count == 0)
+                            {
+                                <span class="text-muted small">ยังไม่มีผู้ใช้งานในระบบ (สามารถเพิ่มภายหลังได้)</span>
+                            }
+                            else
+                            {
+                                <div class="row row-cols-2 g-2">
+                                    @foreach (var user in FilteredMemberCandidates)
+                                    {
+                                        <div class="col">
+                                            <div class="form-check">
+                                                <input class="form-check-input" type="checkbox" id="chk_user_@user.Username"
+                                                       checked="@_createRequest.InitialMembers.Contains(user.Username)"
+                                                       @onchange="(e) => ToggleMemberSelection(_createRequest.InitialMembers, user.Username, e.Value)" />
+                                                <label class="form-check-label small" for="chk_user_@user.Username">
+                                                    <strong>@user.Username</strong>
+                                                    @if (!string.IsNullOrEmpty(user.DisplayName) && user.DisplayName != user.Username)
+                                                    {
+                                                        <span class="text-muted">(@user.DisplayName)</span>
+                                                    }
+                                                </label>
+                                            </div>
+                                        </div>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    </div>
+
+                    <!-- Live Effective Group Summary -->
+                    <div class="effective-preview-box d-flex flex-wrap justify-content-between align-items-center gap-2">
+                        <div class="small">
+                            <div class="fw-bold d-flex align-items-center gap-1.5">
+                                <i class="bi bi-check2-circle"></i>
+                                <span>สรุปผลลัพธ์การเข้าถึงของกลุ่ม (Effective Group Access):</span>
+                            </div>
+                            <div class="font-monospace mt-0.5">
+                                @if (_createRequest.AccessMode == SftpAccessMode.VirtualFolder)
+                                {
+                                    <span>สมาชิกจะเห็นโฟลเดอร์ย่อย <strong>/@(string.IsNullOrWhiteSpace(_createRequest.Name) ? "{GroupName}" : _createRequest.Name.Trim())</strong> เชื่อมไปยัง <strong>@(string.IsNullOrWhiteSpace(_createRequest.RootPath) ? "{RootPath}" : _createRequest.RootPath.Trim())</strong></span>
+                                }
+                                else
+                                {
+                                    <span>สมาชิกจะเข้าสู่ Chroot หลักที่ <strong>@(string.IsNullOrWhiteSpace(_createRequest.RootPath) ? "{RootPath}" : _createRequest.RootPath.Trim())</strong> โดยตรง</span>
+                                }
+                            </div>
+                        </div>
+                        <span class="badge bg-white text-primary border border-primary-subtle">
+                            @(_createRequest.PermissionType == SftpPermissionType.ReadWrite ? "สิทธิ์ Read & Write" : "สิทธิ์ Read-Only")
+                        </span>
+                    </div>
                 </div>
-                <div class="modal-footer bg-light">
-                    <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="CloseModals">ยกเลิก</button>
-                    <button type="button" class="btn btn-primary btn-sm" @onclick="SaveCreateGroup" disabled="@_saving">
-                        @if (_saving)
+                <div class="modal-footer bg-light d-flex justify-content-between align-items-center">
+                    <div class="small">
+                        @if (IsCreateGroupValid)
                         {
-                            <span class="spinner-border spinner-border-sm"></span>
-                            <span>กำลังสร้าง...</span>
+                            <span class="text-success fw-semibold d-inline-flex align-items-center gap-1">
+                                <i class="bi bi-check-circle-fill"></i>
+                                <span>ข้อมูลครบถ้วน พร้อมสร้างกลุ่มทันที</span>
+                            </span>
                         }
                         else
                         {
-                            <i class="bi bi-check-lg"></i>
-                            <span>บันทึกและสร้างกลุ่ม</span>
+                            <span class="text-warning-emphasis d-inline-flex align-items-center gap-1">
+                                <i class="bi bi-info-circle-fill"></i>
+                                <span>กรุณาระบุชื่อกลุ่มและโฟลเดอร์หลัก (*) ให้ครบ</span>
+                            </span>
                         }
-                    </button>
+                    </div>
+                    <div class="d-flex gap-2">
+                        <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="CloseModals">ยกเลิก</button>
+                        <button type="button" class="btn btn-primary btn-sm px-3" @onclick="SaveCreateGroup" disabled="@(_saving || !IsCreateGroupValid)">
+                            @if (_saving)
+                            {
+                                <span class="spinner-border spinner-border-sm"></span>
+                                <span>กำลังสร้าง...</span>
+                            }
+                            else
+                            {
+                                <i class="bi bi-check-lg"></i>
+                                <span>@(IsCreateGroupValid ? $"บันทึกและสร้างกลุ่ม {_createRequest.Name.Trim()}" : "กรุณากรอกข้อมูลให้ครบ")</span>
+                            }
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -323,90 +474,184 @@
                 <div class="modal-body p-4">
                     @if (!string.IsNullOrEmpty(_modalError))
                     {
-                        <div class="alert alert-danger py-2 small d-flex align-items-center gap-2">
+                        <div class="alert alert-danger py-2 small d-flex align-items-center gap-2 mb-3">
                             <i class="bi bi-exclamation-triangle-fill flex-shrink-0"></i>
                             <div>@_modalError</div>
                         </div>
                     }
 
-                    <div class="row g-3">
+                    <!-- Step 1: Identity & Shared Folder -->
+                    <div class="form-step-header">
+                        <div class="form-step-title">
+                            <span class="form-step-badge">1</span>
+                            <span>ข้อมูลกลุ่มและโฟลเดอร์หลัก (Group Identity & Shared Path)</span>
+                        </div>
+                        <span class="badge bg-primary-subtle text-primary border border-primary-subtle font-monospace" style="font-size: 0.7rem;">
+                            OS Group: SFTP-@_selectedGroup.Name
+                        </span>
+                    </div>
+
+                    <div class="row g-3 mb-4">
                         <div class="col-md-6">
-                            <label class="form-label small fw-bold">ชื่อกลุ่ม (Group Name)</label>
+                            <label class="form-label small fw-bold mb-1">ชื่อกลุ่ม (Group Name)</label>
                             <input type="text" class="form-control form-control-sm" value="@_selectedGroup.Name" disabled />
                         </div>
 
                         <div class="col-md-6">
-                            <label class="form-label small fw-bold">คำอธิบาย (Description)</label>
-                            <input type="text" class="form-control form-control-sm" @bind="_editRequest.Description" />
+                            <label class="form-label small fw-bold mb-1">คำอธิบาย (Description)</label>
+                            <input type="text" class="form-control form-control-sm" placeholder="ระบุคำอธิบายเพิ่มเติมของกลุ่มนี้..." @bind="_editRequest.Description" />
                         </div>
 
                         <div class="col-12">
-                            <label class="form-label small fw-bold">โฟลเดอร์หลักของกลุ่ม (Shared Root Path) <span class="text-danger">*</span></label>
+                            <label class="form-label small fw-bold mb-1">โฟลเดอร์หลักของกลุ่ม (Shared Root Path) <span class="text-danger">*</span></label>
                             <div class="input-group input-group-sm">
-                                <input type="text" class="form-control font-monospace" @bind="_editRequest.RootPath" />
+                                <input type="text" class="form-control font-monospace" placeholder="เช่น D:\SFTPShare\Marketing" @bind="_editRequest.RootPath" @bind:event="oninput" />
                                 <button class="btn btn-outline-secondary" type="button" @onclick="OpenFolderBrowserForEdit">
                                     <i class="bi bi-folder2-open"></i>
                                     <span>เลือกโฟลเดอร์...</span>
                                 </button>
                             </div>
                         </div>
+                    </div>
 
-                        <div class="col-md-6">
-                            <label class="form-label small fw-bold">โหมดการเข้าถึง (Access Mode)</label>
-                            <select class="form-select form-select-sm" @bind="_editRequest.AccessMode">
-                                <option value="@SftpAccessMode.VirtualFolder">Virtual Folder (ปรากฏเป็นโฟลเดอร์ย่อยใน Home)</option>
-                                <option value="@SftpAccessMode.DirectChroot">Direct Chroot (ใช้โฟลเดอร์กลุ่มเป็น Root โดยตรง)</option>
-                            </select>
+                    <!-- Step 2: Access Mode & Permissions -->
+                    <div class="form-step-header">
+                        <div class="form-step-title">
+                            <span class="form-step-badge">2</span>
+                            <span>โหมดการเข้าถึงและระดับสิทธิ์ (Access Mode & NTFS Permission)</span>
                         </div>
+                    </div>
 
-                        <div class="col-md-6">
-                            <label class="form-label small fw-bold">ระดับสิทธิ์ (Permission Level)</label>
-                            <select class="form-select form-select-sm" @bind="_editRequest.PermissionType">
-                                <option value="@SftpPermissionType.ReadWrite">Read & Write (อ่านและเขียนไฟล์ได้)</option>
-                                <option value="@SftpPermissionType.ReadOnly">Read-Only (อ่านไฟล์ได้อย่างเดียว)</option>
-                            </select>
-                        </div>
-
-                        <div class="col-12">
-                            <label class="form-label small fw-bold">สมาชิกในกลุ่ม (Group Members)</label>
-                            <div class="border rounded p-2.5 bg-white" style="max-height: 180px; overflow-y: auto;">
-                                <div class="row row-cols-2 g-2">
-                                    @foreach (var user in _allUsers)
-                                    {
-                                        <div class="col">
-                                            <div class="form-check">
-                                                <input class="form-check-input" type="checkbox" id="chk_edit_user_@user.Username"
-                                                       checked="@_editRequest.Members.Contains(user.Username)"
-                                                       @onchange="(e) => ToggleMemberSelection(_editRequest.Members, user.Username, e.Value)" />
-                                                <label class="form-check-label small" for="chk_edit_user_@user.Username">
-                                                    <strong>@user.Username</strong>
-                                                    @if (!string.IsNullOrEmpty(user.DisplayName) && user.DisplayName != user.Username)
-                                                    {
-                                                        <span class="text-muted">(@user.DisplayName)</span>
-                                                    }
-                                                </label>
-                                            </div>
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold mb-1.5">รูปแบบการมองเห็นโฟลเดอร์ (Access Mode)</label>
+                        <div class="row g-2">
+                            <div class="col-md-6">
+                                <div class="selection-card @(_editRequest.AccessMode == SftpAccessMode.VirtualFolder ? "active" : "")"
+                                     @onclick="() => _editRequest.AccessMode = SftpAccessMode.VirtualFolder">
+                                    <div>
+                                        <div class="fw-bold small d-flex align-items-center gap-1.5">
+                                            <i class="bi bi-folder-symlink text-primary"></i>
+                                            <span>Virtual Folder (NTFS Junction)</span>
                                         </div>
-                                    }
+                                        <div class="text-muted small mt-1" style="font-size: 0.75rem;">
+                                            ปรากฏเป็นโฟลเดอร์ย่อยใน Home ของสมาชิก
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="selection-card @(_editRequest.AccessMode == SftpAccessMode.DirectChroot ? "active" : "")"
+                                     @onclick="() => _editRequest.AccessMode = SftpAccessMode.DirectChroot">
+                                    <div>
+                                        <div class="fw-bold small d-flex align-items-center gap-1.5">
+                                            <i class="bi bi-box-arrow-in-down-right text-primary"></i>
+                                            <span>Direct Chroot</span>
+                                        </div>
+                                        <div class="text-muted small mt-1" style="font-size: 0.75rem;">
+                                            ใช้โฟลเดอร์กลุ่มเป็น Root หลักโดยตรง
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
                     </div>
+
+                    <div class="mb-4">
+                        <label class="form-label small fw-bold mb-1.5">ระดับสิทธิ์ของสมาชิก (Permission Level)</label>
+                        <div class="row g-2">
+                            <div class="col-md-6">
+                                <div class="selection-card @(_editRequest.PermissionType == SftpPermissionType.ReadWrite ? "active" : "")"
+                                     @onclick="() => _editRequest.PermissionType = SftpPermissionType.ReadWrite">
+                                    <div>
+                                        <div class="fw-bold small d-flex align-items-center gap-1.5">
+                                            <i class="bi bi-pencil-square text-success"></i>
+                                            <span>Read &amp; Write (อ่านและเขียนไฟล์)</span>
+                                        </div>
+                                        <div class="text-muted small mt-1" style="font-size: 0.75rem;">
+                                            อัปโหลด ดาวน์โหลด แก้ไข และลบไฟล์ได้
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="selection-card @(_editRequest.PermissionType == SftpPermissionType.ReadOnly ? "active" : "")"
+                                     @onclick="() => _editRequest.PermissionType = SftpPermissionType.ReadOnly">
+                                    <div>
+                                        <div class="fw-bold small d-flex align-items-center gap-1.5">
+                                            <i class="bi bi-eye text-secondary"></i>
+                                            <span>Read-Only (อ่านอย่างเดียว)</span>
+                                        </div>
+                                        <div class="text-muted small mt-1" style="font-size: 0.75rem;">
+                                            เปิดดูและดาวน์โหลดไฟล์ได้อย่างเดียว
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Step 3: Members -->
+                    <div class="form-step-header">
+                        <div class="form-step-title">
+                            <span class="form-step-badge">3</span>
+                            <span>สมาชิกในกลุ่ม (Group Members)</span>
+                        </div>
+                        <span class="badge bg-primary-subtle text-primary border border-primary-subtle" style="font-size: 0.7rem;">
+                            เลือกแล้ว @_editRequest.Members.Count คน
+                        </span>
+                    </div>
+
+                    <div class="border rounded bg-white overflow-hidden">
+                        <div class="bg-light border-bottom px-2.5 py-1.5 d-flex flex-wrap justify-content-between align-items-center gap-2">
+                            <div class="input-group input-group-sm" style="max-width: 260px;">
+                                <span class="input-group-text bg-white border-end-0 text-muted"><i class="bi bi-search"></i></span>
+                                <input type="text" class="form-control border-start-0" placeholder="ค้นหาชื่อผู้ใช้..." @bind="_memberSearchTerm" @bind:event="oninput" />
+                            </div>
+                            <div class="d-flex gap-1.5">
+                                <button type="button" class="btn btn-outline-primary btn-sm py-0 px-2" style="font-size: 0.75rem;" @onclick="() => SelectAllMembers(_editRequest.Members)">เลือกทั้งหมด</button>
+                                <button type="button" class="btn btn-outline-secondary btn-sm py-0 px-2" style="font-size: 0.75rem;" @onclick="() => _editRequest.Members.Clear()">ล้าง</button>
+                            </div>
+                        </div>
+                        <div class="p-2.5" style="max-height: 160px; overflow-y: auto;">
+                            <div class="row row-cols-2 g-2">
+                                @foreach (var user in FilteredMemberCandidates)
+                                {
+                                    <div class="col">
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="checkbox" id="chk_edit_user_@user.Username"
+                                                   checked="@_editRequest.Members.Contains(user.Username)"
+                                                   @onchange="(e) => ToggleMemberSelection(_editRequest.Members, user.Username, e.Value)" />
+                                            <label class="form-check-label small" for="chk_edit_user_@user.Username">
+                                                <strong>@user.Username</strong>
+                                                @if (!string.IsNullOrEmpty(user.DisplayName) && user.DisplayName != user.Username)
+                                                {
+                                                    <span class="text-muted">(@user.DisplayName)</span>
+                                                }
+                                            </label>
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    </div>
                 </div>
-                <div class="modal-footer bg-light">
-                    <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="CloseModals">ยกเลิก</button>
-                    <button type="button" class="btn btn-primary btn-sm" @onclick="SaveEditGroup" disabled="@_saving">
-                        @if (_saving)
-                        {
-                            <span class="spinner-border spinner-border-sm"></span>
-                            <span>กำลังบันทึก...</span>
-                        }
-                        else
-                        {
-                            <i class="bi bi-check-lg"></i>
-                            <span>บันทึกการแก้ไข</span>
-                        }
-                    </button>
+                <div class="modal-footer bg-light d-flex justify-content-between align-items-center">
+                    <span class="small text-muted">การเปลี่ยนแปลงจะมีผลกับ NTFS ACL และ Junction ของสมาชิกทันที</span>
+                    <div class="d-flex gap-2">
+                        <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="CloseModals">ยกเลิก</button>
+                        <button type="button" class="btn btn-primary btn-sm px-3" @onclick="SaveEditGroup" disabled="@(_saving || string.IsNullOrWhiteSpace(_editRequest.RootPath))">
+                            @if (_saving)
+                            {
+                                <span class="spinner-border spinner-border-sm"></span>
+                                <span>กำลังบันทึก...</span>
+                            }
+                            else
+                            {
+                                <i class="bi bi-check-lg"></i>
+                                <span>บันทึกการแก้ไข</span>
+                            }
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -518,6 +763,46 @@
 
     private string _searchTerm = string.Empty;
     private string _modeFilter = string.Empty;
+    private string _memberSearchTerm = string.Empty;
+
+    private bool IsCreateGroupValid =>
+        !string.IsNullOrWhiteSpace(_createRequest.Name) &&
+        !string.IsNullOrWhiteSpace(_createRequest.RootPath);
+
+    private string SuggestedCreateGroupPath
+    {
+        get
+        {
+            if (string.IsNullOrWhiteSpace(_createRequest.Name)) return string.Empty;
+            var root = string.IsNullOrWhiteSpace(SshManager.SftpRoot) ? @"C:\SFTPRoot" : SshManager.SftpRoot.TrimEnd('\\', '/');
+            return $@"{root}\Groups\{_createRequest.Name.Trim()}";
+        }
+    }
+
+    private void ApplySuggestedCreateGroupPath()
+    {
+        if (!string.IsNullOrEmpty(SuggestedCreateGroupPath))
+        {
+            _createRequest.RootPath = SuggestedCreateGroupPath;
+        }
+    }
+
+    private IEnumerable<SftpUser> FilteredMemberCandidates =>
+        string.IsNullOrWhiteSpace(_memberSearchTerm)
+            ? _allUsers
+            : _allUsers.Where(u => u.Username.Contains(_memberSearchTerm.Trim(), StringComparison.OrdinalIgnoreCase) ||
+                                   (!string.IsNullOrEmpty(u.DisplayName) && u.DisplayName.Contains(_memberSearchTerm.Trim(), StringComparison.OrdinalIgnoreCase)));
+
+    private void SelectAllMembers(List<string> targetList)
+    {
+        foreach (var u in FilteredMemberCandidates)
+        {
+            if (!targetList.Contains(u.Username))
+            {
+                targetList.Add(u.Username);
+            }
+        }
+    }
 
     // Modals state
     private bool _showCreateModal = false;
@@ -591,6 +876,7 @@
             AccessMode = SftpAccessMode.VirtualFolder,
             PermissionType = SftpPermissionType.ReadWrite
         };
+        _memberSearchTerm = string.Empty;
         _modalError = null;
         _showCreateModal = true;
     }
@@ -607,6 +893,7 @@
             AccessMode = group.AccessMode,
             Members = group.Members.Select(m => m.Username).ToList()
         };
+        _memberSearchTerm = string.Empty;
         _modalError = null;
         _showEditModal = true;
     }
