@@ -20,6 +20,12 @@
 * **Zero-Config Reload Architecture:** รองรับโครงสร้าง `Match Group SFTP-Users` ร่วมกับ `%u` token ช่วยให้เพิ่มผู้ใช้ใหม่หรืออัปเดต SSH Key ได้ทันทีโดยไม่ต้องแก้ไขไฟล์ config และไม่ต้อง Restart Service
 * **High-Performance Event Log Engine (`ISshEventLogService`):** เชื่อมต่อและดึงข้อมูลจาก Windows Event Log (`OpenSSH/Operational`) ผ่าน Optimized Regex Parser แยกข้อมูล Username, IP Address, Port, Authentication Method, Event Type และความรุนแรง พร้อมตัวกรองเวลาด่วน, Auto-Refresh, ระบบ Export รายงาน CSV และโหมดจำลองข้อมูล (Demo Mock Mode)
 * **Secure Web File Browser:** สำรวจและจัดการไฟล์ใน SFTP Root ผ่านเว็บอินเทอร์เฟซ จำกัดขอบเขตอย่างเข้มงวด ป้องกัน Directory Traversal
+* **Web Admin Management & Role-Based Access Control (RBAC):**
+  * บริหารจัดการบัญชีผู้ดูแลหน้าเว็บแยกรายบุคคล ทั้ง Local Web Admin (รหัสผ่าน PBKDF2 SHA-256) และ Active Directory Users
+  * ระบบ Live Search ค้นหาและดึงบัญชีผู้ใช้จากโดเมน Active Directory มาให้สิทธิ์ได้ทันที
+  * กำหนดบทบาทสิทธิ์ 3 ระดับ: `SuperAdmin` (จัดการได้ทุกระบบ), `Operator` (จัดการ SFTP Users/Groups/Files ได้ แต่แก้ไขระบบไม่ได้), และ `Auditor` (อ่านอย่างเดียว Read-Only)
+  * มาตรการความปลอดภัยขั้นสูง (Guardrails): ป้องกันการลบหรือระงับบัญชีตนเอง, ป้องกันการลบหรือลดสิทธิ์ Super Admin คนสุดท้าย, และป้องกันการลบบัญชี Local Admin ฉุกเฉินหลัก
+  * การบันทึก Audit Accountability: ระบุตัวตนของผู้ดูแลที่เป็นผู้กระทำการจริงในทุกกิจกรรมของหน้า Audit Logs
 * **Authentication & Security Audit:** รองรับการยืนยันตัวตนผ่าน Active Directory / LDAP พร้อม Fallback Local Admin และเก็บบันทึก Web Audit Logs ทุกกิจกรรมลง SQLite (WAL Mode)
 
 ---
@@ -37,7 +43,7 @@
 # Restore & Build Project
 dotnet build OpensshUI.csproj
 
-# Run Automated Test Suite (190+ Tests)
+# Run Automated Test Suite (210+ Tests)
 dotnet test OpensshUI.Tests\OpensshUI.Tests.csproj
 
 # Run Web Application (Development Mode)

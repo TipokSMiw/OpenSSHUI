@@ -18,6 +18,7 @@
 7. **Optimized Event Log Engine (`ISshEventLogService`):** ตรวจสอบบันทึกกิจกรรม OpenSSH จาก Windows Event Log (`OpenSSH/Operational`) ผ่าน Regex Parser ความเร็วสูง แยกสถานะ Authentication, User, IP, Port, และส่งออก CSV ได้
 8. **Secure Web File Browser:** ระบบสำรวจไฟล์ผ่านเว็บอินเทอร์เฟซ โดยจำกัดขอบเขตภายใต้ SFTP Root อย่างเคร่งครัด
 9. **Authentication & Audit:** รองรับ LDAP / Active Directory ร่วมกับ Fallback Local Admin และบันทึก Audit Logs ทุกกิจกรรมลง SQLite (WAL Mode)
+10. **Web Admin & RBAC Management (`IWebAdminService`):** จัดการบัญชีผู้ดูแลหน้าเว็บแยกรายบุคคล (Local Admin พร้อมรหัสผ่าน PBKDF2 และเชื่อมโยงผู้ใช้ Active Directory ผ่าน Live Search), กำหนดบทบาทสิทธิ์ (`SuperAdmin`, `Operator`, `Auditor`), ระบบคุ้มกันความปลอดภัย (Self-Lockout Prevention, Last SuperAdmin Protection) และการบันทึก Audit Accountability รายคน
 
 ---
 
@@ -30,6 +31,7 @@ OpensshUI (Root Project - net8.0-windows)
 ├── Components/             # Blazor Interactive Server UI
 │   ├── Layout/             # MainLayout, NavMenu, Scoped CSS
 │   ├── Pages/              # Page components
+│   │   ├── Admin/          # WebAdminManagement (Web Admin Users & RBAC)
 │   │   ├── Auth/           # Login
 │   │   ├── Files/          # Secure File Browser
 │   │   ├── Groups/         # Group Management
@@ -47,10 +49,11 @@ OpensshUI (Root Project - net8.0-windows)
 │   ├── SftpGroup.cs
 │   ├── SftpUser.cs
 │   ├── SshLogFilter.cs     # Time Presets & Filter Parameters
-│   └── SshPublicKey.cs
+│   ├── SshPublicKey.cs
+│   └── WebAdminUser.cs     # Web UI Admin Users, Account Types & Roles
 ├── Services/               # Core Business Logic & OS Integrations
 │   ├── Audit/              # IAuditService, AuditService
-│   ├── Auth/               # ILdapAuthService, LdapAuthService, UserSessionState
+│   ├── Auth/               # ILdapAuthService, LdapAuthService, IWebAdminService, WebAdminService, UserSessionState
 │   ├── Files/              # ISecureFileBrowserService, SecureFileBrowserService
 │   ├── Groups/             # ISftpGroupService, SftpGroupService
 │   ├── OpenSsh/            # Core OpenSSH & OS Services
@@ -64,7 +67,7 @@ OpensshUI (Root Project - net8.0-windows)
 │   │   └── NativeAclProvisioner.cs / OpenSshLogService.cs     # Compatibility wrappers
 │   ├── Security/           # IProtectionService, ProtectionService, PasswordHasher
 │   └── Users/              # ISftpUserService, SftpUserService
-└── OpensshUI.Tests/        # Test Suite (xUnit, FluentAssertions, 190+ tests)
+└── OpensshUI.Tests/        # Test Suite (xUnit, FluentAssertions, 210+ tests)
 ```
 
 ### Architectural Rules for Agents:
@@ -116,6 +119,16 @@ AI Agent **ต้องปฏิบัติตามกฎเหล็กเห
 - **ASP.NET DataProtection:** รหัสผ่าน LDAP Bind Password หรือ Credentials ใดๆ ต้องเข้ารหัสผ่าน `IProtectionService` (DataProtection API)
 - **Local Fallback Admin:** ใช้ Secure Hash (PBKDF2 with Salt) ตามคลาส `PasswordHasher`
 
+### 3.5 Web Admin & RBAC Security Guardrails
+- **Self-Lockout Prevention:** ระบบต้องไม่อนุญาตให้ผู้ดูแลระบบที่กำลังล็อกอินอยู่ ลบหรือระงับการใช้งาน (`IsActive = false`) บัญชีของตนเอง
+- **Last SuperAdmin Preservation:** ระบบต้องไม่อนุญาตให้ลดระดับสิทธิ์, ระงับ หรือลบ Super Admin บัญชีสุดท้ายของระบบ เพื่อป้องกันการล็อกระบบโดยสมบูรณ์
+- **Fallback Disaster Recovery Protection:** บัญชี Local Admin ฉุกเฉินหลัก (`admin`) จะไม่สามารถถูกลบออกจากระบบได้ แต่สามารถเปลี่ยนรหัสผ่านหรือระงับการใช้งานได้
+- **Password Security:** รหัสผ่าน Local Web Admin ต้องมีความยาวขั้นต่ำ 8 ตัวอักษร และเข้ารหัสด้วย PBKDF2 SHA-256 พร้อม Salt ผ่าน `PasswordHasher` เสมอ
+- **Strict Role-Based Access Control:**
+  - `SuperAdmin`: เข้าถึงได้ทุกฟังก์ชัน (จัดการระบบ, จัดการ Web Admins, ตั้งค่า LDAP, ควบคุม sshd)
+  - `Operator`: จัดการได้เฉพาะ SFTP Users, SFTP Groups และ File Browser (ไม่สามารถแก้ไขระบบหรือจัดการ Web Admin ได้)
+  - `Auditor`: สิทธิ์อ่านอย่างเดียว (Read-Only) สำหรับผู้ตรวจสอบ (ดู Dashboard, OpenSSH Logs, Audit Logs)
+
 ---
 
 ## 4. Testing & Verification Standards (มาตรฐานการทดสอบ)
@@ -123,11 +136,12 @@ AI Agent **ต้องปฏิบัติตามกฎเหล็กเห
 ### 4.1 Tooling & Coverage
 - **Test Framework:** `xUnit`
 - **Assertions:** `FluentAssertions`
-- **Security Hardening Suite:** `ProductionHardeningAndSecurityTests.cs` (ครอบคลุม 4 เสาหลักความปลอดภัยระดับ Production):
+- **Security Hardening Suite:** `ProductionHardeningAndSecurityTests.cs` และ `WebAdminServiceTests.cs` (ครอบคลุมความปลอดภัยและการทำงานระดับ Production):
   1. **Domain 1:** `sshd_config` Parser, Hierarchy (Global vs Match blocks), Directive Bleeding Prevention, Atomic Write, Syntax Checking, และ Rolling Backup
   2. **Domain 2:** NTFS ACL Provisioning, OpenSSH Strict Chroot Permissions, Path Traversal Defense, และ Directory Junctions
   3. **Domain 3:** Windows Event Log Regex Parsing (`OpenSSH/Operational`), Event Type Identification, Authentication Status, และ CSV Export
   4. **Domain 4:** Dual Service Controller (`sshd` และ `ssh-agent`) Lifecycle & Fallback Behavior
+  5. **Domain 5:** Web Admin User Management, PBKDF2 Hashing, Active Directory Live Search, Role RBAC, และ Self-Lockout Guardrails
 
 ### 4.2 Rules for Testing
 1. **Mock OS Dependencies:** ในการทดสอบ Unit Tests ห้ามเรียก `net.exe`, ห้ามสร้าง Windows User จริง, และห้ามสั่งปิด Windows Service บนเครื่องทดสอบจริง
@@ -135,7 +149,7 @@ AI Agent **ต้องปฏิบัติตามกฎเหล็กเห
    ```powershell
    dotnet test OpensshUI.Tests\OpensshUI.Tests.csproj
    ```
-3. **No Regressions:** ชุดทดสอบทั้งหมด (190+ tests) ต้องผ่านครบถ้วน (`Failed: 0`)
+3. **No Regressions:** ชุดทดสอบทั้งหมด (210+ tests) ต้องผ่านครบถ้วน (`Failed: 0`)
 
 ---
 
@@ -146,7 +160,7 @@ AI Agent **ต้องปฏิบัติตามกฎเหล็กเห
 # Restore & Build Project
 dotnet build OpensshUI.csproj
 
-# Run Automated Tests
+# Run Automated Tests (210+ Tests)
 dotnet test OpensshUI.Tests\OpensshUI.Tests.csproj
 
 # Run Web Application (Development)
@@ -167,7 +181,8 @@ dotnet publish OpensshUI.csproj -c Release -o ./publish
 - [x] **Strict Chroot NTFS ACL Engine:** ระบบกำหนดสิทธิ์ตามมาตรฐานความปลอดภัย OpenSSH Chroot และป้องกัน Path Traversal
 - [x] **Dual Service Management:** รองรับการควบคุมทั้ง `sshd` และ `ssh-agent` พร้อมตรวจสอบไวยากรณ์ก่อนเริ่มงาน
 - [x] **High-Performance Event Log Parser:** Optimized Regex Parser สำหรับ Windows Event Log (`OpenSSH/Operational`)
-- [x] **Production Security Test Suite:** 190+ Unit & Integration Tests ครอบคลุมความปลอดภัยรอบด้าน
+- [x] **Web Admin Management & Role-Based Access Control (RBAC):** บริหารจัดการบัญชีผู้ดูแลหน้าเว็บแยกรายบุคคล (Local Admin พร้อมรหัสผ่าน PBKDF2 และ Active Directory Live Search), สิทธิ์ 3 ระดับ (`SuperAdmin`, `Operator`, `Auditor`), ระบบ Guardrails ป้องกันการล็อกตัวเอง, และการระบุตัวตนใน Audit Logs
+- [x] **Production Security Test Suite:** 210+ Unit & Integration Tests ครอบคลุมความปลอดภัยรอบด้าน (100% Pass)
 
 ### Priority 2: Medium (โครงสร้างและการจัดการข้อผิดพลาด)
 - [ ] **Project Layout Normalization:** ปรับโครงสร้างแยก `src/OpensshUI` และ `tests/OpensshUI.Tests` ตามมาตรฐานโซลูชัน .NET เมื่อถึงรอบ Major Refactor

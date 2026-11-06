@@ -256,6 +256,10 @@ icacls "C:\ProgramData\ssh" /grant "SYSTEM:(OI)(CI)F" /grant "Administrators:(OI
      * ตรวจสอบสถานะการทำงานของบริการทั้ง `sshd` และ `ssh-agent`
      * คลิกปุ่ม **"ตรวจสอบเดี๋ยวนี้"** เพื่อรันคำสั่ง `sshd.exe -t` ยืนยันว่าไวยากรณ์ของ `sshd_config` ถูกต้องสมบูรณ์
      * ตรวจสอบส่วน **"โครงสร้าง Zero-Config Reload"** หากยังไม่ได้ติดตั้ง ให้กดปุ่ม **"ติดตั้งลง sshd_config"** เพื่อเปิดใช้งาน Chroot และ Centralized Authorized Keys (`C:\ProgramData\ssh\keys\%u`) สำหรับผู้ใช้กลุ่ม `SFTP-Users` ทำให้การเพิ่มผู้ใช้หลังจากนี้ไม่ต้อง Restart Service อีก
+   * ไปที่เมนู **ผู้ดูแลระบบ (Web Admins)**:
+     * สร้างบัญชีผู้ดูแลระบบส่วนบุคคล (Local Web Admin) หรือดึงบัญชีจาก Active Directory ผ่าน Live Search
+     * กำหนดระดับสิทธิ์ (Role): `SuperAdmin`, `Operator` (สำหรับเจ้าหน้าที่ดูแล SFTP Users/Files), หรือ `Auditor` (สำหรับผู้ตรวจสอบระบบ ดูอย่างเดียว)
+     * หลีกเลี่ยงการใช้บัญชี `admin` กลางร่วมกัน เพื่อให้บันทึกในหน้า Audit Logs ตรวจสอบย้อนหลังได้ชัดเจนรายบุคคล
    * ไปที่เมนู **Users** ทดลองสร้าง User ใหม่ และสังเกตว่า Home Directory ของ User จะถูกสร้างขึ้นภายใต้ `D:\SFTPRoot\<username>` โดยอัตโนมัติ พร้อมการจัดสรรสิทธิ์ NTFS ACLs ที่เข้มงวดตามมาตรฐาน OpenSSH Chroot
 
 ---
