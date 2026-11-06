@@ -82,6 +82,10 @@ OpensshUI (Root Project - net8.0-windows)
    - ไอคอนทุกจุดต้องอยู่ในระดับกึ่งกลางแนวตั้งเดียวกับตัวหนังสือ (`display: inline-flex; align-items: center; line-height: 1;`)
 3. **Ergonomic Admin Action Buttons:**
    - ในคอลัมน์ Actions ของตาราง ให้ใช้ `.action-bar` โดยมีข้อความกำกับคู่กับไอคอน และคั่นปุ่มอันตราย (`ลบ`, `Stop Service`) ออกไปทางขวาสุดด้วย `<span class="action-divider"></span>`
+4. **Guided Form & Indirect Workflow Standards:**
+   - ฟอร์มและ Modal ที่ซับซ้อนต้องแบ่งลำดับสายตาเป็นขั้นตอนด้วย `.form-step-header` และ `.form-step-badge` (`1` → `2` → `3`) และซ่อนการตั้งค่าขั้นสูงที่ไม่ได้ใช้บ่อยไว้หลังสวิตช์เปิด/ปิด (Progressive Disclosure)
+   - ใช้ `.selection-card` แทน Radio/Select เมื่อต้องตัดสินใจเชิงโครงสร้าง, ใช้ `.auto-fill-chip` สำหรับปุ่มลัดเติมค่ามาตรฐาน และแสดงผลลัพธ์ปลายทางใน `.effective-preview-box` ก่อนกดยืนยัน
+   - ข้อความแจ้งเตือนข้อผิดพลาดของฟอร์มต้องแสดงภายใน Modal เสมอ และปุ่ม Primary CTA ต้องบังคับทางอ้อม (Indirect Workflow) โดย Disable จนกว่าฟิลด์บังคับ (`*`) และการยืนยันรหัสผ่านจะถูกต้องครบถ้วน
 
 ---
 
