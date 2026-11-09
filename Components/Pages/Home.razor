@@ -5,6 +5,7 @@
 @inject IOpenSshServiceManager SshManager
 @inject ISecureFileBrowserService FileBrowser
 @inject IAuditService AuditService
+@inject UserSessionState SessionState
 @inject NavigationManager Navigation
 @implements IDisposable
 
@@ -124,10 +125,13 @@
                         </p>
                     </div>
                 </div>
-                <button class="btn btn-warning fw-bold text-dark" @onclick="InstallZeroConfig">
-                    <i class="bi bi-lightning-charge-fill"></i>
-                    <span>ติดตั้ง Zero-Config ทันที</span>
-                </button>
+                @if (SessionState.CanManageSystem)
+                {
+                    <button class="btn btn-warning fw-bold text-dark" @onclick="InstallZeroConfig">
+                        <i class="bi bi-lightning-charge-fill"></i>
+                        <span>ติดตั้ง Zero-Config ทันที</span>
+                    </button>
+                }
             </div>
         </div>
     }
@@ -352,6 +356,7 @@
 
     private async Task InstallZeroConfig()
     {
+        if (!SessionState.CanManageSystem) return;
         var result = await SshManager.ApplyZeroConfigBlockAsync();
         statusMessage = result.Message;
         await LoadDashboardData();

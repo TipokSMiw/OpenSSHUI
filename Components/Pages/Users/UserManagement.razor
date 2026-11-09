@@ -28,10 +28,13 @@
                 <i class="bi bi-arrow-clockwise"></i>
                 <span>รีเฟรช</span>
             </button>
-            <button class="btn btn-primary btn-sm" @onclick="OpenCreateUserModal">
-                <i class="bi bi-person-plus-fill"></i>
-                <span>เพิ่มผู้ใช้ใหม่</span>
-            </button>
+            @if (SessionState.CanManageSftp)
+            {
+                <button class="btn btn-primary btn-sm" @onclick="OpenCreateUserModal">
+                    <i class="bi bi-person-plus-fill"></i>
+                    <span>เพิ่มผู้ใช้ใหม่</span>
+                </button>
+            }
         </div>
     </div>
 
@@ -216,29 +219,35 @@
                                     <td class="small text-muted text-nowrap font-monospace">@user.CreatedAt.ToLocalTime().ToString("dd/MM/yyyy")</td>
                                     <td class="text-end pe-3">
                                         <div class="action-bar">
-                                            <button class="btn btn-sm btn-outline-secondary" title="แก้ไขข้อมูล สิทธิ์ และกลุ่ม" @onclick="() => OpenEditUserModal(user)">
-                                                <i class="bi bi-pencil-square"></i>
-                                                <span>แก้ไข</span>
-                                            </button>
+                                            @if (SessionState.CanManageSftp)
+                                            {
+                                                <button class="btn btn-sm btn-outline-secondary" title="แก้ไขข้อมูล สิทธิ์ และกลุ่ม" @onclick="() => OpenEditUserModal(user)">
+                                                    <i class="bi bi-pencil-square"></i>
+                                                    <span>แก้ไข</span>
+                                                </button>
+                                            }
                                             <button class="btn btn-sm btn-outline-primary" title="เปิดดูไฟล์ของผู้ใช้ใน Web File Browser" @onclick='() => Navigation.NavigateTo($"files/{user.Username}")'>
                                                 <i class="bi bi-folder2-open"></i>
                                                 <span>ไฟล์</span>
                                             </button>
-                                            @if (user.AccountType == SftpAccountType.LocalWindows)
+                                            @if (SessionState.CanManageSftp)
                                             {
-                                                <button class="btn btn-sm btn-outline-secondary" title="เปลี่ยนรหัสผ่าน Windows User" @onclick="() => OpenResetPasswordModal(user)">
-                                                    <i class="bi bi-shield-lock"></i>
+                                                @if (user.AccountType == SftpAccountType.LocalWindows)
+                                                {
+                                                    <button class="btn btn-sm btn-outline-secondary" title="เปลี่ยนรหัสผ่าน Windows User" @onclick="() => OpenResetPasswordModal(user)">
+                                                        <i class="bi bi-shield-lock"></i>
+                                                    </button>
+                                                }
+                                                <button class="btn btn-sm @(user.IsActive ? "btn-outline-warning" : "btn-outline-success")"
+                                                        title="@(user.IsActive ? "ระงับการใช้งานชั่วคราว" : "เปิดใช้งานบัญชี")"
+                                                        @onclick="() => ToggleUserStatus(user)">
+                                                    <i class="bi @(user.IsActive ? "bi-pause-fill" : "bi-play-fill")"></i>
+                                                </button>
+                                                <span class="action-divider"></span>
+                                                <button class="btn btn-sm btn-outline-danger" title="ลบผู้ใช้งาน" @onclick="() => OpenDeleteUserModal(user)">
+                                                    <i class="bi bi-trash3"></i>
                                                 </button>
                                             }
-                                            <button class="btn btn-sm @(user.IsActive ? "btn-outline-warning" : "btn-outline-success")"
-                                                    title="@(user.IsActive ? "ระงับการใช้งานชั่วคราว" : "เปิดใช้งานบัญชี")"
-                                                    @onclick="() => ToggleUserStatus(user)">
-                                                <i class="bi @(user.IsActive ? "bi-pause-fill" : "bi-play-fill")"></i>
-                                            </button>
-                                            <span class="action-divider"></span>
-                                            <button class="btn btn-sm btn-outline-danger" title="ลบผู้ใช้งาน" @onclick="() => OpenDeleteUserModal(user)">
-                                                <i class="bi bi-trash3"></i>
-                                            </button>
                                         </div>
                                     </td>
                                 </tr>
@@ -1080,19 +1089,22 @@
                                 <span class="badge bg-secondary ms-1">@selectedUser.PublicKeys.Count</span>
                             </button>
                         </li>
-                        <li class="nav-item">
-                            <button class="nav-link @(activeKeyTab == "generate" ? "active fw-bold text-primary" : "text-muted")" @onclick='() => SwitchKeyTab("generate")'>
-                                <i class="bi bi-lightning-charge-fill text-warning"></i>
-                                <span>สร้าง Key สำหรับ Automation</span>
-                                <span class="badge bg-primary ms-1">NEW</span>
-                            </button>
-                        </li>
-                        <li class="nav-item">
-                            <button class="nav-link @(activeKeyTab == "paste" ? "active fw-bold" : "text-muted")" @onclick='() => SwitchKeyTab("paste")'>
-                                <i class="bi bi-clipboard-plus"></i>
-                                <span>วาง Public Key เดิม</span>
-                            </button>
-                        </li>
+                        @if (SessionState.CanManageSftp)
+                        {
+                            <li class="nav-item">
+                                <button class="nav-link @(activeKeyTab == "generate" ? "active fw-bold text-primary" : "text-muted")" @onclick='() => SwitchKeyTab("generate")'>
+                                    <i class="bi bi-lightning-charge-fill text-warning"></i>
+                                    <span>สร้าง Key สำหรับ Automation</span>
+                                    <span class="badge bg-primary ms-1">NEW</span>
+                                </button>
+                            </li>
+                            <li class="nav-item">
+                                <button class="nav-link @(activeKeyTab == "paste" ? "active fw-bold" : "text-muted")" @onclick='() => SwitchKeyTab("paste")'>
+                                    <i class="bi bi-clipboard-plus"></i>
+                                    <span>วาง Public Key เดิม</span>
+                                </button>
+                            </li>
+                        }
                     </ul>
 
                     @if (activeKeyTab == "list")
@@ -1104,12 +1116,15 @@
                             <div class="text-center text-muted py-4 bg-light rounded mb-3">
                                 <i class="bi bi-key fs-3 d-block text-secondary mb-1"></i>
                                 <small>ยังไม่มี SSH Public Key สำหรับผู้ใช้นี้</small>
-                                <div class="mt-2">
-                                    <button class="btn btn-sm btn-outline-primary" @onclick='() => SwitchKeyTab("generate")'>
-                                        <i class="bi bi-lightning-charge-fill text-warning"></i>
-                                        <span>สร้าง Key สำหรับ Automation</span>
-                                    </button>
-                                </div>
+                                @if (SessionState.CanManageSftp)
+                                {
+                                    <div class="mt-2">
+                                        <button class="btn btn-sm btn-outline-primary" @onclick='() => SwitchKeyTab("generate")'>
+                                            <i class="bi bi-lightning-charge-fill text-warning"></i>
+                                            <span>สร้าง Key สำหรับ Automation</span>
+                                        </button>
+                                    </div>
+                                }
                             </div>
                         }
                         else
@@ -1142,10 +1157,13 @@
                                                 <i class="bi bi-code-slash"></i>
                                                 <span>คำสั่ง</span>
                                             </button>
-                                            <button class="btn btn-outline-danger btn-sm" title="เพิกถอนสิทธิ์ (Revoke)" @onclick="() => DeletePublicKey(key.Id)">
-                                                <i class="bi bi-trash3"></i>
-                                                <span>ลบ</span>
-                                            </button>
+                                            @if (SessionState.CanManageSftp)
+                                            {
+                                                <button class="btn btn-outline-danger btn-sm" title="เพิกถอนสิทธิ์ (Revoke)" @onclick="() => DeletePublicKey(key.Id)">
+                                                    <i class="bi bi-trash3"></i>
+                                                    <span>ลบ</span>
+                                                </button>
+                                            }
                                         </div>
                                     </div>
                                 }
@@ -1815,6 +1833,7 @@ $Batch | & sftp.exe -i $KeyPath -b - "@(selectedUser.Username)@@localhost"</pre>
 
     private async Task OpenCreateUserModal()
     {
+        if (!SessionState.CanManageSftp) return;
         newUser = new CreateUserRequest
         {
             AccountType = SftpAccountType.LocalWindows,
@@ -1849,6 +1868,7 @@ $Batch | & sftp.exe -i $KeyPath -b - "@(selectedUser.Username)@@localhost"</pre>
 
     private void OpenEditUserModal(SftpUser user)
     {
+        if (!SessionState.CanManageSftp) return;
         selectedUser = user;
         editUserRequest = new UpdateUserRequest
         {
@@ -2010,6 +2030,7 @@ $Batch | & sftp.exe -i $KeyPath -b - "@(selectedUser.Username)@@localhost"</pre>
 
     private async Task SubmitCreateUser()
     {
+        if (!SessionState.CanManageSftp) return;
         modalErrorMessage = null;
         if (string.IsNullOrWhiteSpace(newUser.Username))
         {
@@ -2055,7 +2076,7 @@ $Batch | & sftp.exe -i $KeyPath -b - "@(selectedUser.Username)@@localhost"</pre>
 
     private async Task SubmitEditUser()
     {
-        if (editUserRequest == null) return;
+        if (!SessionState.CanManageSftp || editUserRequest == null) return;
         modalErrorMessage = null;
 
         if (!useCustomRootEdit)
@@ -2082,6 +2103,7 @@ $Batch | & sftp.exe -i $KeyPath -b - "@(selectedUser.Username)@@localhost"</pre>
 
     private async Task ToggleUserStatus(SftpUser user)
     {
+        if (!SessionState.CanManageSftp) return;
         bool newStatus = !user.IsActive;
         var op = string.IsNullOrEmpty(SessionState.CurrentUsername) ? "admin" : SessionState.CurrentUsername;
         var res = await UserService.UpdateUserStatusAsync(user.Username, newStatus, op);
@@ -2136,7 +2158,7 @@ $Batch | & sftp.exe -i $KeyPath -b - "@(selectedUser.Username)@@localhost"</pre>
 
     private async Task HandleGenerateKey()
     {
-        if (selectedUser == null) return;
+        if (!SessionState.CanManageSftp || selectedUser == null) return;
 
         isGeneratingKey = true;
         genErrorMessage = null;
@@ -2171,11 +2193,9 @@ $Batch | & sftp.exe -i $KeyPath -b - "@(selectedUser.Username)@@localhost"</pre>
         if (generatedResult == null || selectedUser == null) return;
 
         var comment = string.IsNullOrWhiteSpace(generatedResult.Comment) ? "automation" : generatedResult.Comment;
-        var fileName = $"{selectedUser.Username}_{comment}_id_{genKeyType}.pem";
-        foreach (var c in Path.GetInvalidFileNameChars())
-        {
-            fileName = fileName.Replace(c, '_');
-        }
+        var fileName = OpensshUI.Services.Security.SecurityValidator.SanitizeSafeFileName(
+            $"{selectedUser.Username}_{comment}_id_{genKeyType}.pem",
+            "id_automation.pem");
 
         var bytes = System.Text.Encoding.UTF8.GetBytes(generatedResult.PrivateKeyPem);
         using var stream = new MemoryStream(bytes);
@@ -2198,7 +2218,9 @@ $Batch | & sftp.exe -i $KeyPath -b - "@(selectedUser.Username)@@localhost"</pre>
     {
         if (selectedUser == null) return "id_automation.pem";
         var comment = string.IsNullOrWhiteSpace(genComment) ? "automation" : genComment;
-        return $"{selectedUser.Username}_{comment}_id_{genKeyType}.pem";
+        return OpensshUI.Services.Security.SecurityValidator.SanitizeSafeFileName(
+            $"{selectedUser.Username}_{comment}_id_{genKeyType}.pem",
+            "id_automation.pem");
     }
 
     private void OpenQuickSnippet(SshPublicKey key)
@@ -2224,7 +2246,7 @@ $Batch | & sftp.exe -i $KeyPath -b - "@(selectedUser.Username)@@localhost"</pre>
 
     private async Task SubmitAddKey()
     {
-        if (selectedUser == null || keyParsePreview?.IsSuccess != true) return;
+        if (!SessionState.CanManageSftp || selectedUser == null || keyParsePreview?.IsSuccess != true) return;
 
         isAddingKey = true;
         var op = string.IsNullOrEmpty(SessionState.CurrentUsername) ? "admin" : SessionState.CurrentUsername;
@@ -2249,7 +2271,7 @@ $Batch | & sftp.exe -i $KeyPath -b - "@(selectedUser.Username)@@localhost"</pre>
 
     private async Task DeletePublicKey(int keyId)
     {
-        if (selectedUser == null) return;
+        if (!SessionState.CanManageSftp || selectedUser == null) return;
         var op = string.IsNullOrEmpty(SessionState.CurrentUsername) ? "admin" : SessionState.CurrentUsername;
         var result = await UserService.DeletePublicKeyAsync(keyId, op);
         if (result.Success)
@@ -2266,6 +2288,7 @@ $Batch | & sftp.exe -i $KeyPath -b - "@(selectedUser.Username)@@localhost"</pre>
 
     private void OpenResetPasswordModal(SftpUser user)
     {
+        if (!SessionState.CanManageSftp) return;
         selectedUser = user;
         newResetPassword = "";
         confirmResetPassword = "";
@@ -2276,7 +2299,7 @@ $Batch | & sftp.exe -i $KeyPath -b - "@(selectedUser.Username)@@localhost"</pre>
 
     private async Task SubmitResetPassword()
     {
-        if (selectedUser == null) return;
+        if (!SessionState.CanManageSftp || selectedUser == null) return;
         resetPasswordError = null;
         if (string.IsNullOrWhiteSpace(newResetPassword))
         {
@@ -2303,6 +2326,7 @@ $Batch | & sftp.exe -i $KeyPath -b - "@(selectedUser.Username)@@localhost"</pre>
 
     private void OpenDeleteUserModal(SftpUser user)
     {
+        if (!SessionState.CanManageSftp) return;
         selectedUser = user;
         deleteUserFiles = false;
         isDeleteModalOpen = true;
@@ -2310,7 +2334,7 @@ $Batch | & sftp.exe -i $KeyPath -b - "@(selectedUser.Username)@@localhost"</pre>
 
     private async Task SubmitDeleteUser()
     {
-        if (selectedUser == null) return;
+        if (!SessionState.CanManageSftp || selectedUser == null) return;
         var op = string.IsNullOrEmpty(SessionState.CurrentUsername) ? "admin" : SessionState.CurrentUsername;
         var res = await UserService.DeleteUserAsync(selectedUser.Username, deleteUserFiles, op);
         isDeleteModalOpen = false;

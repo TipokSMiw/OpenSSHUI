@@ -130,15 +130,18 @@
                         <i class="bi bi-arrow-clockwise"></i>
                         <span>รีเฟรช</span>
                     </button>
-                    <button class="btn btn-sm btn-outline-primary" @onclick="OpenNewFolderModal">
-                        <i class="bi bi-folder-plus"></i>
-                        <span>สร้างโฟลเดอร์</span>
-                    </button>
-                    <label class="btn btn-sm btn-primary mb-0" style="cursor: pointer;">
-                        <i class="bi bi-cloud-arrow-up-fill"></i>
-                        <span>อัปโหลดไฟล์</span>
-                        <InputFile OnChange="HandleFileUpload" class="d-none" multiple />
-                    </label>
+                    @if (SessionState.CanManageSftp)
+                    {
+                        <button class="btn btn-sm btn-outline-primary" @onclick="OpenNewFolderModal">
+                            <i class="bi bi-folder-plus"></i>
+                            <span>สร้างโฟลเดอร์</span>
+                        </button>
+                        <label class="btn btn-sm btn-primary mb-0" style="cursor: pointer;">
+                            <i class="bi bi-cloud-arrow-up-fill"></i>
+                            <span>อัปโหลดไฟล์</span>
+                            <InputFile OnChange="HandleFileUpload" class="d-none" multiple />
+                        </label>
+                    }
                 </div>
             </div>
 
@@ -231,11 +234,17 @@
                                                         <i class="bi bi-download"></i>
                                                         <span>ดาวน์โหลด</span>
                                                     </button>
-                                                    <span class="action-divider"></span>
+                                                    @if (SessionState.CanManageSftp)
+                                                    {
+                                                        <span class="action-divider"></span>
+                                                    }
                                                 }
-                                                <button class="btn btn-sm btn-outline-danger" title="ลบรายการนี้" @onclick="() => DeleteItem(item)">
-                                                    <i class="bi bi-trash3"></i>
-                                                </button>
+                                                @if (SessionState.CanManageSftp)
+                                                {
+                                                    <button class="btn btn-sm btn-outline-danger" title="ลบรายการนี้" @onclick="() => DeleteItem(item)">
+                                                        <i class="bi bi-trash3"></i>
+                                                    </button>
+                                                }
                                             </div>
                                         </td>
                                     </tr>
@@ -446,6 +455,7 @@
 
     private void OpenNewFolderModal()
     {
+        if (!SessionState.CanManageSftp) return;
         newFolderName = "";
         newFolderError = null;
         isNewFolderModalOpen = true;
@@ -461,7 +471,7 @@
 
     private async Task SubmitCreateFolder()
     {
-        if (string.IsNullOrWhiteSpace(newFolderName) || string.IsNullOrWhiteSpace(CurrentTargetName)) return;
+        if (!SessionState.CanManageSftp || string.IsNullOrWhiteSpace(newFolderName) || string.IsNullOrWhiteSpace(CurrentTargetName)) return;
 
         var op = string.IsNullOrEmpty(SessionState.CurrentUsername) ? "admin" : SessionState.CurrentUsername;
         var folderName = newFolderName.Trim();
@@ -494,7 +504,7 @@
 
     private async Task HandleFileUpload(InputFileChangeEventArgs e)
     {
-        if (string.IsNullOrWhiteSpace(CurrentTargetName)) return;
+        if (!SessionState.CanManageSftp || string.IsNullOrWhiteSpace(CurrentTargetName)) return;
 
         var op = string.IsNullOrEmpty(SessionState.CurrentUsername) ? "admin" : SessionState.CurrentUsername;
         isUploading = true;
@@ -565,7 +575,7 @@
 
     private async Task DeleteItem(FileItemInfo item)
     {
-        if (string.IsNullOrWhiteSpace(CurrentTargetName)) return;
+        if (!SessionState.CanManageSftp || string.IsNullOrWhiteSpace(CurrentTargetName)) return;
 
         var op = string.IsNullOrEmpty(SessionState.CurrentUsername) ? "admin" : SessionState.CurrentUsername;
         try

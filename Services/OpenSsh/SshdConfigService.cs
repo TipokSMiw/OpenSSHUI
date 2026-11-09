@@ -18,6 +18,8 @@ public class SshdConfigService : ISshdConfigService
         "Subsystem", "SyslogFacility", "Protocol", "AcceptEnv", "UsePAM"
     };
 
+    private static readonly Regex LineErrorRegex = new(@"line\s+\d+:", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
     private readonly IConfiguration? _configuration;
     private readonly ILogger<SshdConfigService> _logger;
     private readonly SemaphoreSlim _fileLock = new(1, 1);
@@ -329,7 +331,7 @@ public class SshdConfigService : ISshdConfigService
             bool hasSyntaxError = outputCombined.Contains("bad configuration option", StringComparison.OrdinalIgnoreCase)
                 || outputCombined.Contains("terminating,", StringComparison.OrdinalIgnoreCase)
                 || outputCombined.Contains("is not allowed within a Match block", StringComparison.OrdinalIgnoreCase)
-                || Regex.IsMatch(outputCombined, @"line\s+\d+:", RegexOptions.IgnoreCase);
+                || LineErrorRegex.IsMatch(outputCombined);
 
             // In test or non-elevated environments, sshd -t exits with code 1 if private host keys are inaccessible
             bool onlyHostKeyIssue = !hasSyntaxError && (
@@ -389,6 +391,18 @@ public class SshdConfigService : ISshdConfigService
         }
 
         await _fileLock.WaitAsync();
+        try
+        {
+            return await AtomicWriteAndApplyCoreAsync(newContent, finalPath);
+        }
+        finally
+        {
+            _fileLock.Release();
+        }
+    }
+
+    private async Task<(bool Success, string Message)> AtomicWriteAndApplyCoreAsync(string newContent, string finalPath)
+    {
         var tempPath = $"{finalPath}.tmp_{Guid.NewGuid():N}";
         try
         {
@@ -406,7 +420,7 @@ public class SshdConfigService : ISshdConfigService
             // 3. Atomically replace target file and rotate backup keeping last 5
             if (File.Exists(finalPath))
             {
-                var backupPath = $"{finalPath}.bak_{DateTime.UtcNow:yyyyMMdd_HHmmss_fff}";
+                var backupPath = $"{finalPath}.bak_{DateTime.UtcNow:yyyyMMdd_HHmmss_fff}_{Guid.NewGuid().ToString("N")[..4]}";
                 File.Replace(tempPath, finalPath, backupPath, ignoreMetadataErrors: true);
                 CleanupOldConfigBackups(finalPath, maxBackups: 5);
             }
@@ -430,7 +444,6 @@ public class SshdConfigService : ISshdConfigService
                 if (File.Exists(tempPath)) File.Delete(tempPath);
             }
             catch { }
-            _fileLock.Release();
         }
     }
 
@@ -441,83 +454,93 @@ public class SshdConfigService : ISshdConfigService
         string? targetPath = null)
     {
         var finalPath = targetPath ?? ConfigPath;
-        if (!File.Exists(finalPath))
+
+        // Hold _fileLock across the entire Read -> Parse -> Modify -> Write cycle to prevent TOCTOU / Lost Updates
+        await _fileLock.WaitAsync();
+        try
         {
-            return (false, $"Configuration file not found at {finalPath}. Ensure OpenSSH Server is installed.");
-        }
-
-        var currentContent = await File.ReadAllTextAsync(finalPath);
-        var configFile = Parse(currentContent);
-
-        // Remove previous managed blocks
-        configFile.MatchBlocks.RemoveAll(b => b.IsManaged);
-
-        var normalizedKeys = FormatConfigPath(keysPath.Replace("\\", "/").TrimEnd('/') + "/%u");
-        var defaultNormalizedRoot = FormatConfigPath(sftpRoot.Replace("/", "\\").TrimEnd('\\') + "\\%u");
-
-        // 1. Add custom DirectChroot rules (Users first, then Groups)
-        var ruleList = rules.ToList();
-
-        foreach (var userRule in ruleList.Where(r => !r.IsGroup && !string.IsNullOrWhiteSpace(r.RootPath)))
-        {
-            var cleanId = SecurityValidator.SanitizeSingleLine(userRule.Identifier).Replace(" ", "").Replace("\"", "");
-            var normPath = FormatConfigPath(userRule.RootPath.Replace("/", "\\"));
-
-            configFile.MatchBlocks.Add(new SshdMatchBlock
+            if (!File.Exists(finalPath))
             {
-                MatchType = "User",
-                Pattern = cleanId,
-                IsManaged = true,
-                Directives = new List<SshdDirective>
+                return (false, $"Configuration file not found at {finalPath}. Ensure OpenSSH Server is installed.");
+            }
+
+            var currentContent = await File.ReadAllTextAsync(finalPath);
+            var configFile = Parse(currentContent);
+
+            // Remove previous managed blocks
+            configFile.MatchBlocks.RemoveAll(b => b.IsManaged);
+
+            var normalizedKeys = FormatConfigPath(keysPath.Replace("\\", "/").TrimEnd('/') + "/%u");
+            var defaultNormalizedRoot = FormatConfigPath(sftpRoot.Replace("/", "\\").TrimEnd('\\') + "\\%u");
+
+            // 1. Add custom DirectChroot rules (Users first, then Groups)
+            var ruleList = rules.ToList();
+
+            foreach (var userRule in ruleList.Where(r => !r.IsGroup && !string.IsNullOrWhiteSpace(r.RootPath)))
+            {
+                var cleanId = SecurityValidator.SanitizeSingleLine(userRule.Identifier).Replace(" ", "").Replace("\"", "");
+                var normPath = FormatConfigPath(userRule.RootPath.Replace("/", "\\"));
+
+                configFile.MatchBlocks.Add(new SshdMatchBlock
                 {
-                    new() { Key = "ChrootDirectory", Value = normPath },
-                    new() { Key = "ForceCommand", Value = "internal-sftp" },
-                    new() { Key = "AllowTcpForwarding", Value = "no" },
-                    new() { Key = "X11Forwarding", Value = "no" },
-                    new() { Key = "AuthorizedKeysFile", Value = normalizedKeys }
-                }
-            });
-        }
+                    MatchType = "User",
+                    Pattern = cleanId,
+                    IsManaged = true,
+                    Directives = new List<SshdDirective>
+                    {
+                        new() { Key = "ChrootDirectory", Value = normPath },
+                        new() { Key = "ForceCommand", Value = "internal-sftp" },
+                        new() { Key = "AllowTcpForwarding", Value = "no" },
+                        new() { Key = "X11Forwarding", Value = "no" },
+                        new() { Key = "AuthorizedKeysFile", Value = normalizedKeys }
+                    }
+                });
+            }
 
-        foreach (var groupRule in ruleList.Where(r => r.IsGroup && !string.IsNullOrWhiteSpace(r.RootPath)))
-        {
-            var cleanId = SecurityValidator.SanitizeSingleLine(groupRule.Identifier).Replace(" ", "").Replace("\"", "");
-            var normPath = FormatConfigPath(groupRule.RootPath.Replace("/", "\\"));
+            foreach (var groupRule in ruleList.Where(r => r.IsGroup && !string.IsNullOrWhiteSpace(r.RootPath)))
+            {
+                var cleanId = SecurityValidator.SanitizeSingleLine(groupRule.Identifier).Replace(" ", "").Replace("\"", "");
+                var normPath = FormatConfigPath(groupRule.RootPath.Replace("/", "\\"));
 
+                configFile.MatchBlocks.Add(new SshdMatchBlock
+                {
+                    MatchType = "Group",
+                    Pattern = cleanId,
+                    IsManaged = true,
+                    Directives = new List<SshdDirective>
+                    {
+                        new() { Key = "ChrootDirectory", Value = normPath },
+                        new() { Key = "ForceCommand", Value = "internal-sftp" },
+                        new() { Key = "AllowTcpForwarding", Value = "no" },
+                        new() { Key = "X11Forwarding", Value = "no" },
+                        new() { Key = "AuthorizedKeysFile", Value = normalizedKeys }
+                    }
+                });
+            }
+
+            // 2. Generic default SFTP-Users rule
             configFile.MatchBlocks.Add(new SshdMatchBlock
             {
                 MatchType = "Group",
-                Pattern = cleanId,
+                Pattern = "SFTP-Users",
                 IsManaged = true,
                 Directives = new List<SshdDirective>
                 {
-                    new() { Key = "ChrootDirectory", Value = normPath },
+                    new() { Key = "ChrootDirectory", Value = defaultNormalizedRoot },
                     new() { Key = "ForceCommand", Value = "internal-sftp" },
                     new() { Key = "AllowTcpForwarding", Value = "no" },
                     new() { Key = "X11Forwarding", Value = "no" },
                     new() { Key = "AuthorizedKeysFile", Value = normalizedKeys }
                 }
             });
+
+            var serialized = Serialize(configFile);
+            return await AtomicWriteAndApplyCoreAsync(serialized, finalPath);
         }
-
-        // 2. Generic default SFTP-Users rule
-        configFile.MatchBlocks.Add(new SshdMatchBlock
+        finally
         {
-            MatchType = "Group",
-            Pattern = "SFTP-Users",
-            IsManaged = true,
-            Directives = new List<SshdDirective>
-            {
-                new() { Key = "ChrootDirectory", Value = defaultNormalizedRoot },
-                new() { Key = "ForceCommand", Value = "internal-sftp" },
-                new() { Key = "AllowTcpForwarding", Value = "no" },
-                new() { Key = "X11Forwarding", Value = "no" },
-                new() { Key = "AuthorizedKeysFile", Value = normalizedKeys }
-            }
-        });
-
-        var serialized = Serialize(configFile);
-        return await AtomicWriteAndApplyAsync(serialized, finalPath);
+            _fileLock.Release();
+        }
     }
 
     public List<string> GetBackupFiles(int maxBackups = 5)

@@ -36,6 +36,16 @@ public class SshKeyGenerator : ISshKeyGenerator
             };
         }
 
+        var (okPassphrase, passphraseErr) = SecurityValidator.ValidateSshPassphrase(passphrase);
+        if (!okPassphrase)
+        {
+            return new SshKeyGenerateResult
+            {
+                Success = false,
+                ErrorMessage = passphraseErr
+            };
+        }
+
         var cleanComment = string.IsNullOrWhiteSpace(comment)
             ? $"automation-{DateTime.UtcNow:yyyyMMdd}"
             : SecurityValidator.SanitizeSingleLine(comment.Trim());

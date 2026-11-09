@@ -24,6 +24,14 @@
         </div>
     </div>
 
+    @if (!SessionState.CanManageSystem)
+    {
+        <div class="alert alert-info py-2 px-3 small d-flex align-items-center gap-2 mb-3" role="alert">
+            <i class="bi bi-eye-fill text-primary flex-shrink-0"></i>
+            <div>โหมดอ่านอย่างเดียว (Read-Only): เฉพาะผู้ดูแลระบบระดับ <strong>SuperAdmin</strong> เท่านั้นที่สามารถสั่งควบคุมบริการ Windows Service หรือแก้ไขไฟล์ <code>sshd_config</code> ได้ (สิทธิ์ปัจจุบันของคุณ: <strong>@SessionState.Role</strong>)</div>
+        </div>
+    }
+
     @if (!string.IsNullOrEmpty(alertMessage))
     {
         <div class="alert @(isAlertSuccess ? "alert-success" : "alert-danger") alert-dismissible fade show py-2 small d-flex align-items-center gap-2" role="alert">
@@ -65,21 +73,24 @@
                         <code class="d-block p-2 bg-light border rounded text-break">@(serviceInfo?.ConfigPath ?? "-")</code>
                     </div>
 
-                    <div class="d-flex flex-wrap align-items-center gap-2 pt-2 border-top">
-                        <button class="btn btn-success btn-sm" @onclick="StartService" disabled="@(!serviceInfo?.CanStart == true || isProcessing)">
-                            <i class="bi bi-play-fill"></i>
-                            <span>Start Service</span>
-                        </button>
-                        <button class="btn btn-warning btn-sm text-dark fw-semibold" @onclick="RestartService" disabled="@isProcessing">
-                            <i class="bi bi-arrow-repeat"></i>
-                            <span>Restart Service</span>
-                        </button>
-                        <span class="action-divider"></span>
-                        <button class="btn btn-outline-danger btn-sm" @onclick="StopService" disabled="@(!serviceInfo?.CanStop == true || isProcessing)">
-                            <i class="bi bi-stop-fill"></i>
-                            <span>Stop Service</span>
-                        </button>
-                    </div>
+                    @if (SessionState.CanManageSystem)
+                    {
+                        <div class="d-flex flex-wrap align-items-center gap-2 pt-2 border-top">
+                            <button class="btn btn-success btn-sm" @onclick="StartService" disabled="@(!serviceInfo?.CanStart == true || isProcessing)">
+                                <i class="bi bi-play-fill"></i>
+                                <span>Start Service</span>
+                            </button>
+                            <button class="btn btn-warning btn-sm text-dark fw-semibold" @onclick="RestartService" disabled="@isProcessing">
+                                <i class="bi bi-arrow-repeat"></i>
+                                <span>Restart Service</span>
+                            </button>
+                            <span class="action-divider"></span>
+                            <button class="btn btn-outline-danger btn-sm" @onclick="StopService" disabled="@(!serviceInfo?.CanStop == true || isProcessing)">
+                                <i class="bi bi-stop-fill"></i>
+                                <span>Stop Service</span>
+                            </button>
+                        </div>
+                    }
                 </div>
             </div>
         </div>
@@ -92,18 +103,21 @@
                         <i class="bi bi-shield-check text-primary"></i>
                         <span>ตรวจสอบไวยากรณ์ Config (sshd.exe -t)</span>
                     </h6>
-                    <button class="btn btn-primary btn-sm" @onclick="RunSyntaxCheck" disabled="@isCheckingSyntax">
-                        @if (isCheckingSyntax)
-                        {
-                            <span class="spinner-border spinner-border-sm"></span>
-                            <span>กำลังตรวจสอบ...</span>
-                        }
-                        else
-                        {
-                            <i class="bi bi-check2-circle"></i>
-                            <span>ตรวจสอบเดี๋ยวนี้</span>
-                        }
-                    </button>
+                    @if (SessionState.CanManageSystem)
+                    {
+                        <button class="btn btn-primary btn-sm" @onclick="RunSyntaxCheck" disabled="@isCheckingSyntax">
+                            @if (isCheckingSyntax)
+                            {
+                                <span class="spinner-border spinner-border-sm"></span>
+                                <span>กำลังตรวจสอบ...</span>
+                            }
+                            else
+                            {
+                                <i class="bi bi-check2-circle"></i>
+                                <span>ตรวจสอบเดี๋ยวนี้</span>
+                            }
+                        </button>
+                    }
                 </div>
                 <div class="card-body">
                     <p class="small text-muted mb-3">
@@ -172,21 +186,24 @@
                             </div>
                         </div>
 
-                        <div class="d-flex flex-wrap align-items-center gap-2">
-                            <button class="btn btn-success btn-sm" @onclick="StartAgentService" disabled="@(!agentInfo?.CanStart == true || isProcessing)">
-                                <i class="bi bi-play-fill"></i>
-                                <span>Start Agent</span>
-                            </button>
-                            <button class="btn btn-warning btn-sm text-dark fw-semibold" @onclick="RestartAgentService" disabled="@isProcessing">
-                                <i class="bi bi-arrow-repeat"></i>
-                                <span>Restart Agent</span>
-                            </button>
-                            <span class="action-divider"></span>
-                            <button class="btn btn-outline-danger btn-sm" @onclick="StopAgentService" disabled="@(!agentInfo?.CanStop == true || isProcessing)">
-                                <i class="bi bi-stop-fill"></i>
-                                <span>Stop Agent</span>
-                            </button>
-                        </div>
+                        @if (SessionState.CanManageSystem)
+                        {
+                            <div class="d-flex flex-wrap align-items-center gap-2">
+                                <button class="btn btn-success btn-sm" @onclick="StartAgentService" disabled="@(!agentInfo?.CanStart == true || isProcessing)">
+                                    <i class="bi bi-play-fill"></i>
+                                    <span>Start Agent</span>
+                                </button>
+                                <button class="btn btn-warning btn-sm text-dark fw-semibold" @onclick="RestartAgentService" disabled="@isProcessing">
+                                    <i class="bi bi-arrow-repeat"></i>
+                                    <span>Restart Agent</span>
+                                </button>
+                                <span class="action-divider"></span>
+                                <button class="btn btn-outline-danger btn-sm" @onclick="StopAgentService" disabled="@(!agentInfo?.CanStop == true || isProcessing)">
+                                    <i class="bi bi-stop-fill"></i>
+                                    <span>Stop Agent</span>
+                                </button>
+                            </div>
+                        }
                     </div>
                 </div>
             </div>
@@ -207,7 +224,7 @@
                     <span>ติดตั้งแล้ว</span>
                 </span>
             }
-            else
+            else if (SessionState.CanManageSystem)
             {
                 <button class="btn btn-warning btn-sm fw-bold text-dark" @onclick="InstallZeroConfig">
                     <i class="bi bi-plus-circle-fill"></i>
@@ -249,6 +266,7 @@
 
     private async Task StartAgentService()
     {
+        if (!SessionState.CanManageSystem) return;
         isProcessing = true;
         var op = string.IsNullOrEmpty(SessionState.CurrentUsername) ? "admin" : SessionState.CurrentUsername;
         var res = await SshManager.StartServiceAsync("ssh-agent");
@@ -260,6 +278,7 @@
 
     private async Task StopAgentService()
     {
+        if (!SessionState.CanManageSystem) return;
         isProcessing = true;
         var op = string.IsNullOrEmpty(SessionState.CurrentUsername) ? "admin" : SessionState.CurrentUsername;
         var res = await SshManager.StopServiceAsync("ssh-agent");
@@ -271,6 +290,7 @@
 
     private async Task RestartAgentService()
     {
+        if (!SessionState.CanManageSystem) return;
         isProcessing = true;
         var op = string.IsNullOrEmpty(SessionState.CurrentUsername) ? "admin" : SessionState.CurrentUsername;
         var res = await SshManager.RestartServiceAsync("ssh-agent");
@@ -282,6 +302,7 @@
 
     private async Task RunSyntaxCheck()
     {
+        if (!SessionState.CanManageSystem) return;
         isCheckingSyntax = true;
         try
         {
@@ -295,6 +316,7 @@
 
     private async Task StartService()
     {
+        if (!SessionState.CanManageSystem) return;
         isProcessing = true;
         var op = string.IsNullOrEmpty(SessionState.CurrentUsername) ? "admin" : SessionState.CurrentUsername;
         var res = await SshManager.StartServiceAsync();
@@ -306,6 +328,7 @@
 
     private async Task StopService()
     {
+        if (!SessionState.CanManageSystem) return;
         isProcessing = true;
         var op = string.IsNullOrEmpty(SessionState.CurrentUsername) ? "admin" : SessionState.CurrentUsername;
         var res = await SshManager.StopServiceAsync();
@@ -317,6 +340,7 @@
 
     private async Task RestartService()
     {
+        if (!SessionState.CanManageSystem) return;
         isProcessing = true;
         var op = string.IsNullOrEmpty(SessionState.CurrentUsername) ? "admin" : SessionState.CurrentUsername;
         var res = await SshManager.RestartServiceAsync();
@@ -328,6 +352,7 @@
 
     private async Task InstallZeroConfig()
     {
+        if (!SessionState.CanManageSystem) return;
         isProcessing = true;
         var op = string.IsNullOrEmpty(SessionState.CurrentUsername) ? "admin" : SessionState.CurrentUsername;
         var res = await SshManager.ApplyZeroConfigBlockAsync();

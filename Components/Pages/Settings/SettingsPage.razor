@@ -17,13 +17,28 @@
             <p class="text-muted small mb-0">กำหนดค่าการเชื่อมต่อ Active Directory (LDAP) และบัญชีผู้ดูแลระบบสำรอง (Fallback Local Admin)</p>
         </div>
         <div class="d-flex align-items-center gap-2">
-            <button class="btn btn-outline-secondary btn-sm" @onclick="LoadConfig">
-                <i class="bi bi-arrow-clockwise"></i>
-                <span>รีเฟรชการตั้งค่า</span>
-            </button>
+            @if (SessionState.CanManageSystem)
+            {
+                <button class="btn btn-outline-secondary btn-sm" @onclick="LoadConfig">
+                    <i class="bi bi-arrow-clockwise"></i>
+                    <span>รีเฟรชการตั้งค่า</span>
+                </button>
+            }
         </div>
     </div>
 
+    @if (!SessionState.CanManageSystem)
+    {
+        <div class="alert alert-danger d-flex align-items-center gap-3 py-3 shadow-sm">
+            <i class="bi bi-lock-fill fs-3"></i>
+            <div>
+                <h6 class="fw-bold mb-1">ปฏิเสธการเข้าถึง (Access Denied)</h6>
+                <p class="small mb-0">เฉพาะผู้ดูแลระบบระดับ <strong>SuperAdmin</strong> เท่านั้นที่สามารถจัดการการตั้งค่า Active Directory (LDAP) และบัญชี Local Admin ฉุกเฉินได้ (สิทธิ์ปัจจุบันของคุณ: <strong>@SessionState.Role</strong>)</p>
+            </div>
+        </div>
+    }
+    else
+    {
     @if (isUsingDefaultAdminPassword)
     {
         <div class="alert alert-warning border-warning shadow-sm d-flex align-items-center gap-3 py-3 mb-4" role="alert">
@@ -421,6 +436,7 @@
             </div>
         </div>
     }
+    }
 </div>
 
 @code {
@@ -469,6 +485,7 @@
 
     private async Task LoadConfig()
     {
+        if (!SessionState.CanManageSystem) return;
         config = await LdapAuth.GetConfigAsync();
         isUsingDefaultAdminPassword = await LdapAuth.IsUsingDefaultFallbackPasswordAsync();
         hasSavedBindPassword = config != null && !string.IsNullOrEmpty(config.EncryptedBindPassword);
@@ -476,7 +493,7 @@
 
     private async Task TestLdapConnection()
     {
-        if (config == null) return;
+        if (!SessionState.CanManageSystem || config == null) return;
         isTesting = true;
         alertMessage = null;
         testResult = null;
@@ -488,7 +505,7 @@
 
     private async Task SaveSettings()
     {
-        if (config == null) return;
+        if (!SessionState.CanManageSystem || config == null) return;
         isSaving = true;
 
         var op = string.IsNullOrEmpty(SessionState.CurrentUsername) ? "admin" : SessionState.CurrentUsername;
@@ -503,7 +520,7 @@
 
     private async Task ChangeFallbackAdminPassword()
     {
-        if (config == null) return;
+        if (!SessionState.CanManageSystem || config == null) return;
 
         if (string.IsNullOrWhiteSpace(newFallbackAdminPassword))
         {

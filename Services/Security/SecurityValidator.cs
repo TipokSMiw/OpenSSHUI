@@ -7,6 +7,7 @@ public static class SecurityValidator
     private static readonly Regex SafeUsernameRegex = new(@"^[a-zA-Z0-9_\-\.]{1,32}$", RegexOptions.Compiled);
     private static readonly Regex SafeGroupNameRegex = new(@"^[a-zA-Z0-9_\-\. ]{1,32}$", RegexOptions.Compiled);
     private static readonly Regex LocalDrivePathRegex = new(@"^[a-zA-Z]:[\\/]", RegexOptions.Compiled);
+    private static readonly Regex ControlCharsRegex = new(@"[\r\n\t\x00-\x1F\x7F]", RegexOptions.Compiled);
     private static readonly char[] DangerousPathChars = { ';', '&', '|', '`', '$', '>', '<', '^', '%', '"', '\r', '\n', '\0' };
 
     private static readonly HashSet<string> ReservedWindowsNames = new(StringComparer.OrdinalIgnoreCase)
@@ -316,6 +317,66 @@ public static class SecurityValidator
     public static string SanitizeSingleLine(string? input)
     {
         if (string.IsNullOrEmpty(input)) return string.Empty;
-        return Regex.Replace(input, @"[\r\n\t\x00-\x1F\x7F]", " ").Trim();
+        return ControlCharsRegex.Replace(input, " ").Trim();
+    }
+
+    /// <summary>
+    /// Validates an optional SSH key passphrase to ensure it does not contain control characters, quotes, or exceed safe limits.
+    /// </summary>
+    public static (bool IsValid, string? ErrorMessage) ValidateSshPassphrase(string? passphrase)
+    {
+        if (string.IsNullOrEmpty(passphrase))
+        {
+            return (true, null);
+        }
+
+        if (passphrase.Length > 128)
+        {
+            return (false, "Passphrase exceeds maximum length of 128 characters.");
+        }
+
+        if (passphrase.IndexOfAny(new[] { '\r', '\n', '\0', '"' }) >= 0 || passphrase.Any(char.IsControl))
+        {
+            return (false, "Passphrase contains invalid control characters or quotes.");
+        }
+
+        return (true, null);
+    }
+
+    /// <summary>
+    /// Replaces invalid file name characters and traversal sequences with underscores so UI components do not need to call System.IO.Path directly.
+    /// </summary>
+    public static string SanitizeSafeFileName(string? rawFileName, string fallback = "download.dat")
+    {
+        if (string.IsNullOrWhiteSpace(rawFileName))
+        {
+            return fallback;
+        }
+
+        var clean = SanitizeSingleLine(rawFileName);
+        foreach (var c in Path.GetInvalidFileNameChars())
+        {
+            clean = clean.Replace(c, '_');
+        }
+
+        clean = clean.Replace('/', '_').Replace('\\', '_').Replace(':', '_');
+        while (clean.Contains(".."))
+        {
+            clean = clean.Replace("..", "_");
+        }
+
+        clean = clean.Trim().Trim('.');
+        if (string.IsNullOrWhiteSpace(clean))
+        {
+            return fallback;
+        }
+
+        var nameWithoutExt = Path.GetFileNameWithoutExtension(clean);
+        if (ReservedWindowsNames.Contains(clean) || ReservedWindowsNames.Contains(nameWithoutExt))
+        {
+            clean = "_" + clean;
+        }
+
+        return clean;
     }
 }

@@ -23,10 +23,13 @@
                 <i class="bi bi-arrow-clockwise"></i>
                 <span>รีเฟรช</span>
             </button>
-            <button class="btn btn-primary btn-sm" @onclick="OpenCreateModal">
-                <i class="bi bi-plus-circle-fill"></i>
-                <span>สร้างกลุ่มใหม่</span>
-            </button>
+            @if (SessionState.CanManageSftp)
+            {
+                <button class="btn btn-primary btn-sm" @onclick="OpenCreateModal">
+                    <i class="bi bi-plus-circle-fill"></i>
+                    <span>สร้างกลุ่มใหม่</span>
+                </button>
+            }
         </div>
     </div>
 
@@ -173,15 +176,18 @@
                                                 <i class="bi bi-folder2-open"></i>
                                                 <span>ไฟล์</span>
                                             </button>
-                                            <span class="action-divider"></span>
-                                            <button class="btn btn-sm btn-outline-secondary" title="แก้ไขการตั้งค่ากลุ่มและสมาชิก" @onclick="() => OpenEditModal(grp)">
-                                                <i class="bi bi-pencil-square"></i>
-                                                <span>แก้ไข</span>
-                                            </button>
-                                            <span class="action-divider"></span>
-                                            <button class="btn btn-sm btn-outline-danger" title="ลบกลุ่มผู้ใช้งาน" @onclick="() => OpenDeleteModal(grp)">
-                                                <i class="bi bi-trash3"></i>
-                                            </button>
+                                            @if (SessionState.CanManageSftp)
+                                            {
+                                                <span class="action-divider"></span>
+                                                <button class="btn btn-sm btn-outline-secondary" title="แก้ไขการตั้งค่ากลุ่มและสมาชิก" @onclick="() => OpenEditModal(grp)">
+                                                    <i class="bi bi-pencil-square"></i>
+                                                    <span>แก้ไข</span>
+                                                </button>
+                                                <span class="action-divider"></span>
+                                                <button class="btn btn-sm btn-outline-danger" title="ลบกลุ่มผู้ใช้งาน" @onclick="() => OpenDeleteModal(grp)">
+                                                    <i class="bi bi-trash3"></i>
+                                                </button>
+                                            }
                                         </div>
                                     </td>
                                 </tr>
@@ -910,10 +916,13 @@
                 </div>
                 <div class="modal-footer bg-light py-2">
                     <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="CloseModals">ปิด</button>
-                    <button type="button" class="btn btn-primary btn-sm" @onclick="() => { var g = _selectedGroup; CloseModals(); if (g != null) OpenEditModal(g); }">
-                        <i class="bi bi-person-gear"></i>
-                        <span>จัดการสมาชิก</span>
-                    </button>
+                    @if (SessionState.CanManageSftp)
+                    {
+                        <button type="button" class="btn btn-primary btn-sm" @onclick="() => { var g = _selectedGroup; CloseModals(); if (g != null) OpenEditModal(g); }">
+                            <i class="bi bi-person-gear"></i>
+                            <span>จัดการสมาชิก</span>
+                        </button>
+                    }
                 </div>
             </div>
         </div>
@@ -1100,6 +1109,7 @@
 
     private void OpenCreateModal()
     {
+        if (!SessionState.CanManageSftp) return;
         _createRequest = new CreateGroupRequest
         {
             AccessMode = SftpAccessMode.VirtualFolder,
@@ -1113,6 +1123,7 @@
 
     private void OpenEditModal(SftpGroup group)
     {
+        if (!SessionState.CanManageSftp) return;
         _selectedGroup = group;
         _editRequest = new UpdateGroupRequest
         {
@@ -1137,6 +1148,7 @@
 
     private void OpenDeleteModal(SftpGroup group)
     {
+        if (!SessionState.CanManageSftp) return;
         _selectedGroup = group;
         _showDeleteModal = true;
     }
@@ -1192,6 +1204,7 @@
 
     private async Task SaveCreateGroup()
     {
+        if (!SessionState.CanManageSftp) return;
         if (string.IsNullOrWhiteSpace(_createRequest.Name))
         {
             _modalError = "กรุณาระบุชื่อกลุ่ม (Group Name)";
@@ -1232,6 +1245,7 @@
 
     private async Task SaveEditGroup()
     {
+        if (!SessionState.CanManageSftp) return;
         if (string.IsNullOrWhiteSpace(_editRequest.RootPath))
         {
             _modalError = "กรุณาระบุโฟลเดอร์หลัก (Shared Root Path)";
@@ -1267,7 +1281,7 @@
 
     private async Task ConfirmDeleteGroup()
     {
-        if (_selectedGroup == null) return;
+        if (!SessionState.CanManageSftp || _selectedGroup == null) return;
 
         _saving = true;
         try

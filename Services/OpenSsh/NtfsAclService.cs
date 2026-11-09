@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Runtime.Versioning;
 using System.Security;
@@ -11,30 +12,45 @@ namespace OpensshUI.Services.OpenSsh;
 [SupportedOSPlatform("windows")]
 public class NtfsAclService : INtfsAclService, INativeAclProvisioner
 {
+    private const int MaxResolvedAccountCacheSize = 500;
     private readonly ILogger<NtfsAclService> _logger;
+    private readonly ConcurrentDictionary<string, NTAccount> _resolvedAccountCache = new(StringComparer.OrdinalIgnoreCase);
+    private readonly object _keysFileLock = new();
 
     public NtfsAclService(ILogger<NtfsAclService> logger)
     {
         _logger = logger;
     }
 
+    public int ResolvedAccountCacheCount => _resolvedAccountCache.Count;
+
     private NTAccount? TryResolveAccount(string accountName)
     {
+        if (string.IsNullOrWhiteSpace(accountName)) return null;
+        var key = accountName.Trim();
+
+        if (_resolvedAccountCache.TryGetValue(key, out var cached))
+        {
+            return cached;
+        }
+
         try
         {
-            var acc = new NTAccount(accountName);
+            var acc = new NTAccount(key);
             var sid = acc.Translate(typeof(SecurityIdentifier));
+            CacheResolvedAccount(key, acc);
             return acc;
         }
         catch (IdentityNotMappedException)
         {
             var domain = Environment.UserDomainName;
-            if (!string.IsNullOrWhiteSpace(domain) && !accountName.Contains('\\'))
+            if (!string.IsNullOrWhiteSpace(domain) && !key.Contains('\\'))
             {
                 try
                 {
-                    var acc = new NTAccount(domain, accountName);
+                    var acc = new NTAccount(domain, key);
                     var sid = acc.Translate(typeof(SecurityIdentifier));
+                    CacheResolvedAccount(key, acc);
                     return acc;
                 }
                 catch (IdentityNotMappedException) { }
@@ -46,6 +62,15 @@ public class NtfsAclService : INtfsAclService, INativeAclProvisioner
             _logger.LogWarning(ex, "Unexpected error translating NTAccount for {Account}", accountName);
             return null;
         }
+    }
+
+    private void CacheResolvedAccount(string key, NTAccount account)
+    {
+        if (_resolvedAccountCache.Count >= MaxResolvedAccountCacheSize)
+        {
+            _resolvedAccountCache.Clear();
+        }
+        _resolvedAccountCache[key] = account;
     }
 
     /// <summary>
@@ -416,6 +441,22 @@ public class NtfsAclService : INtfsAclService, INativeAclProvisioner
                 var dirInfo = new DirectoryInfo(canonicalLink);
                 if (dirInfo.Attributes.HasFlag(FileAttributes.ReparsePoint))
                 {
+                    // Idempotent check: if the junction already points to the exact target directory, skip deleting & re-spawning mklink
+                    try
+                    {
+                        var existingTarget = dirInfo.ResolveLinkTarget(returnFinalTarget: false);
+                        if (existingTarget != null)
+                        {
+                            var normalizedExisting = Path.GetFullPath(existingTarget.FullName).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                            var normalizedDesired = canonicalTarget.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                            if (string.Equals(normalizedExisting, normalizedDesired, StringComparison.OrdinalIgnoreCase))
+                            {
+                                return true;
+                            }
+                        }
+                    }
+                    catch { }
+
                     Directory.Delete(canonicalLink);
                 }
                 else
@@ -700,46 +741,63 @@ public class NtfsAclService : INtfsAclService, INativeAclProvisioner
             throw new SecurityException($"Invalid username for SSH key file: {errUser}");
         }
 
-        EnsureKeysDirectory(keysPath);
-        var normalizedKeysDir = Path.GetFullPath(keysPath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        var keyFilePath = Path.GetFullPath(Path.Combine(normalizedKeysDir, username.Trim()));
-        if (!keyFilePath.StartsWith(normalizedKeysDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+        lock (_keysFileLock)
         {
-            throw new SecurityException("Path traversal detected in WriteUserKeysFile.");
-        }
-
-        var keysList = openSshPublicKeys.Select(SecurityValidator.SanitizeSingleLine).Where(k => !string.IsNullOrWhiteSpace(k)).ToList();
-        if (keysList.Count == 0)
-        {
-            if (File.Exists(keyFilePath))
+            EnsureKeysDirectory(keysPath);
+            var normalizedKeysDir = Path.GetFullPath(keysPath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            var keyFilePath = Path.GetFullPath(Path.Combine(normalizedKeysDir, username.Trim()));
+            if (!keyFilePath.StartsWith(normalizedKeysDir + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
             {
-                File.Delete(keyFilePath);
+                throw new SecurityException("Path traversal detected in WriteUserKeysFile.");
             }
-            return;
-        }
 
-        var content = string.Join("\n", keysList) + "\n";
-        File.WriteAllText(keyFilePath, content);
+            var keysList = openSshPublicKeys.Select(SecurityValidator.SanitizeSingleLine).Where(k => !string.IsNullOrWhiteSpace(k)).ToList();
+            if (keysList.Count == 0)
+            {
+                if (File.Exists(keyFilePath))
+                {
+                    File.Delete(keyFilePath);
+                }
+                return;
+            }
 
-        try
-        {
-            var fileInfo = new FileInfo(keyFilePath);
-            var security = new FileSecurity();
-            security.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
+            var content = string.Join("\n", keysList) + "\n";
+            var tempKeyFile = $"{keyFilePath}.tmp_{Guid.NewGuid():N}";
+            try
+            {
+                File.WriteAllText(tempKeyFile, content);
 
-            var adminSid = new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null);
-            var systemSid = new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null);
+                try
+                {
+                    var fileInfo = new FileInfo(tempKeyFile);
+                    var security = new FileSecurity();
+                    security.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
 
-            try { security.SetOwner(adminSid); } catch { }
+                    var adminSid = new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null);
+                    var systemSid = new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null);
 
-            security.AddAccessRule(new FileSystemAccessRule(adminSid, FileSystemRights.FullControl, AccessControlType.Allow));
-            security.AddAccessRule(new FileSystemAccessRule(systemSid, FileSystemRights.FullControl, AccessControlType.Allow));
+                    try { security.SetOwner(adminSid); } catch { }
 
-            fileInfo.SetAccessControl(security);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Could not set ACL on key file {Path}", keyFilePath);
+                    security.AddAccessRule(new FileSystemAccessRule(adminSid, FileSystemRights.FullControl, AccessControlType.Allow));
+                    security.AddAccessRule(new FileSystemAccessRule(systemSid, FileSystemRights.FullControl, AccessControlType.Allow));
+
+                    fileInfo.SetAccessControl(security);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Could not set ACL on key file {Path}", keyFilePath);
+                }
+
+                File.Move(tempKeyFile, keyFilePath, overwrite: true);
+            }
+            finally
+            {
+                try
+                {
+                    if (File.Exists(tempKeyFile)) File.Delete(tempKeyFile);
+                }
+                catch { }
+            }
         }
     }
 }

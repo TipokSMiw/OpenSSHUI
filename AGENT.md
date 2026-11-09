@@ -72,9 +72,10 @@ OpensshUI (Root Project - net8.0-windows)
 
 ### Architectural Rules for Agents:
 1. **Interface Segregation:** ทุก Service ในโฟลเดอร์ `Services/` ต้องมี Interface กำกับเสมอ (เช่น `ISshdConfigService`, `INtfsAclService`, `ISshEventLogService`) และลงทะเบียนใน DI Container ผ่าน `Program.cs`
-2. **UI Decoupling:** ห้าม Razor Components เรียกใช้ OS APIs, `System.IO` (เช่น `File.WriteAllText`, `Path.GetFullPath`), Process Execution หรือ Entity Framework DbContext โดยตรง ต้องเรียกผ่าน Service Layer เสมอ
+2. **UI Decoupling:** ห้าม Razor Components เรียกใช้ OS APIs, `System.IO` (เช่น `File.WriteAllText`, `Path.GetFullPath`, `Path.GetInvalidFileNameChars`), Process Execution หรือ Entity Framework DbContext โดยตรง ต้องเรียกผ่าน Service Layer หรือ `SecurityValidator` เสมอ
 3. **DbContext Concurrency in Blazor:** Blazor Server มี Long-lived connection ห้าม Inject `AppDbContext` เป็น Scoped โดยตรง แต่ต้องใช้ `IDbContextFactory<AppDbContext>` เพื่อหลีกเลี่ยง Concurrency Issue และ Thread Safety Conflicts
 4. **Configuration Safety:** การแก้ไขหรือซิงค์ไฟล์ `sshd_config` **ต้องเรียกผ่าน `ISshdConfigService` หรือ `IOpenSshServiceManager` เสมอ** ห้ามเขียนทับไฟล์โดยตรงเด็ดขาด เพื่อให้ผ่านการตรวจสอบ `sshd -t` และมีการทำ Rolling Backup ทุกครั้ง
+5. **Zero `eval()` & Stream-Based JS Interop:** ห้ามใช้ `IJSRuntime.InvokeVoidAsync("eval", ...)` หรือส่งข้อมูลไฟล์ผ่าน Base64 Data URI ในสตริง JavaScript เด็ดขาด เพราะเสี่ยงต่อ CSP/XSS และทำให้ SignalR Buffer หน่วง ต้องใช้ `DotNetStreamReference` ร่วมกับฟังก์ชัน `downloadFileFromStream` เสมอ
 
 ### UI/UX & Blazor Component Standards:
 1. **Unified Visual Hierarchy:**
@@ -128,6 +129,20 @@ AI Agent **ต้องปฏิบัติตามกฎเหล็กเห
   - `SuperAdmin`: เข้าถึงได้ทุกฟังก์ชัน (จัดการระบบ, จัดการ Web Admins, ตั้งค่า LDAP, ควบคุม sshd)
   - `Operator`: จัดการได้เฉพาะ SFTP Users, SFTP Groups และ File Browser (ไม่สามารถแก้ไขระบบหรือจัดการ Web Admin ได้)
   - `Auditor`: สิทธิ์อ่านอย่างเดียว (Read-Only) สำหรับผู้ตรวจสอบ (ดู Dashboard, OpenSSH Logs, Audit Logs)
+- **Dual-Layer RBAC Enforcement (UI + Code-Behind Guard Clauses):** ทุกหน้าใน `Components/Pages/` ต้องบังคับใช้สิทธิ์จาก `UserSessionState` ทั้ง **2 ระดับเสมอ**:
+  1. **Layer 1 (UI Markup):** ซ่อนหรือปิดปุ่ม Action ที่เกินสิทธิ์ของผู้ใช้ที่กำลังล็อกอินอยู่
+  2. **Layer 2 (`@code` Event Handler Guard):** ทุกเมธอดที่ทำการเปลี่ยนแปลงข้อมูลหรือสั่งการระบบ (Mutating Methods) ต้องมี Guard Clause ตรวจสอบสิทธิ์ที่บรรทัดแรกเสมอ:
+     - `SessionState.CanManageSystem` (`SuperAdmin` เท่านั้น): บังคับใช้ใน `/web-admins` (`WebAdminManagement.razor`), `/settings` (`SettingsPage.razor`), การสั่งควบคุมบริการใน `/service` (`ServiceControlPage.razor`), และปุ่มติดตั้ง Zero-Config ใน `/` (`Home.razor`)
+     - `SessionState.CanManageSftp` (`SuperAdmin` และ `Operator`): บังคับใช้ในทุกฟังก์ชันสร้าง/แก้ไข/ลบ/เปลี่ยนรหัสผ่าน/จัดการคีย์/อัปโหลดไฟล์ใน `/users` (`UserManagement.razor`), `/groups` (`GroupManagement.razor`), และ `/files` (`FileExplorerPage.razor`)
+
+### 3.6 Performance, Concurrency & Resource Guardrails (ข้อกำหนดด้านประสิทธิภาพและการทำงานร่วมกัน)
+1. **Zero-Config Reload Discipline:** ห้ามเรียก `SyncAllDirectChrootConfigsAsync()` หรือสั่ง Restart `sshd` Service เมื่อสร้างหรือแก้ไขผู้ใช้/กลุ่มที่อยู่ในโหมด `VirtualFolder` ต้องเรียกเฉพาะเมื่อมีการใช้งานหรือเปลี่ยนแปลงโหมด `DirectChroot` เท่านั้น
+2. **Full-Cycle Concurrency Locking:** การทำ Read-Modify-Write บนไฟล์สำคัญของระบบ (`sshd_config` และไฟล์ `AuthorizedKeys`) ใน Singleton Services ต้องถือ Lock (`SemaphoreSlim`) ครอบคลุมตั้งแต่ขั้นตอน Read -> Parse -> Modify -> Validate -> Atomic Replace ทั้งกระบวนการ เพื่อป้องกัน Race Condition (TOCTOU / Lost Update)
+3. **Idempotent OS Provisioning & SID Caching:**
+   - การสร้าง NTFS Directory Junction (`CreateDirectoryJunction`) ต้องตรวจสอบด้วย `ResolveLinkTarget` ก่อนว่าลิงก์เดิมชี้ไปยังปลายทางที่ถูกต้องอยู่แล้วหรือไม่ หากตรงกันอยู่แล้วให้คืนค่า `true` ทันทีโดยไม่ลบและไม่แตกโปรเซส `cmd.exe /c mklink /J` ซ้ำ
+   - ใช้ Thread-safe SID Cache สำหรับการแปลง `NTAccount` เพื่อลดการเรียก Windows LSASS RPC ซ้ำซ้อน
+4. **Bounded In-Memory State:** โครงสร้างข้อมูลแบบ Static หรือ Singleton ในหน่วยความจำ (เช่น `LoginAttempts` สำหรับป้องกัน Brute-force หรือ Cache ต่างๆ) ต้องมีเพดานขนาดสูงสุด (Bounded Capacity) และมีกลไก Pruning ล้างข้อมูลที่หมดอายุออกเสมอเพื่อป้องกัน Memory Leak
+5. **Native Event Log XPath Filtering & Compiled Regex:** การดึง Windows Event Log ต้องสร้าง XPath Time Filter (`@SystemTime`) ส่งให้ระดับ OS คัดกรองก่อนเสมอ และทุก Regex ที่ถูกเรียกซ้ำในลูป (รวมถึง `SecurityValidator.SanitizeSingleLine`) ต้องใช้ `RegexOptions.Compiled`
 
 ---
 
@@ -136,12 +151,13 @@ AI Agent **ต้องปฏิบัติตามกฎเหล็กเห
 ### 4.1 Tooling & Coverage
 - **Test Framework:** `xUnit`
 - **Assertions:** `FluentAssertions`
-- **Security Hardening Suite:** `ProductionHardeningAndSecurityTests.cs` และ `WebAdminServiceTests.cs` (ครอบคลุมความปลอดภัยและการทำงานระดับ Production):
+- **Security Hardening Suite:** `ProductionHardeningAndSecurityTests.cs`, `PerformanceAndResilienceTests.cs` และ `WebAdminServiceTests.cs` (ครอบคลุมความปลอดภัย ประสิทธิภาพ และการทำงานระดับ Production):
   1. **Domain 1:** `sshd_config` Parser, Hierarchy (Global vs Match blocks), Directive Bleeding Prevention, Atomic Write, Syntax Checking, และ Rolling Backup
   2. **Domain 2:** NTFS ACL Provisioning, OpenSSH Strict Chroot Permissions, Path Traversal Defense, และ Directory Junctions
   3. **Domain 3:** Windows Event Log Regex Parsing (`OpenSSH/Operational`), Event Type Identification, Authentication Status, และ CSV Export
   4. **Domain 4:** Dual Service Controller (`sshd` และ `ssh-agent`) Lifecycle & Fallback Behavior
   5. **Domain 5:** Web Admin User Management, PBKDF2 Hashing, Active Directory Live Search, Role RBAC, และ Self-Lockout Guardrails
+  6. **Domain 6:** Performance, Concurrency & Dual-Layer RBAC Contract Suite (Zero-Reload Discipline, Full-Cycle Locking, Idempotent Junctions, Bounded Memory, Zero `eval()` Interop, และ UI/Handler RBAC Guards)
 
 ### 4.2 Rules for Testing
 1. **Mock OS Dependencies:** ในการทดสอบ Unit Tests ห้ามเรียก `net.exe`, ห้ามสร้าง Windows User จริง, และห้ามสั่งปิด Windows Service บนเครื่องทดสอบจริง

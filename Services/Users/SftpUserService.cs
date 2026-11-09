@@ -294,8 +294,11 @@ public class SftpUserService : ISftpUserService
             // Sync junctions
             await _groupService.SyncUserJunctionsAsync(user.Username);
 
-            // Sync DirectChroot rules
-            await _groupService.SyncAllDirectChrootConfigsAsync();
+            // Sync DirectChroot rules only when DirectChroot mode was or is active (Zero-Config Reload Discipline)
+            if (oldAccessMode == SftpAccessMode.DirectChroot || user.AccessMode == SftpAccessMode.DirectChroot)
+            {
+                await _groupService.SyncAllDirectChrootConfigsAsync();
+            }
 
             await _auditService.LogAsync("USER_UPDATE", $"Updated user '{user.Username}'", true, op);
             return (true, $"User '{user.Username}' updated successfully.");

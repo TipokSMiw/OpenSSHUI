@@ -11,8 +11,9 @@ namespace OpensshUI.Services.Auth;
 public class LdapAuthService : ILdapAuthService
 {
     private const int MaxFailedAttempts = 5;
+    private const int MaxTrackedLoginUsers = 1000;
     private static readonly TimeSpan LockoutDuration = TimeSpan.FromMinutes(5);
-    private static readonly ConcurrentDictionary<string, (int FailedCount, DateTime? LockoutUntilUtc)> LoginAttempts = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly ConcurrentDictionary<string, (int FailedCount, DateTime? LockoutUntilUtc, DateTime LastAttemptUtc)> LoginAttempts = new(StringComparer.OrdinalIgnoreCase);
 
     private readonly IDbContextFactory<AppDbContext> _dbFactory;
     private readonly IProtectionService _protectionService;
@@ -34,6 +35,15 @@ public class LdapAuthService : ILdapAuthService
         {
             LoginAttempts.TryRemove(username.Trim(), out _);
         }
+    }
+
+    public static int GetTrackedAttemptCount() => LoginAttempts.Count;
+
+    public static void ClearAllLoginAttempts() => LoginAttempts.Clear();
+
+    public static void RecordFailedAttemptForTesting(string username, DateTime? simulatedTimeUtc = null)
+    {
+        RecordFailedAttemptCore(username, simulatedTimeUtc ?? DateTime.UtcNow);
     }
 
     private string? UnprotectOrFallback(string? value)
@@ -138,17 +148,57 @@ public class LdapAuthService : ILdapAuthService
 
     private static void RecordFailedAttempt(string username)
     {
+        RecordFailedAttemptCore(username, DateTime.UtcNow);
+    }
+
+    private static void RecordFailedAttemptCore(string username, DateTime nowUtc)
+    {
+        if (LoginAttempts.Count >= MaxTrackedLoginUsers)
+        {
+            PruneExpiredAttempts(nowUtc);
+        }
+
         LoginAttempts.AddOrUpdate(
             username,
-            _ => (1, null),
+            _ => (1, null, nowUtc),
             (_, current) =>
             {
                 int nextCount = current.FailedCount + 1;
                 DateTime? lockoutUntil = nextCount >= MaxFailedAttempts
-                    ? DateTime.UtcNow.Add(LockoutDuration)
+                    ? nowUtc.Add(LockoutDuration)
                     : current.LockoutUntilUtc;
-                return (nextCount, lockoutUntil);
+                return (nextCount, lockoutUntil, nowUtc);
             });
+    }
+
+    private static void PruneExpiredAttempts(DateTime nowUtc)
+    {
+        var expirationCutoff = nowUtc - LockoutDuration;
+        foreach (var kvp in LoginAttempts)
+        {
+            var isExpiredLockout = kvp.Value.LockoutUntilUtc.HasValue && kvp.Value.LockoutUntilUtc.Value <= nowUtc;
+            var isStaleAttempt = !kvp.Value.LockoutUntilUtc.HasValue && kvp.Value.LastAttemptUtc <= expirationCutoff;
+            if (isExpiredLockout || isStaleAttempt)
+            {
+                LoginAttempts.TryRemove(kvp.Key, out _);
+            }
+        }
+
+        // Hard cap safeguard if still above MaxTrackedLoginUsers during an active flood
+        if (LoginAttempts.Count >= MaxTrackedLoginUsers)
+        {
+            var oldestNonLocked = LoginAttempts
+                .Where(kvp => !kvp.Value.LockoutUntilUtc.HasValue || kvp.Value.LockoutUntilUtc.Value <= nowUtc)
+                .OrderBy(kvp => kvp.Value.LastAttemptUtc)
+                .Take(MaxTrackedLoginUsers / 4)
+                .Select(kvp => kvp.Key)
+                .ToList();
+
+            foreach (var key in oldestNonLocked)
+            {
+                LoginAttempts.TryRemove(key, out _);
+            }
+        }
     }
 
     public async Task<AuthResult> AuthenticateAsync(string username, string password)

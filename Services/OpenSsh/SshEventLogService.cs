@@ -29,9 +29,10 @@ public class SshEventLogService : ISshEventLogService, IOpenSshLogService
             try
             {
                 var (fromUtc, toUtc) = ResolveTimeRange(filter);
+                var xpathQuery = BuildXPathTimeQuery(fromUtc, toUtc);
 
                 // Use ReverseDirection = true to read from the newest record (SeekPosition.LastRecord) backward
-                var eventQuery = new EventLogQuery(LogChannel, PathType.LogName, "*")
+                var eventQuery = new EventLogQuery(LogChannel, PathType.LogName, xpathQuery)
                 {
                     ReverseDirection = true
                 };
@@ -227,6 +228,30 @@ public class SshEventLogService : ISshEventLogService, IOpenSshLogService
 
         var escaped = value.Replace("\"", "\"\"");
         return $"\"{escaped}\"";
+    }
+
+    public static string BuildXPathTimeQuery(DateTime? fromUtc, DateTime? toUtc)
+    {
+        if (!fromUtc.HasValue && !toUtc.HasValue)
+        {
+            return "*";
+        }
+
+        if (fromUtc.HasValue && toUtc.HasValue)
+        {
+            var fromIso = fromUtc.Value.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ", System.Globalization.CultureInfo.InvariantCulture);
+            var toIso = toUtc.Value.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ", System.Globalization.CultureInfo.InvariantCulture);
+            return $"*[System[TimeCreated[@SystemTime>='{fromIso}' and @SystemTime<='{toIso}']]]";
+        }
+
+        if (fromUtc.HasValue)
+        {
+            var fromIso = fromUtc.Value.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ", System.Globalization.CultureInfo.InvariantCulture);
+            return $"*[System[TimeCreated[@SystemTime>='{fromIso}']]]";
+        }
+
+        var upperIso = toUtc!.Value.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ", System.Globalization.CultureInfo.InvariantCulture);
+        return $"*[System[TimeCreated[@SystemTime<='{upperIso}']]]";
     }
 
     private static (DateTime? fromUtc, DateTime? toUtc) ResolveTimeRange(SshLogFilter filter)
