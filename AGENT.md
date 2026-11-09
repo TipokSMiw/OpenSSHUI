@@ -228,3 +228,47 @@ flowchart TD
 3. **เขียนโค้ด (Implement):** พัฒนาตามหลัก Clean Service Layer และ Hybrid Monolith
 4. **เขียนและรันชุดทดสอบ (Test):** เขียน Unit Test ครอบคลุม Business Logic ใหม่ และรัน `dotnet test OpensshUI.Tests\OpensshUI.Tests.csproj`
 5. **ตรวจสอบความเรียบร้อย (Verify):** ยืนยันว่าโค้ดคอมไพล์ผ่าน ไม่เกิด Warning สำคัญ และเทสผ่านครบ 100%
+
+---
+
+## 8. OWASP Top 10 (2021) Security Standards & Guardrails (มาตรฐานความปลอดภัยระดับองค์กร)
+
+ระบบ OpensshUI ยึดมั่นตามมาตรฐานความปลอดภัยสารสนเทศ **OWASP Top 10 (2021)** โดยกำหนดข้อบังคับและ Guardrails สำหรับนักพัฒนาและ AI Agent ดังนี้:
+
+### A01: Broken Access Control & Least Privilege
+- **Least Privilege by Default:** บัญชีที่ยังไม่ได้เข้าสู่ระบบหรือหลังจากออกจากระบบ (`Logout()`) ใน `UserSessionState` ต้องมีบทบาทเป็น `WebAdminRole.Auditor` เสมอ (ห้ามตั้ง `SuperAdmin` เป็นค่าเริ่มต้นเด็ดขาด)
+- **Role Propagation:** การล็อกอินผ่านหน้าเว็บทุกกรณี (`LoginModal.razor` และ `MainLayout.razor`) ต้องส่งค่า `result.Role` เข้าสู่ `SessionState.SetUser(..., result.Role)` อย่างชัดเจน เพื่อป้องกัน Privilege Escalation
+- **Handler-Level RBAC Guards:** Razor Component ทุกตัวที่มีฟังก์ชันดำเนินการระดับผู้ดูแลระบบ (เช่น `WebAdminManagement.razor`, `FolderPickerModal.razor`) ต้องมี Guard Clause ตรวจสอบสิทธิ์ที่ระดับ C# Method เสมอ (เช่น `if (!SessionState.CanManageSystem) return;` หรือ `if (!SessionState.CanManageSftp) return;`) เพื่อป้องกันการส่ง Event ตรงผ่าน SignalR Connection
+
+### A02: Cryptographic Failures & Algorithm Restrictions
+- **Disallow Weak SSH Algorithms (`ssh-dss`):** ห้ามเปิดใช้งานหรืออนุญาตคีย์ประเภท `ssh-dss` (DSA 1024-bit) โดยเด็ดขาดทั้งใน OpenSSH format และ RFC 4716 (PuTTY) format เนื่องจากอัลกอริทึม DSA อ่อนแอและถูกยกเลิกใน OpenSSH มาตรฐานใหม่ คีย์ที่อนุญาตใน `SshKeyConverter.ValidKeyTypes` มีเพียง `ssh-rsa`, `ssh-ed25519`, และ `ecdsa-sha2-nistp256/384/521` เท่านั้น
+- **Configurable HTTPS Redirection:** รองรับการเปิดใช้งาน HTTPS Redirection ใน `Program.cs` ผ่านคอนฟิก `SecuritySettings:RequireHttps` สำหรับระบบที่ไม่ได้ติดตั้งหลัง Reverse Proxy
+
+### A03: Injection & Formula Protection
+- **CSV Formula Injection Mitigation:** การส่งออกข้อมูลเป็น CSV ผ่าน `SshEventLogService.EscapeCsv` ต้องตรวจสอบอักขระ `=`, `+`, `-`, `@`, `\t`, `\r` ทั้งตำแหน่งแรกและหลังตัด Whitespace นำหน้า (`TrimStart()`) โดยต้องเติม `'` นำหน้าเสมอเพื่อป้องกัน Excel Execute คำสั่งอัตโนมัติ
+- **Dynamic SQL Identifier Guard:** ใน `AppDbContext.AddColumnIfNotExistsAsync` ห้ามต่อสตริงชื่อตารางและชื่อคอลัมน์โดยตรง ต้องตรวจสอบผ่าน Regex `^[a-zA-Z0-9_]+$` เสมอ
+
+### A04: Insecure Design & Password Policies
+- **SFTP Local Windows User Password Policy:** การสร้างหรือเปลี่ยนรหัสผ่านผู้ใช้ Local Windows User ใน `SecurityValidator.ValidateWindowsPassword` ต้องบังคับความยาวขั้นต่ำ **4 ตัวอักษรขึ้นไป** (minimum 4 characters, `password.Length < 4` ต้องถูกปฏิเสธ) และห้ามขึ้นต้นด้วย `/` หรือ `-` (ป้องกัน CLI switch injection ใน `net.exe`)
+- **Web Admin Password Policy:** รหัสผ่านผู้ดูแลระบบ Web Admin ใน `WebAdminService` ต้องมีความยาวขั้นต่ำ **8 ตัวอักษรขึ้นไป** และเข้ารหัสด้วย PBKDF2-SHA256 (100,000 iterations)
+
+### A05: Security Misconfiguration & HTTP Headers
+- ใน `Program.cs` ต้องแนบ HTTP Security Headers ในทุก HTTP Response เสมอ:
+  - `X-Content-Type-Options: nosniff`
+  - `X-Frame-Options: DENY`
+  - `Referrer-Policy: strict-origin-when-cross-origin`
+  - `Permissions-Policy: camera=(), microphone=(), geolocation=()`
+  - `Content-Security-Policy: default-src 'self'; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; font-src 'self' https://cdn.jsdelivr.net data:; img-src 'self' data:; script-src 'self' 'unsafe-inline'; connect-src 'self' ws: wss:; frame-ancestors 'none';`
+
+### A06 & A08: Vulnerable Components & Software/Data Integrity
+- ทรัพยากรภายนอกที่โหลดผ่าน CDN (เช่น Bootstrap Icons ใน `Components/App.razor`) ต้องระบุแอตทริบิวต์ `crossorigin="anonymous"` และ `referrerpolicy="no-referrer"` เสมอ
+
+### A07: Identification and Authentication Failures & Session Timeout
+- `UserSessionState` ต้องมีกลไกตรวจสอบอายุเซสชัน (`SessionTimeout` ค่าเริ่มต้น 8 ชั่วโมง และ `IsSessionExpired`) หากหมดเวลาต้องตัดสิทธิ์ `IsAuthenticated` ให้กลายเป็น `false` ทันที
+
+### A09: Security Logging and Monitoring Failures
+- **Log Forgery Prevention:** `AuditService.LogAsync` ต้องทำความสะอาดฟิลด์ `action` และ `op` ด้วย `SecurityValidator.SanitizeSingleLine` และแทนที่ `\r`, `\n` ใน `details` เป็นช่องว่าง เพื่อป้องกันการปลอมแปลงบรรทัดบันทึกเหตุการณ์
+- **Logout Auditing:** เมื่อผู้ดูแลระบบออกจากระบบ (`Logout`) ใน `MainLayout.razor` ต้องบันทึก Audit Log ชนิด `ADMIN_LOGOUT` เสมอ
+
+### A10: Server-Side Request Forgery (SSRF) Prevention
+- การตั้งค่าและการทดสอบเชื่อมต่อ LDAP Server ใน `LdapAuthService` ต้องผ่านการตรวจสอบโดย `SecurityValidator.ValidateLdapHost(host, port)` เสมอ บล็อก URL Schemes (`http://`, `ldap://`), Path Slashes (`/`, `\`), อักขระ Control/Whitespace และพอร์ตที่อยู่นอกช่วง `1..65535` ป้องกันการทำ Port Scanning หรือโจมตีบริการภายใน

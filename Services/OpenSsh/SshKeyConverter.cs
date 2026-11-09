@@ -17,13 +17,12 @@ public class SshKeyParseResult
 
 public static class SshKeyConverter
 {
-    private static readonly string[] ValidKeyTypes = {
+    public static readonly string[] ValidKeyTypes = {
         "ssh-rsa",
         "ssh-ed25519",
         "ecdsa-sha2-nistp256",
         "ecdsa-sha2-nistp384",
-        "ecdsa-sha2-nistp521",
-        "ssh-dss"
+        "ecdsa-sha2-nistp521"
     };
 
     public static SshKeyParseResult ParseAndNormalizeKey(string input)
@@ -85,7 +84,7 @@ public static class SshKeyConverter
         return new SshKeyParseResult
         {
             IsSuccess = false,
-            ErrorMessage = "Unrecognized key format. Please provide a standard OpenSSH key or PuTTY RFC 4716 public key."
+            ErrorMessage = "Unrecognized key format or unsupported key type (ssh-dss is disabled). Please provide a standard OpenSSH key (RSA, ED25519, ECDSA) or PuTTY RFC 4716 public key."
         };
     }
 

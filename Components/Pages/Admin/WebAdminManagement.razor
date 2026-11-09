@@ -809,6 +809,7 @@
 
     private async Task LoadAdmins()
     {
+        if (!SessionState.CanManageSystem) return;
         isLoading = true;
         try
         {
@@ -826,6 +827,7 @@
 
     private void OpenCreateModal()
     {
+        if (!SessionState.CanManageSystem) return;
         modalErrorMessage = null;
         newAccountType = WebAdminType.ActiveDirectory;
         selectedNewRole = WebAdminRole.SuperAdmin;
@@ -864,6 +866,7 @@
 
     private async Task SearchAdUsers()
     {
+        if (!SessionState.CanManageSystem) return;
         if (string.IsNullOrWhiteSpace(adSearchQuery)) return;
         isSearchingAd = true;
         modalErrorMessage = null;
@@ -912,6 +915,7 @@
 
     private async Task SaveNewAdmin()
     {
+        if (!SessionState.CanManageSystem) return;
         if (!IsCreateFormValid) return;
         isSaving = true;
         modalErrorMessage = null;
@@ -964,6 +968,7 @@
 
     private void OpenEditRoleModal(WebAdminUser admin)
     {
+        if (!SessionState.CanManageSystem) return;
         editingAdmin = admin;
         targetEditRole = admin.Role;
         showEditRoleModal = true;
@@ -971,6 +976,7 @@
 
     private async Task SaveEditRole()
     {
+        if (!SessionState.CanManageSystem) return;
         if (editingAdmin == null) return;
         isSaving = true;
 
@@ -988,6 +994,7 @@
 
     private void OpenResetPasswordModal(WebAdminUser admin)
     {
+        if (!SessionState.CanManageSystem) return;
         editingAdmin = admin;
         resetNewPassword = "";
         resetConfirmPassword = "";
@@ -996,6 +1003,7 @@
 
     private async Task SaveResetPassword()
     {
+        if (!SessionState.CanManageSystem) return;
         if (editingAdmin == null) return;
         if (string.IsNullOrWhiteSpace(resetNewPassword) || resetNewPassword != resetConfirmPassword) return;
 
@@ -1010,6 +1018,7 @@
 
     private async Task ToggleAdminStatus(WebAdminUser admin)
     {
+        if (!SessionState.CanManageSystem) return;
         var currentOp = string.IsNullOrEmpty(SessionState.CurrentUsername) ? "admin" : SessionState.CurrentUsername;
         var res = await AdminService.ToggleStatusAsync(admin.Id, currentOp);
         SetAlert(res.Message, res.Success);
@@ -1021,6 +1030,7 @@
 
     private async Task ConfirmDeleteAdmin(WebAdminUser admin)
     {
+        if (!SessionState.CanManageSystem) return;
         var currentOp = string.IsNullOrEmpty(SessionState.CurrentUsername) ? "admin" : SessionState.CurrentUsername;
         var res = await AdminService.DeleteAdminAsync(admin.Id, currentOp);
         SetAlert(res.Message, res.Success);

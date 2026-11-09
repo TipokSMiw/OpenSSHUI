@@ -220,8 +220,10 @@ public class SshEventLogService : ISshEventLogService, IOpenSshLogService
     {
         if (string.IsNullOrEmpty(value)) return "\"\"";
 
-        // Formula injection mitigation (CSV / DDE Injection defense)
-        if (value.StartsWith("=") || value.StartsWith("+") || value.StartsWith("-") || value.StartsWith("@"))
+        // Formula injection mitigation (CSV / DDE Injection defense - OWASP A03:2021)
+        var trimmedStart = value.TrimStart(' ', '\t', '\r', '\n');
+        if (trimmedStart.StartsWith("=") || trimmedStart.StartsWith("+") || trimmedStart.StartsWith("-") || trimmedStart.StartsWith("@")
+            || value.StartsWith("\t") || value.StartsWith("\r"))
         {
             value = "'" + value;
         }

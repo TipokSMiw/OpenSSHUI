@@ -100,8 +100,24 @@ if (!app.Environment.IsDevelopment())
     app.UseHsts();
 }
 
-// Allow direct HTTP access without forcing HTTPS redirection
-// app.UseHttpsRedirection();
+// Configurable HTTPS redirection
+if (app.Configuration.GetValue<bool>("SecuritySettings:RequireHttps"))
+{
+    app.UseHttpsRedirection();
+}
+
+// HTTP Security Headers (OWASP A05:2021 Security Misconfiguration Defense)
+app.Use(async (context, next) =>
+{
+    context.Response.Headers.Append("X-Content-Type-Options", "nosniff");
+    context.Response.Headers.Append("X-Frame-Options", "DENY");
+    context.Response.Headers.Append("Referrer-Policy", "strict-origin-when-cross-origin");
+    context.Response.Headers.Append("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+    context.Response.Headers.Append("Content-Security-Policy",
+        "default-src 'self'; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; font-src 'self' https://cdn.jsdelivr.net data:; img-src 'self' data:; script-src 'self' 'unsafe-inline'; connect-src 'self' ws: wss:; frame-ancestors 'none';");
+    await next();
+});
+
 app.UseStaticFiles();
 app.UseAntiforgery();
 

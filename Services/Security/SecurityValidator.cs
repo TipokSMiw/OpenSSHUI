@@ -148,6 +148,11 @@ public static class SecurityValidator
             return (false, "Password cannot start with '/' or '-' (reserved CLI switch prefix).");
         }
 
+        if (password.Length < 4)
+        {
+            return (false, "Password must be at least 4 characters long.");
+        }
+
         if (password.Length > 127)
         {
             return (false, "Password exceeds maximum length of 127 characters.");
@@ -378,5 +383,34 @@ public static class SecurityValidator
         }
 
         return clean;
+    }
+
+    /// <summary>
+    /// Validates LDAP server host and port to prevent SSRF and injection attacks.
+    /// </summary>
+    public static (bool IsValid, string? ErrorMessage) ValidateLdapHost(string? host, int port)
+    {
+        if (string.IsNullOrWhiteSpace(host))
+        {
+            return (false, "กรุณาระบุ LDAP Server / Host (LDAP Server/Host cannot be empty).");
+        }
+
+        var trimmed = host.Trim();
+        if (trimmed.Contains("://") || trimmed.Contains('/') || trimmed.Contains('\\'))
+        {
+            return (false, "LDAP Server/Host must be a hostname or IP address without URL scheme or path.");
+        }
+
+        if (trimmed.IndexOfAny(new[] { ' ', '\t', '\r', '\n', '\0', '?', '#', '@' }) >= 0)
+        {
+            return (false, "LDAP Server/Host contains invalid characters.");
+        }
+
+        if (port < 1 || port > 65535)
+        {
+            return (false, "พอร์ตต้องอยู่ระหว่าง 1 ถึง 65535 (Port must be between 1 and 65535).");
+        }
+
+        return (true, null);
     }
 }

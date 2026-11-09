@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using OpensshUI.Data;
 using OpensshUI.Models;
+using OpensshUI.Services.Security;
 
 namespace OpensshUI.Services.Audit;
 
@@ -19,14 +20,18 @@ public class AuditService : IAuditService
     {
         try
         {
+            var safeAction = SecurityValidator.SanitizeSingleLine(action ?? string.Empty);
+            var safeOp = SecurityValidator.SanitizeSingleLine(op ?? "system");
+            var safeDetails = (details ?? string.Empty).Replace("\r", " ").Replace("\n", " ");
+
             await using var db = await _dbFactory.CreateDbContextAsync();
             var log = new AuditLog
             {
                 Timestamp = DateTime.UtcNow,
-                Action = action,
-                Operator = op,
+                Action = safeAction,
+                Operator = safeOp,
                 ClientIp = clientIp,
-                Details = details,
+                Details = safeDetails,
                 IsSuccess = isSuccess
             };
 

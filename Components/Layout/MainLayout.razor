@@ -249,8 +249,13 @@ else
         }
     }
 
-    private void Logout()
+    private async Task Logout()
     {
+        var username = SessionState.CurrentUsername;
+        if (!string.IsNullOrEmpty(username))
+        {
+            await AuditService.LogAsync("ADMIN_LOGOUT", $"Admin '{username}' logged out.", true, username);
+        }
         SessionState.Logout();
         serviceInfo = null;
         loginPassword = "";

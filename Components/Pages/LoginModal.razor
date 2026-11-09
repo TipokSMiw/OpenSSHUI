@@ -129,7 +129,7 @@
             var result = await LdapAuth.AuthenticateAsync(username.Trim(), password);
             if (result.IsSuccess && result.IsAdmin)
             {
-                SessionState.SetUser(result.Username, result.DisplayName, result.IsAdmin);
+                SessionState.SetUser(result.Username, result.DisplayName, result.IsAdmin, result.Role);
                 await AuditService.LogAsync("ADMIN_LOGIN", $"Admin login successful for '{result.Username}'", true, result.Username);
                 IsOpen = false;
                 await OnLoginCompleted.InvokeAsync(true);

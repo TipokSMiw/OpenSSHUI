@@ -1,4 +1,5 @@
 @inject INativeAclProvisioner AclProvisioner
+@inject OpensshUI.Services.Auth.UserSessionState SessionState
 
 @if (IsOpen)
 {
@@ -243,6 +244,7 @@
 
     private void CreateNewFolder()
     {
+        if (!SessionState.CanManageSftp) return;
         if (string.IsNullOrWhiteSpace(_newFolderName) || string.IsNullOrWhiteSpace(CurrentPath)) return;
 
         try
@@ -281,6 +283,7 @@
 
     private async Task ConfirmSelection()
     {
+        if (!SessionState.CanManageSftp) return;
         if (!string.IsNullOrWhiteSpace(CurrentPath))
         {
             var (okPath, pathErr) = OpensshUI.Services.Security.SecurityValidator.ValidateSafeCustomPath(CurrentPath);

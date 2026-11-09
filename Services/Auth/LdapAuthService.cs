@@ -407,6 +407,12 @@ public class LdapAuthService : ILdapAuthService
 
     private LdapConnection CreateLdapConnection(LdapConfig config)
     {
+        var (isValidHost, hostError) = SecurityValidator.ValidateLdapHost(config.Server, config.Port);
+        if (!isValidHost)
+        {
+            throw new ArgumentException($"Invalid LDAP server configuration: {hostError}");
+        }
+
         var identifier = new LdapDirectoryIdentifier(config.Server.Trim(), config.Port);
         var connection = new LdapConnection(identifier)
         {
@@ -437,17 +443,11 @@ public class LdapAuthService : ILdapAuthService
     {
         var result = new LdapConnectionTestResult();
 
-        if (string.IsNullOrWhiteSpace(config.Server))
+        var (isValidHost, hostError) = SecurityValidator.ValidateLdapHost(config.Server, config.Port);
+        if (!isValidHost)
         {
             result.Success = false;
-            result.Message = "กรุณาระบุ LDAP Server / Host";
-            return result;
-        }
-
-        if (config.Port <= 0 || config.Port > 65535)
-        {
-            result.Success = false;
-            result.Message = "พอร์ตต้องอยู่ระหว่าง 1 ถึง 65535";
+            result.Message = hostError ?? "LDAP Server host or port is invalid.";
             return result;
         }
 

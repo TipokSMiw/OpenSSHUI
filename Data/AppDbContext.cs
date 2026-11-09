@@ -210,6 +210,12 @@ public class AppDbContext : DbContext
 
     private async Task AddColumnIfNotExistsAsync(string tableName, string columnName, string columnDefinition)
     {
+        if (!System.Text.RegularExpressions.Regex.IsMatch(tableName, "^[a-zA-Z0-9_]+$") ||
+            !System.Text.RegularExpressions.Regex.IsMatch(columnName, "^[a-zA-Z0-9_]+$"))
+        {
+            throw new ArgumentException("Invalid table or column name identifier.");
+        }
+
         try
         {
             var conn = Database.GetDbConnection();
