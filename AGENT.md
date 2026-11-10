@@ -236,17 +236,20 @@ flowchart TD
 ระบบ OpensshUI ยึดมั่นตามมาตรฐานความปลอดภัยสารสนเทศ **OWASP Top 10 (2021)** โดยกำหนดข้อบังคับและ Guardrails สำหรับนักพัฒนาและ AI Agent ดังนี้:
 
 ### A01: Broken Access Control & Least Privilege
-- **Least Privilege by Default:** บัญชีที่ยังไม่ได้เข้าสู่ระบบหรือหลังจากออกจากระบบ (`Logout()`) ใน `UserSessionState` ต้องมีบทบาทเป็น `WebAdminRole.Auditor` เสมอ (ห้ามตั้ง `SuperAdmin` เป็นค่าเริ่มต้นเด็ดขาด)
+- **Least Privilege by Default:** บัญชีที่ยังไม่ได้เข้าสู่ระบบหรือหลังจากออกจากระบบ (`Logout()`) ใน `UserSessionState` ต้องมีบทบาทเป็น `WebAdminRole.Auditor` เสมอ (ห้ามตั้ง `SuperAdmin` เป็นค่าเริ่มต้นเด็ดขาด) และหากไม่ได้กำหนด `AdminGroup` ใน `LdapConfig` จะไม่อนุญาตให้ผู้ใช้ AD ที่ไม่อยู่ใน `WebAdminUsers` ล็อกอินแบบ Fallback ได้รับสิทธิ์ `SuperAdmin`
+- **Canonical AD Username Normalization:** ต้องสกัดชื่อบัญชีมาตรฐานด้วย `SecurityValidator.ExtractCanonicalUsername` (ตัด `DOMAIN\` และ `@domain`) ทั้งใน `LdapAuthService` และ `WebAdminService` เพื่อป้องกันการสลับรูปแบบชื่อเพื่อหลบเลี่ยง RBAC, Self-Lockout หรือ Brute-Force Lockout
 - **Role Propagation:** การล็อกอินผ่านหน้าเว็บทุกกรณี (`LoginModal.razor` และ `MainLayout.razor`) ต้องส่งค่า `result.Role` เข้าสู่ `SessionState.SetUser(..., result.Role)` อย่างชัดเจน เพื่อป้องกัน Privilege Escalation
 - **Handler-Level RBAC Guards:** Razor Component ทุกตัวที่มีฟังก์ชันดำเนินการระดับผู้ดูแลระบบ (เช่น `WebAdminManagement.razor`, `FolderPickerModal.razor`) ต้องมี Guard Clause ตรวจสอบสิทธิ์ที่ระดับ C# Method เสมอ (เช่น `if (!SessionState.CanManageSystem) return;` หรือ `if (!SessionState.CanManageSftp) return;`) เพื่อป้องกันการส่ง Event ตรงผ่าน SignalR Connection
+- **DirectChroot & CustomPath Integrity:** `SecurityValidator.ValidateSafeCustomPath` ต้องบล็อกพาธย่อ 8.3 (`~`), NTFS ADS (`:`), ชื่อสงวน DOS, โฟลเดอร์ `.ssh`, `C:\Users`, และห้ามตั้งทับราก `SftpRoot` รวมถึงห้าม `SecureFileBrowserService` ลบโฟลเดอร์ย่อย `files` ภายใต้ราก `DirectChroot` และต้องตรวจสอบผลลัพธ์ `RemoveDirectoryJunction` ก่อนสั่งลบโฟลเดอร์ผู้ใช้แบบ Recursive เสมอ
 
 ### A02: Cryptographic Failures & Algorithm Restrictions
-- **Disallow Weak SSH Algorithms (`ssh-dss`):** ห้ามเปิดใช้งานหรืออนุญาตคีย์ประเภท `ssh-dss` (DSA 1024-bit) โดยเด็ดขาดทั้งใน OpenSSH format และ RFC 4716 (PuTTY) format เนื่องจากอัลกอริทึม DSA อ่อนแอและถูกยกเลิกใน OpenSSH มาตรฐานใหม่ คีย์ที่อนุญาตใน `SshKeyConverter.ValidKeyTypes` มีเพียง `ssh-rsa`, `ssh-ed25519`, และ `ecdsa-sha2-nistp256/384/521` เท่านั้น
+- **Disallow Weak SSH Algorithms (`ssh-dss`) & Wire-Format Verification:** ห้ามเปิดใช้งานหรืออนุญาตคีย์ประเภท `ssh-dss` (DSA 1024-bit) โดยเด็ดขาดทั้งใน OpenSSH format และ RFC 4716 (PuTTY) format เนื่องจากอัลกอริทึม DSA อ่อนแอและถูกยกเลิกใน OpenSSH มาตรฐานใหม่ คีย์ที่อนุญาตใน `SshKeyConverter.ValidKeyTypes` มีเพียง `ssh-rsa`, `ssh-ed25519`, และ `ecdsa-sha2-nistp256/384/521` เท่านั้น และต้องแกะ RFC 4251 binary header ภายใน Base64 มาตรวจสอบให้ตรงกับชนิดคีย์ที่ระบุเสมอ
 - **Configurable HTTPS Redirection:** รองรับการเปิดใช้งาน HTTPS Redirection ใน `Program.cs` ผ่านคอนฟิก `SecuritySettings:RequireHttps` สำหรับระบบที่ไม่ได้ติดตั้งหลัง Reverse Proxy
 
 ### A03: Injection & Formula Protection
 - **CSV Formula Injection Mitigation:** การส่งออกข้อมูลเป็น CSV ผ่าน `SshEventLogService.EscapeCsv` ต้องตรวจสอบอักขระ `=`, `+`, `-`, `@`, `\t`, `\r` ทั้งตำแหน่งแรกและหลังตัด Whitespace นำหน้า (`TrimStart()`) โดยต้องเติม `'` นำหน้าเสมอเพื่อป้องกัน Excel Execute คำสั่งอัตโนมัติ
 - **Dynamic SQL Identifier Guard:** ใน `AppDbContext.AddColumnIfNotExistsAsync` ห้ามต่อสตริงชื่อตารางและชื่อคอลัมน์โดยตรง ต้องตรวจสอบผ่าน Regex `^[a-zA-Z0-9_]+$` เสมอ
+- **`sshd_config` Match Pattern & Comment Sanitization:** ใน `SshdConfigService` และ `OpenSshServiceManager` ต้องคัดกรองอักขระ Wildcard/Negation (`*`, `?`, `!`, `,`) ออกจากชื่อ `Match` Identifier และทำความสะอาด `comment` ใน `SftpUserService.AddPublicKeyAsync` ด้วย `SecurityValidator.SanitizeSingleLine` เสมอ
 
 ### A04: Insecure Design & Password Policies
 - **SFTP Local Windows User Password Policy:** การสร้างหรือเปลี่ยนรหัสผ่านผู้ใช้ Local Windows User ใน `SecurityValidator.ValidateWindowsPassword` ต้องบังคับความยาวขั้นต่ำ **4 ตัวอักษรขึ้นไป** (minimum 4 characters, `password.Length < 4` ต้องถูกปฏิเสธ) และห้ามขึ้นต้นด้วย `/` หรือ `-` (ป้องกัน CLI switch injection ใน `net.exe`)
@@ -258,13 +261,14 @@ flowchart TD
   - `X-Frame-Options: DENY`
   - `Referrer-Policy: strict-origin-when-cross-origin`
   - `Permissions-Policy: camera=(), microphone=(), geolocation=()`
-  - `Content-Security-Policy: default-src 'self'; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; font-src 'self' https://cdn.jsdelivr.net data:; img-src 'self' data:; script-src 'self' 'unsafe-inline'; connect-src 'self' ws: wss:; frame-ancestors 'none';`
+  - `Content-Security-Policy: default-src 'self'; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; font-src 'self' https://cdn.jsdelivr.net data:; img-src 'self' https://cdn.jsdelivr.net data:; script-src 'self' 'unsafe-inline'; connect-src 'self' ws: wss:; frame-ancestors 'none';`
 
 ### A06 & A08: Vulnerable Components & Software/Data Integrity
 - ทรัพยากรภายนอกที่โหลดผ่าน CDN (เช่น Bootstrap Icons ใน `Components/App.razor`) ต้องระบุแอตทริบิวต์ `crossorigin="anonymous"` และ `referrerpolicy="no-referrer"` เสมอ
 
 ### A07: Identification and Authentication Failures & Session Timeout
 - `UserSessionState` ต้องมีกลไกตรวจสอบอายุเซสชัน (`SessionTimeout` ค่าเริ่มต้น 8 ชั่วโมง และ `IsSessionExpired`) หากหมดเวลาต้องตัดสิทธิ์ `IsAuthenticated` ให้กลายเป็น `false` ทันที
+- **Bounded Live Session Revocation & Role Sync:** เมื่อบัญชีแอดมินถูกระงับ ลบออก หรือลดระดับสิทธิ์ใน `WebAdminService` ต้องแจ้งเตือนไปยัง `UserSessionState.NotifyUserStatusChanged` (ภายใต้โครงสร้าง Bounded In-Memory State) เพื่อตัดสิทธิ์หรือปรับลดบทบาทของเซสชันที่ออนไลน์อยู่ทันที
 
 ### A09: Security Logging and Monitoring Failures
 - **Log Forgery Prevention:** `AuditService.LogAsync` ต้องทำความสะอาดฟิลด์ `action` และ `op` ด้วย `SecurityValidator.SanitizeSingleLine` และแทนที่ `\r`, `\n` ใน `details` เป็นช่องว่าง เพื่อป้องกันการปลอมแปลงบรรทัดบันทึกเหตุการณ์

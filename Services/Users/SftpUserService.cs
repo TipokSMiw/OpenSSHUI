@@ -76,7 +76,7 @@ public class SftpUserService : ISftpUserService
 
         if (!string.IsNullOrWhiteSpace(request.CustomRootPath))
         {
-            var (okPath, pathErr) = SecurityValidator.ValidateSafeCustomPath(request.CustomRootPath);
+            var (okPath, pathErr) = SecurityValidator.ValidateSafeCustomPath(request.CustomRootPath, _sshServiceManager.SftpRoot);
             if (!okPath)
             {
                 return (false, pathErr!);
@@ -235,7 +235,7 @@ public class SftpUserService : ISftpUserService
             string? cleanCustomRoot = null;
             if (!string.IsNullOrWhiteSpace(request.CustomRootPath))
             {
-                var (okPath, pathErr) = SecurityValidator.ValidateSafeCustomPath(request.CustomRootPath);
+                var (okPath, pathErr) = SecurityValidator.ValidateSafeCustomPath(request.CustomRootPath, _sshServiceManager.SftpRoot);
                 if (!okPath)
                 {
                     return (false, pathErr!);
@@ -384,6 +384,7 @@ public class SftpUserService : ISftpUserService
         var userFilesDir = Path.Combine(userDir, "files");
 
         // Remove from all OS local groups and detach group junctions first
+        bool allJunctionsDetachedSafely = true;
         foreach (var ug in user.UserGroups)
         {
             if (ug.Group != null)
@@ -392,27 +393,44 @@ public class SftpUserService : ISftpUserService
                 _windowsUserManager.RemoveUserFromLocalGroup(osGrp, cleanUsername);
 
                 var grpJunction = Path.Combine(userFilesDir, ug.Group.Name);
-                _aclProvisioner.RemoveDirectoryJunction(grpJunction);
+                bool detached = _aclProvisioner.RemoveDirectoryJunction(grpJunction);
+                if (!detached && Directory.Exists(grpJunction))
+                {
+                    allJunctionsDetachedSafely = false;
+                    _logger.LogWarning("Failed to detach group junction {Junction} before deleting user {User}; aborting recursive file deletion to protect shared data.", grpJunction, cleanUsername);
+                }
             }
         }
 
-        // Detach any remaining reparse points (junctions) inside user's files directory before recursive delete
-        if (Directory.Exists(userFilesDir))
+        // Detach any remaining reparse points (junctions) inside user's directory tree before recursive delete
+        if (Directory.Exists(userDir))
         {
             try
             {
-                var filesDirInfo = new DirectoryInfo(userFilesDir);
-                foreach (var sub in filesDirInfo.EnumerateDirectories())
+                var enumOptions = new EnumerationOptions
+                {
+                    IgnoreInaccessible = true,
+                    RecurseSubdirectories = true,
+                    AttributesToSkip = 0 // Do NOT skip reparse points when searching for junctions to detach
+                };
+
+                foreach (var sub in new DirectoryInfo(userDir).EnumerateDirectories("*", enumOptions))
                 {
                     if (sub.Attributes.HasFlag(FileAttributes.ReparsePoint))
                     {
-                        _aclProvisioner.RemoveDirectoryJunction(sub.FullName);
+                        bool detached = _aclProvisioner.RemoveDirectoryJunction(sub.FullName);
+                        if (!detached && Directory.Exists(sub.FullName))
+                        {
+                            allJunctionsDetachedSafely = false;
+                            _logger.LogWarning("Failed to detach reparse point {Junction} before deleting user {User}; aborting recursive file deletion.", sub.FullName, cleanUsername);
+                        }
                     }
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Could not enumerate/remove junctions in {Dir} before user deletion", userFilesDir);
+                allJunctionsDetachedSafely = false;
+                _logger.LogWarning(ex, "Could not enumerate/remove junctions in {Dir} before user deletion", userDir);
             }
         }
 
@@ -434,8 +452,8 @@ public class SftpUserService : ISftpUserService
         var keyFile = Path.Combine(_sshServiceManager.KeysPath, cleanUsername);
         if (File.Exists(keyFile)) File.Delete(keyFile);
 
-        // Delete files folder if requested
-        if (deleteFiles)
+        // Delete files folder if requested and all junctions were safely detached
+        if (deleteFiles && allJunctionsDetachedSafely)
         {
             if (Directory.Exists(userDir))
             {
@@ -477,13 +495,17 @@ public class SftpUserService : ISftpUserService
             return (false, $"SSH Key with fingerprint '{parse.FingerprintSha256}' already exists for this user.", null);
         }
 
+        var safeCustomComment = string.IsNullOrWhiteSpace(comment)
+            ? null
+            : SecurityValidator.SanitizeSingleLine(comment);
+
         var key = new SshPublicKey
         {
             Username = username,
             KeyType = parse.KeyType,
             FingerprintSha256 = parse.FingerprintSha256,
             RawPublicKey = parse.RawPublicKey,
-            Comment = comment ?? parse.Comment,
+            Comment = safeCustomComment ?? parse.Comment,
             AddedAt = DateTime.UtcNow
         };
 

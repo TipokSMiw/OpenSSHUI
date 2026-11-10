@@ -31,7 +31,7 @@ public class SecureFileBrowserService : ISecureFileBrowserService
         return _sshServiceManager?.SftpRoot ?? _baseRoot;
     }
 
-    private string ResolveUserBaseDirectory(string username)
+    private (string BasePath, bool IsDirectChroot) ResolveUserDirectoryInfo(string username)
     {
         var cleanUsername = username.Trim();
         if (_dbFactory != null)
@@ -44,11 +44,11 @@ public class SecureFileBrowserService : ISecureFileBrowserService
                 {
                     if (user.AccessMode == SftpAccessMode.DirectChroot && !string.IsNullOrWhiteSpace(user.CustomRootPath))
                     {
-                        return Path.GetFullPath(user.CustomRootPath.Trim());
+                        return (Path.GetFullPath(user.CustomRootPath.Trim()), true);
                     }
                     if (!string.IsNullOrWhiteSpace(user.HomeDirectory))
                     {
-                        return Path.GetFullPath(Path.Combine(user.HomeDirectory.Trim(), "files"));
+                        return (Path.GetFullPath(Path.Combine(user.HomeDirectory.Trim(), "files")), false);
                     }
                 }
             }
@@ -58,10 +58,12 @@ public class SecureFileBrowserService : ISecureFileBrowserService
             }
         }
 
-        return Path.GetFullPath(Path.Combine(GetEffectiveSftpRoot(), cleanUsername, "files"));
+        return (Path.GetFullPath(Path.Combine(GetEffectiveSftpRoot(), cleanUsername, "files")), false);
     }
 
-    private string ResolveGroupBaseDirectory(string groupName)
+    private string ResolveUserBaseDirectory(string username) => ResolveUserDirectoryInfo(username).BasePath;
+
+    private (string BasePath, bool IsDirectChroot) ResolveGroupDirectoryInfo(string groupName)
     {
         var cleanGroup = groupName.Trim();
         if (_dbFactory != null)
@@ -72,7 +74,7 @@ public class SecureFileBrowserService : ISecureFileBrowserService
                 var group = db.SftpGroups.AsNoTracking().FirstOrDefault(g => g.Name == cleanGroup);
                 if (group != null && !string.IsNullOrWhiteSpace(group.RootPath))
                 {
-                    return Path.GetFullPath(group.RootPath.Trim());
+                    return (Path.GetFullPath(group.RootPath.Trim()), group.AccessMode == SftpAccessMode.DirectChroot);
                 }
             }
             catch (Exception ex)
@@ -81,10 +83,12 @@ public class SecureFileBrowserService : ISecureFileBrowserService
             }
         }
 
-        return Path.GetFullPath(Path.Combine(GetEffectiveSftpRoot(), "groups", cleanGroup));
+        return (Path.GetFullPath(Path.Combine(GetEffectiveSftpRoot(), "groups", cleanGroup)), false);
     }
 
-    private (string SafeBase, string Target) GetSafeUserDirectory(string username, string subPath = "")
+    private string ResolveGroupBaseDirectory(string groupName) => ResolveGroupDirectoryInfo(groupName).BasePath;
+
+    private (string SafeBase, string Target, bool IsDirectChroot) GetSafeUserDirectory(string username, string subPath = "")
     {
         // 1. Strict Username Validation
         var (isUsernameValid, usernameError) = SecurityValidator.ValidateUsername(username);
@@ -95,7 +99,7 @@ public class SecureFileBrowserService : ISecureFileBrowserService
         }
 
         // 2. Resolve safeBase for this user
-        var safeBase = ResolveUserBaseDirectory(username);
+        var (safeBase, isDirectChroot) = ResolveUserDirectoryInfo(username);
         var (isSafeBase, baseErr) = SecurityValidator.ValidateSafeCustomPath(safeBase);
         if (!isSafeBase)
         {
@@ -117,10 +121,10 @@ public class SecureFileBrowserService : ISecureFileBrowserService
         // 4. ReparsePoint (Junction / Symlink) Escape Guard
         ValidateReparsePointEscapes(safeBase, target, username);
 
-        return (safeBase, target);
+        return (safeBase, target, isDirectChroot);
     }
 
-    private (string SafeBase, string Target) GetSafeGroupDirectory(string groupName, string subPath = "")
+    private (string SafeBase, string Target, bool IsDirectChroot) GetSafeGroupDirectory(string groupName, string subPath = "")
     {
         // 1. Strict Group Name Validation
         var (isGroupValid, groupError) = SecurityValidator.ValidateGroupName(groupName, allowDefaultSftpUsersGroup: true);
@@ -131,7 +135,7 @@ public class SecureFileBrowserService : ISecureFileBrowserService
         }
 
         // 2. Resolve safeBase for this group
-        var safeBase = ResolveGroupBaseDirectory(groupName);
+        var (safeBase, isDirectChroot) = ResolveGroupDirectoryInfo(groupName);
         var (isSafeBase, baseErr) = SecurityValidator.ValidateSafeCustomPath(safeBase);
         if (!isSafeBase)
         {
@@ -153,7 +157,7 @@ public class SecureFileBrowserService : ISecureFileBrowserService
         // 4. ReparsePoint Escape Guard
         ValidateReparsePointEscapes(safeBase, target, groupName);
 
-        return (safeBase, target);
+        return (safeBase, target, isDirectChroot);
     }
 
     private void ValidateReparsePointEscapes(string safeBase, string target, string identifier)
@@ -196,10 +200,14 @@ public class SecureFileBrowserService : ISecureFileBrowserService
         }
     }
 
-    private static List<FileItemInfo> ListItemsInternal(string safeBase, string targetDir)
+    private static List<FileItemInfo> ListItemsInternal(string safeBase, string targetDir, bool isDirectChroot = false)
     {
         if (!Directory.Exists(targetDir))
         {
+            if (isDirectChroot && targetDir.Equals(safeBase, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new DirectoryNotFoundException($"DirectChroot root directory '{targetDir}' does not exist. Refuse to create unprovisioned Chroot root without Administrator ACL ownership.");
+            }
             Directory.CreateDirectory(targetDir);
         }
 
@@ -271,11 +279,20 @@ public class SecureFileBrowserService : ISecureFileBrowserService
         }
     }
 
-    private static void DeleteItemInternal(string safeBase, string target)
+    private static void DeleteItemInternal(string safeBase, string target, bool isDirectChroot = false)
     {
         if (target.Equals(safeBase, StringComparison.OrdinalIgnoreCase))
         {
             throw new InvalidOperationException("Cannot delete the root files folder.");
+        }
+
+        if (isDirectChroot)
+        {
+            var protectedFilesDir = Path.Combine(safeBase, "files");
+            if (target.Equals(protectedFilesDir, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException("Cannot delete the protected 'files' subdirectory inside a DirectChroot root folder.");
+            }
         }
 
         if (File.Exists(target))
@@ -320,14 +337,14 @@ public class SecureFileBrowserService : ISecureFileBrowserService
     {
         return Task.Run(() =>
         {
-            var (safeBase, targetDir) = GetSafeUserDirectory(username, subPath);
-            return ListItemsInternal(safeBase, targetDir);
+            var (safeBase, targetDir, isDirectChroot) = GetSafeUserDirectory(username, subPath);
+            return ListItemsInternal(safeBase, targetDir, isDirectChroot);
         });
     }
 
     public Task<Stream> OpenReadStreamAsync(string username, string subPath)
     {
-        var (_, targetFile) = GetSafeUserDirectory(username, subPath);
+        var (_, targetFile, _) = GetSafeUserDirectory(username, subPath);
         if (!File.Exists(targetFile))
         {
             throw new FileNotFoundException("File not found.", subPath);
@@ -339,7 +356,7 @@ public class SecureFileBrowserService : ISecureFileBrowserService
 
     public async Task UploadFileAsync(string username, string subPath, string fileName, Stream sourceStream, long maxSizeBytes = 500 * 1024 * 1024)
     {
-        var (safeBase, targetDir) = GetSafeUserDirectory(username, subPath);
+        var (safeBase, targetDir, _) = GetSafeUserDirectory(username, subPath);
         await UploadFileInternalAsync(safeBase, targetDir, fileName, sourceStream, maxSizeBytes);
     }
 
@@ -347,8 +364,8 @@ public class SecureFileBrowserService : ISecureFileBrowserService
     {
         return Task.Run(() =>
         {
-            var (safeBase, target) = GetSafeUserDirectory(username, subPath);
-            DeleteItemInternal(safeBase, target);
+            var (safeBase, target, isDirectChroot) = GetSafeUserDirectory(username, subPath);
+            DeleteItemInternal(safeBase, target, isDirectChroot);
         });
     }
 
@@ -356,7 +373,7 @@ public class SecureFileBrowserService : ISecureFileBrowserService
     {
         return Task.Run(() =>
         {
-            var (safeBase, targetParent) = GetSafeUserDirectory(username, subPath);
+            var (safeBase, targetParent, _) = GetSafeUserDirectory(username, subPath);
             CreateDirectoryInternal(safeBase, targetParent, directoryName);
         });
     }
@@ -417,14 +434,14 @@ public class SecureFileBrowserService : ISecureFileBrowserService
     {
         return Task.Run(() =>
         {
-            var (safeBase, targetDir) = GetSafeGroupDirectory(groupName, subPath);
-            return ListItemsInternal(safeBase, targetDir);
+            var (safeBase, targetDir, isDirectChroot) = GetSafeGroupDirectory(groupName, subPath);
+            return ListItemsInternal(safeBase, targetDir, isDirectChroot);
         });
     }
 
     public Task<Stream> OpenGroupReadStreamAsync(string groupName, string subPath)
     {
-        var (_, targetFile) = GetSafeGroupDirectory(groupName, subPath);
+        var (_, targetFile, _) = GetSafeGroupDirectory(groupName, subPath);
         if (!File.Exists(targetFile))
         {
             throw new FileNotFoundException("File not found in group share.", subPath);
@@ -436,7 +453,7 @@ public class SecureFileBrowserService : ISecureFileBrowserService
 
     public async Task UploadGroupFileAsync(string groupName, string subPath, string fileName, Stream sourceStream, long maxSizeBytes = 500 * 1024 * 1024)
     {
-        var (safeBase, targetDir) = GetSafeGroupDirectory(groupName, subPath);
+        var (safeBase, targetDir, _) = GetSafeGroupDirectory(groupName, subPath);
         await UploadFileInternalAsync(safeBase, targetDir, fileName, sourceStream, maxSizeBytes);
     }
 
@@ -444,8 +461,8 @@ public class SecureFileBrowserService : ISecureFileBrowserService
     {
         return Task.Run(() =>
         {
-            var (safeBase, target) = GetSafeGroupDirectory(groupName, subPath);
-            DeleteItemInternal(safeBase, target);
+            var (safeBase, target, isDirectChroot) = GetSafeGroupDirectory(groupName, subPath);
+            DeleteItemInternal(safeBase, target, isDirectChroot);
         });
     }
 
@@ -453,7 +470,7 @@ public class SecureFileBrowserService : ISecureFileBrowserService
     {
         return Task.Run(() =>
         {
-            var (safeBase, targetParent) = GetSafeGroupDirectory(groupName, subPath);
+            var (safeBase, targetParent, _) = GetSafeGroupDirectory(groupName, subPath);
             CreateDirectoryInternal(safeBase, targetParent, directoryName);
         });
     }

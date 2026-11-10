@@ -17,6 +17,8 @@ public class SshKeyParseResult
 
 public static class SshKeyConverter
 {
+    private const int MaxKeyInputLength = 16384;
+
     public static readonly string[] ValidKeyTypes = {
         "ssh-rsa",
         "ssh-ed25519",
@@ -32,6 +34,11 @@ public static class SshKeyConverter
             return new SshKeyParseResult { IsSuccess = false, ErrorMessage = "SSH Key content cannot be empty." };
         }
 
+        if (input.Length > MaxKeyInputLength)
+        {
+            return new SshKeyParseResult { IsSuccess = false, ErrorMessage = "SSH Key content exceeds maximum allowed length (16 KB)." };
+        }
+
         var trimmed = input.Trim();
 
         // 1. Check if PuTTY / RFC 4716 format
@@ -45,7 +52,7 @@ public static class SshKeyConverter
         foreach (var rawLine in lines)
         {
             var line = rawLine.Trim();
-            var parts = line.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            var parts = line.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
             if (parts.Length >= 2)
             {
                 var type = parts[0].ToLowerInvariant();
@@ -58,6 +65,25 @@ public static class SshKeyConverter
                     try
                     {
                         var keyBytes = Convert.FromBase64String(base64);
+                        if (keyBytes.Length < 16)
+                        {
+                            return new SshKeyParseResult
+                            {
+                                IsSuccess = false,
+                                ErrorMessage = "Invalid OpenSSH public key: binary payload is too short or truncated."
+                            };
+                        }
+
+                        var wireKeyType = ExtractKeyTypeFromBytes(keyBytes);
+                        if (string.IsNullOrEmpty(wireKeyType) || !string.Equals(wireKeyType, type, StringComparison.OrdinalIgnoreCase))
+                        {
+                            return new SshKeyParseResult
+                            {
+                                IsSuccess = false,
+                                ErrorMessage = $"SSH key binary header ('{wireKeyType}') does not match declared key type ('{type}')."
+                            };
+                        }
+
                         var fingerprint = ComputeSha256Fingerprint(keyBytes);
 
                         var rawKey = $"{type} {base64}" + (string.IsNullOrWhiteSpace(cleanComment) ? "" : $" {cleanComment}");
@@ -86,6 +112,21 @@ public static class SshKeyConverter
             IsSuccess = false,
             ErrorMessage = "Unrecognized key format or unsupported key type (ssh-dss is disabled). Please provide a standard OpenSSH key (RSA, ED25519, ECDSA) or PuTTY RFC 4716 public key."
         };
+    }
+
+    private static string ExtractKeyTypeFromBytes(byte[] keyBytes)
+    {
+        // RFC 4251: string is uint32 (big-endian length) followed by ASCII bytes
+        if (keyBytes.Length > 4)
+        {
+            int len = (keyBytes[0] << 24) | (keyBytes[1] << 16) | (keyBytes[2] << 8) | keyBytes[3];
+            if (len > 0 && len <= 64 && len + 4 <= keyBytes.Length)
+            {
+                return Encoding.ASCII.GetString(keyBytes, 4, len).ToLowerInvariant();
+            }
+        }
+
+        return string.Empty;
     }
 
     private static SshKeyParseResult ParseRfc4716PuTTY(string content)
@@ -130,18 +171,9 @@ public static class SshKeyConverter
             var keyBytes = Convert.FromBase64String(fullBase64);
 
             // Extract the key type from the first binary string in keyBytes
-            // RFC 4251: string is uint32 (big-endian length) followed by bytes
-            string keyType = string.Empty;
-            if (keyBytes.Length > 4)
-            {
-                int len = (keyBytes[0] << 24) | (keyBytes[1] << 16) | (keyBytes[2] << 8) | keyBytes[3];
-                if (len > 0 && len <= 64 && len + 4 <= keyBytes.Length)
-                {
-                    keyType = Encoding.ASCII.GetString(keyBytes, 4, len).ToLowerInvariant();
-                }
-            }
+            string keyType = ExtractKeyTypeFromBytes(keyBytes);
 
-            if (string.IsNullOrEmpty(keyType) || !ValidKeyTypes.Contains(keyType))
+            if (string.IsNullOrEmpty(keyType) || !ValidKeyTypes.Contains(keyType) || keyBytes.Length < 16)
             {
                 return new SshKeyParseResult
                 {

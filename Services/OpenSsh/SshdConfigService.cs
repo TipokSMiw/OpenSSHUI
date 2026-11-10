@@ -200,6 +200,13 @@ public class SshdConfigService : ISshdConfigService
             }
         }
 
+        // Guard against unclosed managed block at EOF
+        if (inManagedBlock)
+        {
+            _logger.LogWarning("Unclosed managed block header ('{Header}') detected in sshd_config; auto-closing managed section at EOF.", BlockHeader);
+            inManagedBlock = false;
+        }
+
         // Trim trailing empty lines from GlobalLines for idempotent serialization
         while (result.GlobalLines.Count > 0 && string.IsNullOrWhiteSpace(result.GlobalLines[^1]))
         {
@@ -478,7 +485,16 @@ public class SshdConfigService : ISshdConfigService
 
             foreach (var userRule in ruleList.Where(r => !r.IsGroup && !string.IsNullOrWhiteSpace(r.RootPath)))
             {
-                var cleanId = SecurityValidator.SanitizeSingleLine(userRule.Identifier).Replace(" ", "").Replace("\"", "");
+                var cleanId = SanitizeMatchIdentifier(userRule.Identifier);
+                if (string.IsNullOrWhiteSpace(cleanId)) continue;
+
+                var (isSafePath, pathErr) = SecurityValidator.ValidateSafeCustomPath(userRule.RootPath, sftpRoot);
+                if (!isSafePath)
+                {
+                    _logger.LogWarning("Skipping unsafe DirectChroot user rule for '{User}' path '{Path}': {Error}", cleanId, userRule.RootPath, pathErr);
+                    continue;
+                }
+
                 var normPath = FormatConfigPath(userRule.RootPath.Replace("/", "\\"));
 
                 configFile.MatchBlocks.Add(new SshdMatchBlock
@@ -499,7 +515,16 @@ public class SshdConfigService : ISshdConfigService
 
             foreach (var groupRule in ruleList.Where(r => r.IsGroup && !string.IsNullOrWhiteSpace(r.RootPath)))
             {
-                var cleanId = SecurityValidator.SanitizeSingleLine(groupRule.Identifier).Replace(" ", "").Replace("\"", "");
+                var cleanId = SanitizeMatchIdentifier(groupRule.Identifier);
+                if (string.IsNullOrWhiteSpace(cleanId)) continue;
+
+                var (isSafePath, pathErr) = SecurityValidator.ValidateSafeCustomPath(groupRule.RootPath, sftpRoot);
+                if (!isSafePath)
+                {
+                    _logger.LogWarning("Skipping unsafe DirectChroot group rule for '{Group}' path '{Path}': {Error}", cleanId, groupRule.RootPath, pathErr);
+                    continue;
+                }
+
                 var normPath = FormatConfigPath(groupRule.RootPath.Replace("/", "\\"));
 
                 configFile.MatchBlocks.Add(new SshdMatchBlock
@@ -588,6 +613,21 @@ public class SshdConfigService : ISshdConfigService
         {
             _logger.LogDebug(ex, "Could not clean up old config backups.");
         }
+    }
+
+    private static string SanitizeMatchIdentifier(string? rawIdentifier)
+    {
+        if (string.IsNullOrWhiteSpace(rawIdentifier)) return string.Empty;
+
+        var clean = SecurityValidator.SanitizeSingleLine(rawIdentifier);
+        // Strip spaces, quotes, and OpenSSH Match pattern wildcards/negation/list separators (* ? ! ,)
+        char[] forbiddenMatchChars = { ' ', '\t', '"', '*', '?', '!', ',', ';', '#', '|' };
+        foreach (var ch in forbiddenMatchChars)
+        {
+            clean = clean.Replace(ch.ToString(), "");
+        }
+
+        return clean.Trim();
     }
 
     private static string FormatConfigPath(string rawPath)

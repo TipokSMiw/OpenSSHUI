@@ -163,7 +163,11 @@ public class OpenSshServiceManager : IOpenSshServiceManager
 
             foreach (var rule in rules.Where(r => !r.IsGroup && !string.IsNullOrWhiteSpace(r.RootPath)))
             {
-                var cleanId = SecurityValidator.SanitizeSingleLine(rule.Identifier).Replace(" ", "").Replace("\"", "");
+                var cleanId = SecurityValidator.SanitizeSingleLine(rule.Identifier)
+                    .Replace(" ", "").Replace("\t", "").Replace("\"", "")
+                    .Replace("*", "").Replace("?", "").Replace("!", "").Replace(",", "");
+                if (string.IsNullOrWhiteSpace(cleanId)) continue;
+
                 var normPath = FormatConfigPath(rule.RootPath.Replace("/", "\\"));
                 sb.AppendLine($"Match User {cleanId}");
                 sb.AppendLine($"    ChrootDirectory {normPath}");
@@ -175,7 +179,11 @@ public class OpenSshServiceManager : IOpenSshServiceManager
 
             foreach (var rule in rules.Where(r => r.IsGroup && !string.IsNullOrWhiteSpace(r.RootPath)))
             {
-                var cleanId = SecurityValidator.SanitizeSingleLine(rule.Identifier).Replace(" ", "").Replace("\"", "");
+                var cleanId = SecurityValidator.SanitizeSingleLine(rule.Identifier)
+                    .Replace(" ", "").Replace("\t", "").Replace("\"", "")
+                    .Replace("*", "").Replace("?", "").Replace("!", "").Replace(",", "");
+                if (string.IsNullOrWhiteSpace(cleanId)) continue;
+
                 var normPath = FormatConfigPath(rule.RootPath.Replace("/", "\\"));
                 sb.AppendLine($"Match Group {cleanId}");
                 sb.AppendLine($"    ChrootDirectory {normPath}");

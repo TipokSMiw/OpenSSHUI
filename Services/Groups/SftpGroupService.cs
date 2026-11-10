@@ -61,7 +61,7 @@ public class SftpGroupService : ISftpGroupService
             return (false, grpErr!, null);
         }
 
-        var (okPath, pathErr) = SecurityValidator.ValidateSafeCustomPath(request.RootPath);
+        var (okPath, pathErr) = SecurityValidator.ValidateSafeCustomPath(request.RootPath, _sshServiceManager.SftpRoot);
         if (!okPath)
         {
             return (false, pathErr!, null);
@@ -160,7 +160,7 @@ public class SftpGroupService : ISftpGroupService
 
     public async Task<(bool Success, string Message)> UpdateGroupAsync(UpdateGroupRequest request, string op = "admin")
     {
-        var (okPath, pathErr) = SecurityValidator.ValidateSafeCustomPath(request.RootPath);
+        var (okPath, pathErr) = SecurityValidator.ValidateSafeCustomPath(request.RootPath, _sshServiceManager.SftpRoot);
         if (!okPath)
         {
             return (false, pathErr!);

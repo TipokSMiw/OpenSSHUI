@@ -203,9 +203,37 @@ public static class SecurityValidator
     }
 
     /// <summary>
+    /// Extracts the canonical account name by stripping any DOMAIN\ prefix or @domain UPN suffix.
+    /// Prevents RBAC, Self-Lockout, and Brute-Force Lockout bypasses via username format variations.
+    /// </summary>
+    public static string ExtractCanonicalUsername(string? rawUsername)
+    {
+        if (string.IsNullOrWhiteSpace(rawUsername))
+        {
+            return string.Empty;
+        }
+
+        var clean = rawUsername.Trim();
+
+        int backslashIdx = clean.IndexOf('\\');
+        if (backslashIdx >= 0 && backslashIdx < clean.Length - 1)
+        {
+            clean = clean[(backslashIdx + 1)..];
+        }
+
+        int atIdx = clean.IndexOf('@');
+        if (atIdx > 0)
+        {
+            clean = clean[..atIdx];
+        }
+
+        return clean.Trim();
+    }
+
+    /// <summary>
     /// Validates that a path is safe and does not target critical Windows system directories, UNC shares, or app data.
     /// </summary>
-    public static (bool IsSafe, string? ErrorMessage) ValidateSafeCustomPath(string? path)
+    public static (bool IsSafe, string? ErrorMessage) ValidateSafeCustomPath(string? path, string? sftpRootPath = null)
     {
         if (string.IsNullOrWhiteSpace(path))
         {
@@ -218,6 +246,18 @@ public static class SecurityValidator
         if (rawTrimmed.StartsWith(@"\\") || rawTrimmed.StartsWith("//") || !LocalDrivePathRegex.IsMatch(rawTrimmed))
         {
             return (false, "Only local drive paths (e.g. C:\\Folder or D:\\Share) are permitted. UNC and device paths are forbidden.");
+        }
+
+        // Block Windows 8.3 short names (e.g. C:\PROGRA~1\OpenSSH) that bypass prefix checks
+        if (rawTrimmed.Contains('~'))
+        {
+            return (false, "Path cannot contain Windows 8.3 short-name ('~') characters.");
+        }
+
+        // Block NTFS Alternate Data Streams (e.g. D:\Share\folder:stream) after drive colon
+        if (rawTrimmed.IndexOf(':', 2) >= 0)
+        {
+            return (false, "Path cannot contain NTFS Alternate Data Stream (':') characters.");
         }
 
         // Block shell metacharacters & config injection characters
@@ -235,6 +275,42 @@ public static class SecurityValidator
             if (string.Equals(fullPath.TrimEnd('\\', '/'), root?.TrimEnd('\\', '/'), StringComparison.OrdinalIgnoreCase))
             {
                 return (false, "Targeting an entire drive root as a shared folder is not permitted.");
+            }
+
+            var normalizedFull = fullPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+            // Validate each path segment against reserved DOS device names and sensitive '.ssh' directories
+            var relativeAfterRoot = fullPath[(root?.Length ?? 0)..];
+            var segments = relativeAfterRoot.Split(new[] { Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar }, StringSplitOptions.RemoveEmptyEntries);
+            foreach (var segment in segments)
+            {
+                var segTrimmed = segment.Trim().TrimEnd('.');
+                var segWithoutExt = Path.GetFileNameWithoutExtension(segTrimmed);
+                if (ReservedWindowsNames.Contains(segTrimmed) || ReservedWindowsNames.Contains(segWithoutExt))
+                {
+                    return (false, $"Path contains reserved Windows system device name '{segment}'.");
+                }
+
+                if (string.Equals(segTrimmed, ".ssh", StringComparison.OrdinalIgnoreCase))
+                {
+                    return (false, "Targeting '.ssh' key or configuration directories is strictly forbidden.");
+                }
+            }
+
+            // Block targeting the root of C:\ProgramData directly
+            if (normalizedFull.Equals(@"C:\ProgramData", StringComparison.OrdinalIgnoreCase))
+            {
+                return (false, "Targeting the root 'C:\\ProgramData' directory is strictly forbidden.");
+            }
+
+            // Prevent setting CustomRootPath directly to the global SftpRoot container itself
+            if (!string.IsNullOrWhiteSpace(sftpRootPath))
+            {
+                var fullSftpRoot = Path.GetFullPath(sftpRootPath.Trim()).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                if (normalizedFull.Equals(fullSftpRoot, StringComparison.OrdinalIgnoreCase))
+                {
+                    return (false, "Cannot set custom path directly to the global SFTP Root container directory.");
+                }
             }
 
             // Block sensitive system and application directories
@@ -263,11 +339,32 @@ public static class SecurityValidator
                 if (!string.IsNullOrEmpty(forbidden))
                 {
                     var fullForbidden = Path.GetFullPath(forbidden).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-                    var normalizedFull = fullPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
                     if (normalizedFull.Equals(fullForbidden, StringComparison.OrdinalIgnoreCase) ||
                         normalizedFull.StartsWith(fullForbidden + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
                     {
                         return (false, $"Access to system or application directory '{forbidden}' is strictly forbidden.");
+                    }
+                }
+            }
+
+            // Block Windows user profile directories (C:\Users) unless inside the system Temp folder
+            var tempRoot = Path.GetFullPath(Path.GetTempPath()).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            bool isInsideTemp = normalizedFull.Equals(tempRoot, StringComparison.OrdinalIgnoreCase) ||
+                                normalizedFull.StartsWith(tempRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+
+            if (!isInsideTemp)
+            {
+                var userProfileDir = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+                var usersRoot = !string.IsNullOrEmpty(userProfileDir) ? Directory.GetParent(userProfileDir)?.FullName : @"C:\Users";
+                string[] userProfileRoots = { usersRoot ?? @"C:\Users", @"C:\Users" };
+
+                foreach (var uRoot in userProfileRoots)
+                {
+                    var fullURoot = Path.GetFullPath(uRoot).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                    if (normalizedFull.Equals(fullURoot, StringComparison.OrdinalIgnoreCase) ||
+                        normalizedFull.StartsWith(fullURoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return (false, $"Access to Windows user profile directory '{uRoot}' is strictly forbidden.");
                     }
                 }
             }

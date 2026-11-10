@@ -29,10 +29,18 @@ public class LdapAuthService : ILdapAuthService
         _logger = logger;
     }
 
+    private static string NormalizeRateLimitKey(string username)
+    {
+        var canonical = SecurityValidator.ExtractCanonicalUsername(username);
+        return string.IsNullOrWhiteSpace(canonical) ? username.Trim() : canonical;
+    }
+
     public static void ResetLockoutForUser(string username)
     {
         if (!string.IsNullOrWhiteSpace(username))
         {
+            var key = NormalizeRateLimitKey(username);
+            LoginAttempts.TryRemove(key, out _);
             LoginAttempts.TryRemove(username.Trim(), out _);
         }
     }
@@ -43,7 +51,7 @@ public class LdapAuthService : ILdapAuthService
 
     public static void RecordFailedAttemptForTesting(string username, DateTime? simulatedTimeUtc = null)
     {
-        RecordFailedAttemptCore(username, simulatedTimeUtc ?? DateTime.UtcNow);
+        RecordFailedAttemptCore(NormalizeRateLimitKey(username), simulatedTimeUtc ?? DateTime.UtcNow);
     }
 
     private string? UnprotectOrFallback(string? value)
@@ -213,9 +221,11 @@ public class LdapAuthService : ILdapAuthService
         }
 
         var cleanUsername = username.Trim();
+        var canonicalUsername = SecurityValidator.ExtractCanonicalUsername(cleanUsername);
+        var rateLimitKey = NormalizeRateLimitKey(cleanUsername);
 
-        // Brute-force lockout check
-        if (IsLockedOut(cleanUsername, out var remaining))
+        // Brute-force lockout check (normalized by canonical username so user@domain / DOMAIN\user share the same quota)
+        if (IsLockedOut(rateLimitKey, out var remaining))
         {
             _logger.LogWarning("Rejected login attempt for locked-out user {User}. Remaining lockout: {Seconds}s", cleanUsername, (int)remaining.TotalSeconds);
             return new AuthResult
@@ -227,10 +237,14 @@ public class LdapAuthService : ILdapAuthService
 
         var config = await GetConfigAsync();
 
-        // 1. Check if user is registered in WebAdminUsers table
+        // 1. Check if user is registered in WebAdminUsers table (match both full and canonical username)
         await using (var db = await _dbFactory.CreateDbContextAsync())
         {
-            var adminRecord = await db.WebAdminUsers.FirstOrDefaultAsync(u => u.Username.ToLower() == cleanUsername.ToLower());
+            var cleanLower = cleanUsername.ToLowerInvariant();
+            var canonicalLower = canonicalUsername.ToLowerInvariant();
+            var adminRecord = await db.WebAdminUsers.FirstOrDefaultAsync(
+                u => u.Username.ToLower() == cleanLower || u.Username.ToLower() == canonicalLower);
+
             if (adminRecord != null)
             {
                 if (!adminRecord.IsActive)
@@ -247,7 +261,7 @@ public class LdapAuthService : ILdapAuthService
                 {
                     if (!string.IsNullOrEmpty(adminRecord.PasswordHash) && PasswordHasher.VerifyPassword(password, adminRecord.PasswordHash))
                     {
-                        ResetLockoutForUser(cleanUsername);
+                        ResetLockoutForUser(rateLimitKey);
                         adminRecord.LastLoginAt = DateTime.UtcNow;
                         await db.SaveChangesAsync();
 
@@ -261,7 +275,7 @@ public class LdapAuthService : ILdapAuthService
                         };
                     }
 
-                    RecordFailedAttempt(cleanUsername);
+                    RecordFailedAttempt(rateLimitKey);
                     return new AuthResult
                     {
                         IsSuccess = false,
@@ -282,7 +296,7 @@ public class LdapAuthService : ILdapAuthService
                     var adAuth = await Task.Run(() => PerformLdapAuth(config, cleanUsername, password, checkAdminGroup: false));
                     if (adAuth.IsSuccess)
                     {
-                        ResetLockoutForUser(cleanUsername);
+                        ResetLockoutForUser(rateLimitKey);
                         adminRecord.LastLoginAt = DateTime.UtcNow;
                         await db.SaveChangesAsync();
 
@@ -290,24 +304,25 @@ public class LdapAuthService : ILdapAuthService
                         {
                             IsSuccess = true,
                             Username = adminRecord.Username,
-                            DisplayName = string.IsNullOrEmpty(adminRecord.DisplayName) ? cleanUsername : adminRecord.DisplayName,
+                            DisplayName = string.IsNullOrEmpty(adminRecord.DisplayName) ? adminRecord.Username : adminRecord.DisplayName,
                             IsAdmin = true,
                             Role = adminRecord.Role
                         };
                     }
 
-                    RecordFailedAttempt(cleanUsername);
+                    RecordFailedAttempt(rateLimitKey);
                     return adAuth;
                 }
             }
         }
 
         // 2. Fallback Local Admin Login (Disaster recovery / backward compatibility)
-        if (string.Equals(cleanUsername, config.FallbackAdminUsername, StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(cleanUsername, config.FallbackAdminUsername, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(canonicalUsername, config.FallbackAdminUsername, StringComparison.OrdinalIgnoreCase))
         {
             if (PasswordHasher.VerifyPassword(password, config.FallbackAdminPasswordHash))
             {
-                ResetLockoutForUser(cleanUsername);
+                ResetLockoutForUser(rateLimitKey);
                 return new AuthResult
                 {
                     IsSuccess = true,
@@ -320,7 +335,7 @@ public class LdapAuthService : ILdapAuthService
 
             if (!config.IsLdapEnabled)
             {
-                RecordFailedAttempt(cleanUsername);
+                RecordFailedAttempt(rateLimitKey);
                 return new AuthResult
                 {
                     IsSuccess = false,
@@ -332,11 +347,22 @@ public class LdapAuthService : ILdapAuthService
         // 3. Fallback Active Directory Group Membership
         if (!config.IsLdapEnabled)
         {
-            RecordFailedAttempt(cleanUsername);
+            RecordFailedAttempt(rateLimitKey);
             return new AuthResult
             {
                 IsSuccess = false,
                 ErrorMessage = "Active Directory authentication is currently disabled and credentials do not match local administrator."
+            };
+        }
+
+        // Least Privilege by Default (AGENT.md §8 A01): Unregistered AD users cannot log in via fallback if AdminGroup is blank
+        if (string.IsNullOrWhiteSpace(config.AdminGroup))
+        {
+            RecordFailedAttempt(rateLimitKey);
+            return new AuthResult
+            {
+                IsSuccess = false,
+                ErrorMessage = "User is not registered as a Web Administrator and no fallback AD Admin Group is configured."
             };
         }
 
@@ -345,11 +371,11 @@ public class LdapAuthService : ILdapAuthService
             var res = PerformLdapAuth(config, cleanUsername, password, checkAdminGroup: true);
             if (!res.IsSuccess)
             {
-                RecordFailedAttempt(cleanUsername);
+                RecordFailedAttempt(rateLimitKey);
             }
             else
             {
-                ResetLockoutForUser(cleanUsername);
+                ResetLockoutForUser(rateLimitKey);
             }
             return res;
         });
@@ -359,17 +385,21 @@ public class LdapAuthService : ILdapAuthService
     {
         try
         {
-            var userDn = cleanUsername.Contains('@') ? cleanUsername : $"{cleanUsername}@{config.Domain}";
+            var canonicalUser = SecurityValidator.ExtractCanonicalUsername(cleanUsername);
+            var effectiveSam = string.IsNullOrEmpty(canonicalUser) ? cleanUsername : canonicalUser;
+            var userDn = cleanUsername.Contains('@') || cleanUsername.Contains('\\')
+                ? cleanUsername
+                : $"{effectiveSam}@{config.Domain}";
             using var connection = CreateLdapConnection(config);
 
             var credential = new NetworkCredential(userDn, password);
             connection.Bind(credential); // Throws if invalid password
 
-            // Check if user is in admin group
-            bool isAdmin = !checkAdminGroup || string.IsNullOrWhiteSpace(config.AdminGroup);
-            if (!isAdmin)
+            // Check if user is in admin group (never grant SuperAdmin if checkAdminGroup is true and AdminGroup is blank)
+            bool isAdmin = !checkAdminGroup;
+            if (checkAdminGroup && !string.IsNullOrWhiteSpace(config.AdminGroup))
             {
-                isAdmin = CheckUserGroupMembership(connection, config, cleanUsername);
+                isAdmin = CheckUserGroupMembership(connection, config, effectiveSam);
             }
 
             if (!isAdmin)
@@ -377,8 +407,8 @@ public class LdapAuthService : ILdapAuthService
                 return new AuthResult
                 {
                     IsSuccess = false,
-                    Username = cleanUsername,
-                    DisplayName = cleanUsername,
+                    Username = effectiveSam,
+                    DisplayName = effectiveSam,
                     IsAdmin = false,
                     ErrorMessage = "User authenticated but does not belong to the authorized Admin group."
                 };
@@ -387,8 +417,8 @@ public class LdapAuthService : ILdapAuthService
             return new AuthResult
             {
                 IsSuccess = true,
-                Username = cleanUsername,
-                DisplayName = cleanUsername,
+                Username = effectiveSam,
+                DisplayName = effectiveSam,
                 IsAdmin = true,
                 Role = WebAdminRole.SuperAdmin
             };

@@ -37,12 +37,26 @@ public class WebAdminService : IWebAdminService
         return await db.WebAdminUsers.FirstOrDefaultAsync(u => u.Id == id);
     }
 
+    private static bool IsSameAccount(string? userA, string? userB)
+    {
+        if (string.IsNullOrWhiteSpace(userA) || string.IsNullOrWhiteSpace(userB))
+            return false;
+
+        if (userA.Trim().Equals(userB.Trim(), StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        var canonA = SecurityValidator.ExtractCanonicalUsername(userA);
+        var canonB = SecurityValidator.ExtractCanonicalUsername(userB);
+        return !string.IsNullOrEmpty(canonA) && canonA.Equals(canonB, StringComparison.OrdinalIgnoreCase);
+    }
+
     public async Task<WebAdminUser?> GetAdminByUsernameAsync(string username)
     {
         if (string.IsNullOrWhiteSpace(username)) return null;
-        var clean = username.Trim().ToLower();
+        var clean = username.Trim().ToLowerInvariant();
+        var canonical = SecurityValidator.ExtractCanonicalUsername(username).ToLowerInvariant();
         await using var db = await _dbFactory.CreateDbContextAsync();
-        return await db.WebAdminUsers.FirstOrDefaultAsync(u => u.Username.ToLower() == clean);
+        return await db.WebAdminUsers.FirstOrDefaultAsync(u => u.Username.ToLower() == clean || u.Username.ToLower() == canonical);
     }
 
     public async Task<WebAdminOperationResult> CreateLocalAdminAsync(
@@ -56,7 +70,7 @@ public class WebAdminService : IWebAdminService
         if (string.IsNullOrWhiteSpace(username))
             return WebAdminOperationResult.Fail("กรุณาระบุ Username");
 
-        var cleanUsername = username.Trim();
+        var cleanUsername = SecurityValidator.ExtractCanonicalUsername(username);
         if (cleanUsername.Length < 3 || cleanUsername.Length > 50)
             return WebAdminOperationResult.Fail("Username ต้องมีความยาวระหว่าง 3 ถึง 50 ตัวอักษร");
 
@@ -66,8 +80,9 @@ public class WebAdminService : IWebAdminService
         if (string.IsNullOrWhiteSpace(password) || password.Length < 8)
             return WebAdminOperationResult.Fail("รหัสผ่านต้องมีความยาวอย่างน้อย 8 ตัวอักษร");
 
+        var cleanLower = cleanUsername.ToLowerInvariant();
         await using var db = await _dbFactory.CreateDbContextAsync();
-        bool exists = await db.WebAdminUsers.AnyAsync(u => u.Username.ToLower() == cleanUsername.ToLower());
+        bool exists = await db.WebAdminUsers.AnyAsync(u => u.Username.ToLower() == cleanLower);
         if (exists)
             return WebAdminOperationResult.Fail($"ชื่อผู้ใช้ '{cleanUsername}' มีอยู่ในระบบแล้ว");
 
@@ -87,6 +102,8 @@ public class WebAdminService : IWebAdminService
         db.WebAdminUsers.Add(user);
         await db.SaveChangesAsync();
 
+        UserSessionState.NotifyUserStatusChanged(cleanUsername, true, role);
+
         await _auditService.LogAsync("CREATE_WEB_ADMIN", $"Created Local Web Admin '{cleanUsername}' with role {role}", true, operatorUser);
         _logger.LogInformation("Web admin {Admin} created local admin {User} with role {Role}", operatorUser, cleanUsername, role);
 
@@ -103,9 +120,13 @@ public class WebAdminService : IWebAdminService
         if (string.IsNullOrWhiteSpace(username))
             return WebAdminOperationResult.Fail("กรุณาระบุ Username ของ Active Directory");
 
-        var cleanUsername = username.Trim();
+        var cleanUsername = SecurityValidator.ExtractCanonicalUsername(username);
+        if (string.IsNullOrWhiteSpace(cleanUsername))
+            return WebAdminOperationResult.Fail("รูปแบบ Username ของ Active Directory ไม่ถูกต้อง");
+
+        var cleanLower = cleanUsername.ToLowerInvariant();
         await using var db = await _dbFactory.CreateDbContextAsync();
-        bool exists = await db.WebAdminUsers.AnyAsync(u => u.Username.ToLower() == cleanUsername.ToLower());
+        bool exists = await db.WebAdminUsers.AnyAsync(u => u.Username.ToLower() == cleanLower);
         if (exists)
             return WebAdminOperationResult.Fail($"ผู้ใช้ AD '{cleanUsername}' ได้รับสิทธิ์ผู้ดูแลระบบอยู่แล้ว");
 
@@ -124,6 +145,8 @@ public class WebAdminService : IWebAdminService
 
         db.WebAdminUsers.Add(user);
         await db.SaveChangesAsync();
+
+        UserSessionState.NotifyUserStatusChanged(cleanUsername, true, role);
 
         await _auditService.LogAsync("CREATE_AD_WEB_ADMIN", $"Assigned Web Admin access to AD user '{cleanUsername}' with role {role}", true, operatorUser);
         _logger.LogInformation("Web admin {Admin} granted AD user {User} web admin role {Role}", operatorUser, cleanUsername, role);
@@ -153,6 +176,8 @@ public class WebAdminService : IWebAdminService
         var oldRole = admin.Role;
         admin.Role = newRole;
         await db.SaveChangesAsync();
+
+        UserSessionState.NotifyUserStatusChanged(admin.Username, admin.IsActive, admin.Role);
 
         await _auditService.LogAsync("UPDATE_WEB_ADMIN_ROLE", $"Changed role for '{admin.Username}' from {oldRole} to {newRole}", true, operatorUser);
         _logger.LogInformation("Web admin {Admin} updated role for {User} from {Old} to {New}", operatorUser, admin.Username, oldRole, newRole);
@@ -197,8 +222,8 @@ public class WebAdminService : IWebAdminService
         if (admin == null)
             return WebAdminOperationResult.Fail("ไม่พบบัญชีผู้ดูแลระบบ");
 
-        // Guardrail: Cannot deactivate self
-        if (admin.Username.Equals(operatorUser, StringComparison.OrdinalIgnoreCase) && admin.IsActive)
+        // Guardrail: Cannot deactivate self (including canonical DOMAIN\user or user@domain forms)
+        if (IsSameAccount(admin.Username, operatorUser) && admin.IsActive)
         {
             return WebAdminOperationResult.Fail("ไม่สามารถระงับการใช้งานบัญชีของตนเองที่กำลังเข้าสู่ระบบอยู่ได้");
         }
@@ -218,6 +243,8 @@ public class WebAdminService : IWebAdminService
         admin.IsActive = !admin.IsActive;
         await db.SaveChangesAsync();
 
+        UserSessionState.NotifyUserStatusChanged(admin.Username, admin.IsActive, admin.Role);
+
         var action = admin.IsActive ? "ACTIVATE_WEB_ADMIN" : "DEACTIVATE_WEB_ADMIN";
         var statusText = admin.IsActive ? "เปิดใช้งาน" : "ระงับการใช้งาน";
         await _auditService.LogAsync(action, $"{statusText} web admin '{admin.Username}'", true, operatorUser);
@@ -233,8 +260,8 @@ public class WebAdminService : IWebAdminService
         if (admin == null)
             return WebAdminOperationResult.Fail("ไม่พบบัญชีผู้ดูแลระบบที่ต้องการลบ");
 
-        // Guardrail: Cannot delete self
-        if (admin.Username.Equals(operatorUser, StringComparison.OrdinalIgnoreCase))
+        // Guardrail: Cannot delete self (including canonical DOMAIN\user or user@domain forms)
+        if (IsSameAccount(admin.Username, operatorUser))
         {
             return WebAdminOperationResult.Fail("ไม่สามารถลบบัญชีของตนเองที่กำลังเข้าสู่ระบบอยู่ได้");
         }
@@ -254,7 +281,7 @@ public class WebAdminService : IWebAdminService
         // Guardrail: Prevent deleting the primary fallback "admin" user
         var ldapConfig = await db.LdapConfigs.FirstOrDefaultAsync();
         var fallbackUser = ldapConfig?.FallbackAdminUsername ?? "admin";
-        if (admin.AccountType == WebAdminType.Local && string.Equals(admin.Username, fallbackUser, StringComparison.OrdinalIgnoreCase))
+        if (admin.AccountType == WebAdminType.Local && IsSameAccount(admin.Username, fallbackUser))
         {
             return WebAdminOperationResult.Fail($"ไม่สามารถลบบัญชี Local Admin ฉุกเฉินหลัก ('{admin.Username}') ได้ หากไม่ต้องการให้ใช้งานโปรดเปลี่ยนรหัสผ่านหรือระงับการใช้งานแทน");
         }
@@ -262,6 +289,8 @@ public class WebAdminService : IWebAdminService
         var deletedUsername = admin.Username;
         db.WebAdminUsers.Remove(admin);
         await db.SaveChangesAsync();
+
+        UserSessionState.NotifyUserStatusChanged(deletedUsername, false, WebAdminRole.Auditor);
 
         await _auditService.LogAsync("DELETE_WEB_ADMIN", $"Deleted web admin '{deletedUsername}'", true, operatorUser);
         _logger.LogInformation("Web admin {Admin} deleted web admin {User}", operatorUser, deletedUsername);
