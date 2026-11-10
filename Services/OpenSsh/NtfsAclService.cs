@@ -78,7 +78,7 @@ public class NtfsAclService : INtfsAclService, INativeAclProvisioner
     /// 1. Ownership: Must be BUILTIN\Administrators or NT AUTHORITY\SYSTEM.
     /// 2. Inheritance: Must be protected (broken) to prevent inherited write ACEs from parent drives.
     /// 3. Permissions: SYSTEM and Administrators have Full Control.
-    /// 4. SFTP User/Group has Read & Execute only (NO write/modify permissions at root).
+    /// 4. SFTP User/Group has Read &amp; Execute only (NO write/modify permissions at root).
     /// </summary>
     public void ProvisionChrootRoot(string chrootRootPath, string? accountName = null)
     {

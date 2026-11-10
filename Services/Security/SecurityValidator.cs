@@ -79,7 +79,7 @@ public static class SecurityValidator
     }
 
     /// <summary>
-    /// Validates group name. Rejects dangerous shell characters (; & | ` $ > < / \) and protected OS groups.
+    /// Validates group name. Rejects dangerous shell characters (; &amp; | ` $ &gt; &lt; / \) and protected OS groups.
     /// </summary>
     public static (bool IsValid, string? ErrorMessage) ValidateGroupName(string? groupName, bool allowDefaultSftpUsersGroup = false)
     {
