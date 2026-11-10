@@ -1,3 +1,4 @@
+using OpensshUI.Models;
 using OpensshUI.Services.Auth;
 
 namespace OpensshUI.Tests;
@@ -50,5 +51,44 @@ public class UserSessionStateTests
         Assert.False(session.IsAdmin);
         Assert.Null(session.LoginTime);
         Assert.True(eventFired);
+    }
+
+    [Fact]
+    public void SetSessionTimeout_ShouldUpdateValueAndTriggerOnChange_WhenPositive()
+    {
+        var session = new UserSessionState();
+        var eventFired = false;
+        session.OnChange += () => eventFired = true;
+
+        session.SetSessionTimeout(TimeSpan.FromHours(4));
+
+        Assert.Equal(TimeSpan.FromHours(4), session.SessionTimeout);
+        Assert.True(eventFired);
+    }
+
+    [Fact]
+    public void SetSessionTimeout_ShouldIgnore_WhenZeroOrNegative()
+    {
+        var session = new UserSessionState();
+        var initialTimeout = session.SessionTimeout;
+        var eventFired = false;
+        session.OnChange += () => eventFired = true;
+
+        session.SetSessionTimeout(TimeSpan.Zero);
+        session.SetSessionTimeout(TimeSpan.FromHours(-1));
+
+        Assert.Equal(initialTimeout, session.SessionTimeout);
+        Assert.False(eventFired);
+    }
+
+    [Fact]
+    public void ClearAllOverrides_ShouldRemoveAllTrackedOverrides()
+    {
+        UserSessionState.NotifyUserStatusChanged("test_override_user", false, WebAdminRole.Auditor);
+        Assert.True(UserSessionState.GetTrackedOverrideCount() > 0);
+
+        UserSessionState.ClearAllOverrides();
+
+        Assert.Equal(0, UserSessionState.GetTrackedOverrideCount());
     }
 }

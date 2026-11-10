@@ -106,6 +106,7 @@ public class SshKeyGenerator : ISshKeyGenerator
                 };
             }
 
+            _ = await stdoutTask;
             var stderr = await stderrTask;
 
             // In Windows OpenSSH, saving public key to certain user profile/temp locations can report 'eother'

@@ -76,6 +76,11 @@ OpensshUI (Root Project - net8.0-windows)
 3. **DbContext Concurrency in Blazor:** Blazor Server มี Long-lived connection ห้าม Inject `AppDbContext` เป็น Scoped โดยตรง แต่ต้องใช้ `IDbContextFactory<AppDbContext>` เพื่อหลีกเลี่ยง Concurrency Issue และ Thread Safety Conflicts
 4. **Configuration Safety:** การแก้ไขหรือซิงค์ไฟล์ `sshd_config` **ต้องเรียกผ่าน `ISshdConfigService` หรือ `IOpenSshServiceManager` เสมอ** ห้ามเขียนทับไฟล์โดยตรงเด็ดขาด เพื่อให้ผ่านการตรวจสอบ `sshd -t` และมีการทำ Rolling Backup ทุกครั้ง
 5. **Zero `eval()` & Stream-Based JS Interop:** ห้ามใช้ `IJSRuntime.InvokeVoidAsync("eval", ...)` หรือส่งข้อมูลไฟล์ผ่าน Base64 Data URI ในสตริง JavaScript เด็ดขาด เพราะเสี่ยงต่อ CSP/XSS และทำให้ SignalR Buffer หน่วง ต้องใช้ `DotNetStreamReference` ร่วมกับฟังก์ชัน `downloadFileFromStream` เสมอ
+6. **Zero Dead Code & Stream Draining Discipline:**
+   - **ห้ามทิ้งตัวแปรหรือฟังก์ชันที่ไม่ได้ใช้งาน:** ตัวแปรที่รับผลลัพธ์เพื่อ validate หรือตรวจ side effect ต้องใช้ Discard pattern (`_ = ...`) เสมอ และห้ามมีฟังก์ชันผี (Unreferenced private members) หรือ Unused `using` statements (`IDE0005`) ค้างในโค้ด
+   - **Process Stream Draining:** เมื่อมีการรัน External Process (`Process.Start`) และเปิด Redirect Standard Streams ต้อง Drain/Await ทั้ง `StandardOutput` และ `StandardError` ให้ครบถ้วนเสมอ (`_ = await stdoutTask; var err = await stderrTask;`) เพื่อป้องกัน OS Process Buffer Deadlock
+   - **UI Dependency Cleanliness:** ห้ามใส่ `@inject` Service ใน Razor Component หากไม่มีการเรียกใช้งานจริงในคอมโพเนนต์นั้น เพื่อลด Circuit Allocation Overhead ใน Blazor Server
+   - **Service Contract Completeness:** เมธอดสาธารณะทุกตัวใน Interface และ Service Layer ต้องมี Caller จริง หรือมี Unit Test ครอบคลุมครบถ้วนตามหลัก Clean Architecture (ห้ามทิ้ง Orphan Service APIs ไว้โดยไร้การทดสอบ)
 
 ### UI/UX & Blazor Component Standards:
 1. **Unified Visual Hierarchy:**
@@ -169,6 +174,10 @@ AI Agent **ต้องปฏิบัติตามกฎเหล็กเห
 | **การถอด Junction ก่อนลบ User** | `foreach (var j in junctions) RemoveJunction(j); Directory.Delete(userDir, true);` | `bool ok = RemoveJunction(j); if (!ok && Directory.Exists(j)) { abortRecursiveDelete = true; }` |
 | **การสร้างบล็อก `Match` ใน config** | `sb.AppendLine($"Match User {rule.Identifier}");` | กรองอักขระ `*`, `?`, `!`, `,` และช่องว่างออกจาก `rule.Identifier` ก่อนเสมอ |
 | **การรับพารามิเตอร์ Comment** | `key.Comment = comment ?? parsed.Comment;` | `key.Comment = SecurityValidator.SanitizeSingleLine(comment) ?? parsed.Comment;` |
+| **ตัวแปร Validation ที่ไม่ได้นำไปใช้ต่อ** | `var sid = acc.Translate(typeof(SecurityIdentifier));`<br/>*(ประกาศตัวแปรแล้วปล่อยทิ้งให้เกิด Warning CS0168/CS0219/IDE0059)* | `_ = acc.Translate(typeof(SecurityIdentifier));`<br/>*(ใช้ Discard Pattern `_` สื่อเจตนาชัดเจนและไม่เสีย Memory Allocation)* |
+| **การอ่าน Process Streams** | `var stdoutTask = proc.StandardOutput.ReadToEndAsync();`<br/>`var stderrTask = proc.StandardError.ReadToEndAsync();`<br/>`var err = await stderrTask;`<br/>*(ไม่ await stdout)* | `var stdoutTask = proc.StandardOutput.ReadToEndAsync();`<br/>`var stderrTask = proc.StandardError.ReadToEndAsync();`<br/>`_ = await stdoutTask;`<br/>`var err = await stderrTask;`<br/>*(Drain ทั้งสอง Streams ป้องกัน OS Buffer Deadlock)* |
+| **การฉีด Dependency ใน Razor** | `@inject NavigationManager Navigation`<br/>*(ใส่ไว้แต่ในโค้ดไม่มีการเรียกใช้)* | ฉีดเฉพาะ Service ที่เรียกใช้จริงในหน้านั้นเท่านั้น หากไม่ได้ใช้ให้ลบออกทันทีเพื่อลด Circuit Overhead |
+| **Unused Using Statements** | ค้าง `using` ที่ไม่ได้ใช้งานไว้ในหัวไฟล์ | ลบออกเสมอ และเปิด `EnforceCodeStyleInBuild` ร่วมกับ `GenerateDocumentationFile` เพื่อให้ Roslyn จับ `IDE0005` |
 
 ---
 
@@ -191,13 +200,13 @@ AI Agent **ต้องปฏิบัติตามกฎเหล็กเห
    ```powershell
    dotnet test OpensshUI.Tests\OpensshUI.Tests.csproj
    ```
-3. **No Regressions & Security Coverage:** ชุดทดสอบทั้งหมด (260+ tests รวมถึง `EvilUserSecurityTests.cs` และ `GovernanceAndArchitectureTests.cs`) ต้องผ่านครบถ้วน (`Failed: 0`)
+3. **No Regressions & Security Coverage:** ชุดทดสอบทั้งหมด (285+ tests รวมถึง `EvilUserSecurityTests.cs` และ `GovernanceAndArchitectureTests.cs`) ต้องผ่านครบถ้วน (`Failed: 0`)
 
 ### 4.3 Security & Anti-Regression Quality Gate
 ทุกครั้งที่มีการแก้ไข Service หรือ Logic ด้านความปลอดภัย ชุดทดสอบกลุ่ม Security ทั้ง 3 ตัวนี้ต้องถูกเรียกตรวจเสมอ:
 - `EvilUserSecurityTests.cs`: ทดสอบการโจมตีเชิงพฤติกรรม (Canonical AD bypass, Wire-format key spoofing, DirectChroot subfolder deletion, DOS devices, 8.3 short names, ADS)
 - `ProductionHardeningAndSecurityTests.cs`: ทดสอบ `sshd_config` parser hierarchy, atomic replace, rolling backups, และ event log regex
-- `GovernanceAndArchitectureTests.cs`: ตรวจสอบความสมบูรณ์ของกฎเกณฑ์ในโค้ดและเอกสารแบบอัตโนมัติ
+- `GovernanceAndArchitectureTests.cs`: ตรวจสอบความสมบูรณ์ของกฎเกณฑ์ในโค้ดและเอกสารแบบอัตโนมัติ (รวมถึงการบังคับใช้ `.editorconfig` และ Roslyn Analyzers)
 
 ---
 
@@ -208,7 +217,10 @@ AI Agent **ต้องปฏิบัติตามกฎเหล็กเห
 # Restore & Build Project
 dotnet build OpensshUI.csproj
 
-# Run Automated Tests (210+ Tests)
+# Build with Roslyn Analyzers & Code Style Verification (Zero Dead Code)
+dotnet build OpensshUI.csproj --no-restore /p:EnforceCodeStyleInBuild=true
+
+# Run Automated Tests (285+ Tests, 100% Pass)
 dotnet test OpensshUI.Tests\OpensshUI.Tests.csproj
 
 # Run Web Application (Development)
@@ -261,13 +273,15 @@ flowchart TD
 4. **เขียนและรันชุดทดสอบ (Test):** เขียน Unit Test ครอบคลุม Business Logic ใหม่ และรัน `dotnet test OpensshUI.Tests\OpensshUI.Tests.csproj`
 5. **ตรวจสอบความเรียบร้อย (Verify):** ยืนยันว่าโค้ดคอมไพล์ผ่าน ไม่เกิด Warning สำคัญ และเทสผ่านครบ 100%
 
-### 7.1 Pre-Commit Quality & Security Gate (Checklist 5 ข้อยืนยันก่อนจบงาน)
-ก่อนที่ AI Agent หรือผู้พัฒนาจะสรุปผลงานเสร็จสิ้น ต้องตรวจสอบตนเองผ่าน Checklist 5 ข้อนี้เสมอ:
+### 7.1 Pre-Commit Quality & Security Gate (Checklist 7 ข้อยืนยันก่อนจบงาน)
+ก่อนที่ AI Agent หรือผู้พัฒนาจะสรุปผลงานเสร็จสิ้น ต้องตรวจสอบตนเองผ่าน Checklist 7 ข้อนี้เสมอ:
 - [ ] **[Check 1] Canonical AD User Check:** มีการใช้ `SecurityValidator.ExtractCanonicalUsername` ในจุดค้นหา/พิสูจน์ตัวตนหรือไม่?
 - [ ] **[Check 2] Safe Custom Path Guard:** พาธโฟลเดอร์ใดๆ ผ่าน `SecurityValidator.ValidateSafeCustomPath(path, sftpRoot)` ครบถ้วนหรือไม่?
 - [ ] **[Check 3] UI Decoupling Kept:** Component หน้าเว็บไม่มีการเรียกใช้ `File.*`, `Directory.*`, `Process.*` โดยตรงใช่หรือไม่?
 - [ ] **[Check 4] Dual-Layer RBAC Enforced:** Event handler ทุกตัวที่มีการแก้ข้อมูล มี Guard Clause ตรวจสิทธิ์บรรทัดแรกหรือไม่?
-- [ ] **[Check 5] Test Suite 100% Pass:** รัน `dotnet test OpensshUI.Tests\OpensshUI.Tests.csproj` และผลผ่านทั้งหมด (Failed: 0) หรือไม่?
+- [ ] **[Check 5] Zero Dead Code & Ghost Injections:** ไม่มีตัวแปรไม่ได้ใช้ (`CS0168`, `CS0219`, `IDE0059`), ไม่มีฟังก์ชันผี (`IDE0051`), ไม่มี Unused Using (`IDE0005`), Drain ครบทุก Process Streams และไม่มี `@inject` ค้างใน Razor ใช่หรือไม่?
+- [ ] **[Check 6] 100% Service Contract Test Coverage:** เมธอดทุกตัวใน Service Interfaces มี Caller จาก UI หรือมี Unit Test ครอบคลุมครบถ้วน (ไม่มี Orphan Service APIs ที่ไร้การทดสอบ) ใช่หรือไม่?
+- [ ] **[Check 7] Test Suite 100% Pass:** รัน `dotnet test OpensshUI.Tests\OpensshUI.Tests.csproj` และผลผ่านทั้งหมด (285+ tests, Failed: 0) ใช่หรือไม่?
 
 ---
 

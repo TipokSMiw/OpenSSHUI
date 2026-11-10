@@ -37,7 +37,7 @@ public class NtfsAclService : INtfsAclService, INativeAclProvisioner
         try
         {
             var acc = new NTAccount(key);
-            var sid = acc.Translate(typeof(SecurityIdentifier));
+            _ = acc.Translate(typeof(SecurityIdentifier));
             CacheResolvedAccount(key, acc);
             return acc;
         }
@@ -49,7 +49,7 @@ public class NtfsAclService : INtfsAclService, INativeAclProvisioner
                 try
                 {
                     var acc = new NTAccount(domain, key);
-                    var sid = acc.Translate(typeof(SecurityIdentifier));
+                    _ = acc.Translate(typeof(SecurityIdentifier));
                     CacheResolvedAccount(key, acc);
                     return acc;
                 }

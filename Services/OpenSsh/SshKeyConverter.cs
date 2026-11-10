@@ -1,6 +1,5 @@
 using System.Security.Cryptography;
 using System.Text;
-using System.Text.RegularExpressions;
 using OpensshUI.Services.Security;
 
 namespace OpensshUI.Services.OpenSsh;

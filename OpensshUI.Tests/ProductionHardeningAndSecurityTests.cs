@@ -1,5 +1,6 @@
 using System.Security;
 using FluentAssertions;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
 using OpensshUI.Models;
 using OpensshUI.Services.OpenSsh;
@@ -399,6 +400,62 @@ Match Group administrators
         var agentStatus = manager.GetAgentStatus();
         agentStatus.Should().NotBeNull();
         agentStatus.ServiceName.Should().Be("ssh-agent");
+    }
+
+    #endregion
+
+    #region Domain 5: Orphan API Verification & Contract Tests
+
+    [Fact]
+    public void ValidateSyntaxContent_ReturnsResult_ForGivenConfigString()
+    {
+        var service = new SshdConfigService(NullLogger<SshdConfigService>.Instance);
+        var content = "Port 2222\nSubsystem sftp internal-sftp\n";
+
+        var result = service.ValidateSyntaxContent(content);
+
+        result.Should().NotBeNull();
+    }
+
+    [Fact]
+    public void GetBackupFiles_ReturnsExistingBackupFiles_SortedDescending()
+    {
+        var testConfig = Path.Combine(_tempTestDir, "sshd_config");
+        File.WriteAllText(testConfig, "Port 22");
+
+        var bak1 = Path.Combine(_tempTestDir, "sshd_config.bak_20261101_100000");
+        var bak2 = Path.Combine(_tempTestDir, "sshd_config.bak_20261102_100000");
+        File.WriteAllText(bak1, "Port 22 v1");
+        File.WriteAllText(bak2, "Port 22 v2");
+
+        File.SetCreationTimeUtc(bak1, DateTime.UtcNow.AddHours(-2));
+        File.SetCreationTimeUtc(bak2, DateTime.UtcNow.AddHours(-1));
+
+        var config = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["SftpSettings:SshdConfigPath"] = testConfig
+            })
+            .Build();
+
+        var service = new SshdConfigService(NullLogger<SshdConfigService>.Instance, config);
+
+        var backups = service.GetBackupFiles(5);
+
+        backups.Should().NotBeNull();
+        backups.Should().HaveCount(2);
+        backups[0].Should().Be(bak2);
+        backups[1].Should().Be(bak1);
+    }
+
+    [Fact]
+    public void WindowsUserManager_GetGroupMembers_ReturnsEmptyList_ForInvalidGroupName()
+    {
+        var mgr = new WindowsUserManager(NullLogger<WindowsUserManager>.Instance);
+        var members = mgr.GetGroupMembers("Bad;Name|Injection");
+
+        members.Should().NotBeNull();
+        members.Should().BeEmpty();
     }
 
     #endregion

@@ -213,4 +213,146 @@ public class SftpGroupServiceTests : IDisposable
             if (Directory.Exists(tempSftpRoot)) Directory.Delete(tempSftpRoot, true);
         }
     }
+
+    [Fact]
+    public async Task GetGroupAsync_ReturnsGroupWithMembers_WhenExists()
+    {
+        // Arrange
+        string groupId;
+        await using (var db = new AppDbContext(_dbOptions))
+        {
+            var grp = new SftpGroup
+            {
+                Name = "DevTeam",
+                Description = "Developers Group",
+                RootPath = @"C:\SFTPRoot\Groups\DevTeam",
+                PermissionType = SftpPermissionType.ReadWrite,
+                AccessMode = SftpAccessMode.VirtualFolder
+            };
+            db.SftpGroups.Add(grp);
+            await db.SaveChangesAsync();
+            groupId = grp.Id;
+        }
+
+        // Act
+        var result = await _sut.GetGroupAsync(groupId);
+        var nonExistent = await _sut.GetGroupAsync("missing_group_id");
+
+        // Assert
+        result.Should().NotBeNull();
+        result!.Name.Should().Be("DevTeam");
+        result.Members.Should().NotBeNull();
+        nonExistent.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task AddUserToGroupAsync_AddsMemberAndCallsWindowsUserManager()
+    {
+        // Arrange
+        string groupId;
+        await using (var db = new AppDbContext(_dbOptions))
+        {
+            var grp = new SftpGroup
+            {
+                Name = "Marketing",
+                RootPath = @"C:\SFTPRoot\Groups\Marketing",
+                PermissionType = SftpPermissionType.ReadWrite,
+                AccessMode = SftpAccessMode.VirtualFolder
+            };
+            var usr = new SftpUser
+            {
+                Username = "bob",
+                AccountType = SftpAccountType.LocalWindows,
+                AccessMode = SftpAccessMode.VirtualFolder
+            };
+            db.SftpGroups.Add(grp);
+            db.SftpUsers.Add(usr);
+            await db.SaveChangesAsync();
+            groupId = grp.Id;
+        }
+
+        // Act
+        var (success, msg) = await _sut.AddUserToGroupAsync(groupId, "bob", "admin");
+
+        // Assert
+        success.Should().BeTrue();
+        _windowsUserManager.Received(1).AddUserToLocalGroup("SFTP-Marketing", "bob");
+
+        await using (var db = new AppDbContext(_dbOptions))
+        {
+            var grp = await db.SftpGroups.Include(g => g.Members).FirstOrDefaultAsync(g => g.Id == groupId);
+            grp.Should().NotBeNull();
+            grp!.Members.Should().Contain(m => m.Username == "bob");
+        }
+    }
+
+    [Fact]
+    public async Task AddUserToGroupAsync_ReturnsError_WhenUserOrGroupNotFound()
+    {
+        // Act
+        var (notFoundGroup, _) = await _sut.AddUserToGroupAsync("invalid_id", "alice", "admin");
+        
+        string groupId;
+        await using (var db = new AppDbContext(_dbOptions))
+        {
+            var grp = new SftpGroup
+            {
+                Name = "Sales",
+                RootPath = @"C:\SFTPRoot\Groups\Sales",
+                PermissionType = SftpPermissionType.ReadOnly,
+                AccessMode = SftpAccessMode.VirtualFolder
+            };
+            db.SftpGroups.Add(grp);
+            await db.SaveChangesAsync();
+            groupId = grp.Id;
+        }
+
+        var (notFoundUser, _) = await _sut.AddUserToGroupAsync(groupId, "ghostuser", "admin");
+
+        // Assert
+        notFoundGroup.Should().BeFalse();
+        notFoundUser.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task RemoveUserFromGroupAsync_RemovesMemberAndCallsWindowsUserManager()
+    {
+        // Arrange
+        string groupId;
+        await using (var db = new AppDbContext(_dbOptions))
+        {
+            var grp = new SftpGroup
+            {
+                Name = "HR",
+                RootPath = @"C:\SFTPRoot\Groups\HR",
+                PermissionType = SftpPermissionType.ReadWrite,
+                AccessMode = SftpAccessMode.VirtualFolder
+            };
+            var usr = new SftpUser
+            {
+                Username = "charlie",
+                AccountType = SftpAccountType.LocalWindows,
+                AccessMode = SftpAccessMode.VirtualFolder
+            };
+            grp.Members.Add(new SftpUserGroup { Username = "charlie", GroupId = grp.Id });
+            db.SftpGroups.Add(grp);
+            db.SftpUsers.Add(usr);
+            await db.SaveChangesAsync();
+            groupId = grp.Id;
+        }
+
+        // Act
+        var (success, msg) = await _sut.RemoveUserFromGroupAsync(groupId, "charlie", "admin");
+
+        // Assert
+        success.Should().BeTrue();
+        _windowsUserManager.Received(1).RemoveUserFromLocalGroup("SFTP-HR", "charlie");
+
+        await using (var db = new AppDbContext(_dbOptions))
+        {
+            var grp = await db.SftpGroups.Include(g => g.Members).FirstOrDefaultAsync(g => g.Id == groupId);
+            grp.Should().NotBeNull();
+            grp!.Members.Should().NotContain(m => m.Username == "charlie");
+        }
+    }
 }

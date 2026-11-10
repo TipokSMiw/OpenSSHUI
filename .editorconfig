@@ -1,0 +1,28 @@
+# Top-most EditorConfig file for OpensshUI
+root = true
+
+# All files
+[*]
+indent_style = space
+indent_size = 4
+end_of_line = crlf
+charset = utf-8
+trim_trailing_whitespace = true
+insert_final_newline = true
+
+[*.cs]
+# Roslyn Code Style Rules - Dead Code & Unused Symbols (Elevated to Warning)
+dotnet_diagnostic.IDE0051.severity = warning  # Remove unused private members (Ghost functions)
+dotnet_diagnostic.IDE0052.severity = warning  # Remove unread private members
+dotnet_diagnostic.IDE0059.severity = warning  # Unnecessary assignment of a value
+dotnet_diagnostic.IDE0060.severity = warning  # Remove unused parameter
+dotnet_diagnostic.IDE0005.severity = warning  # Using directive is unnecessary
+dotnet_diagnostic.CS0168.severity = warning   # Variable is declared but never used
+dotnet_diagnostic.CS0219.severity = warning   # Variable is assigned but its value is never used
+dotnet_diagnostic.CS0414.severity = warning   # Field is assigned but its value is never used
+dotnet_diagnostic.CS1998.severity = warning   # Async method lacks 'await' operators
+
+# Performance Suggestions
+dotnet_diagnostic.CA1822.severity = suggestion # Member can be made static
+dotnet_diagnostic.CA1852.severity = suggestion # Seal internal types
+dotnet_diagnostic.CA1805.severity = suggestion # Do not initialize unnecessarily

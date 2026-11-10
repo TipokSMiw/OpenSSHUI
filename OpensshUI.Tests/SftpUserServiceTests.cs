@@ -488,4 +488,40 @@ public class SftpUserServiceTests : IDisposable
             }
         }
     }
+
+    [Fact]
+    public async Task GetUserAsync_ReturnsUserWithDetails_WhenExists()
+    {
+        // Arrange
+        await using (var db = new AppDbContext(_dbOptions))
+        {
+            var user = new SftpUser
+            {
+                Username = "dave",
+                AccountType = SftpAccountType.LocalWindows,
+                AccessMode = SftpAccessMode.VirtualFolder,
+                PublicKeys = new List<SshPublicKey>
+                {
+                    new SshPublicKey
+                    {
+                        KeyType = "ssh-ed25519",
+                        RawPublicKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDaveKey dave",
+                        FingerprintSha256 = "SHA256:DaveFingerprint"
+                    }
+                }
+            };
+            db.SftpUsers.Add(user);
+            await db.SaveChangesAsync();
+        }
+
+        // Act
+        var result = await _sut.GetUserAsync("dave");
+        var nonExistent = await _sut.GetUserAsync("non_existent_user");
+
+        // Assert
+        result.Should().NotBeNull();
+        result!.Username.Should().Be("dave");
+        result.PublicKeys.Should().HaveCount(1);
+        nonExistent.Should().BeNull();
+    }
 }

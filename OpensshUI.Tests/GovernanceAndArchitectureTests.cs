@@ -53,6 +53,10 @@ public class GovernanceAndArchitectureTests
         // Verify Anti-Regression Matrix and Checklist
         text.Should().Contain("Anti-Regression Matrix");
         text.Should().Contain("Pre-Commit Quality & Security Gate");
+        text.Should().Contain("Zero Dead Code & Stream Draining Discipline");
+        text.Should().Contain("[Check 5] Zero Dead Code & Ghost Injections");
+        text.Should().Contain("[Check 6] 100% Service Contract Test Coverage");
+        text.Should().Contain("[Check 7] Test Suite 100% Pass");
     }
 
     [Fact]
@@ -113,5 +117,25 @@ public class GovernanceAndArchitectureTests
             content.Should().NotContain("File.WriteAllText(", $"Razor Component '{fileName}' must not write files directly. Delegate to Service Layer.");
             content.Should().NotContain("Directory.Delete(", $"Razor Component '{fileName}' must not delete directories directly. Delegate to Service Layer.");
         }
+    }
+
+    [Fact]
+    public void ArchitecturalRule_EditorConfigAndRoslynAnalyzers_MustBeEnforced()
+    {
+        var root = FindProjectRoot();
+        var editorConfigPath = Path.Combine(root, ".editorconfig");
+        File.Exists(editorConfigPath).Should().BeTrue(".editorconfig must exist in root to enforce Roslyn AST analyzers.");
+
+        var editorConfigText = File.ReadAllText(editorConfigPath);
+        editorConfigText.Should().Contain("dotnet_diagnostic.IDE0051.severity = warning");
+        editorConfigText.Should().Contain("dotnet_diagnostic.IDE0059.severity = warning");
+        editorConfigText.Should().Contain("dotnet_diagnostic.IDE0005.severity = warning");
+        editorConfigText.Should().Contain("dotnet_diagnostic.CS0168.severity = warning");
+        editorConfigText.Should().Contain("dotnet_diagnostic.CS1998.severity = warning");
+
+        var csprojPath = Path.Combine(root, "OpensshUI.csproj");
+        var csprojText = File.ReadAllText(csprojPath);
+        csprojText.Should().Contain("<EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>");
+        csprojText.Should().Contain("<GenerateDocumentationFile>true</GenerateDocumentationFile>");
     }
 }
