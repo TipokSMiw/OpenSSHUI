@@ -3,6 +3,7 @@
 @inject ISftpUserService UserService
 @inject ISftpGroupService GroupService
 @inject IOpenSshServiceManager SshManager
+@inject ISftpSessionService SessionService
 @inject ISecureFileBrowserService FileBrowser
 @inject IAuditService AuditService
 @inject UserSessionState SessionState
@@ -44,7 +45,7 @@
 
     <!-- Stat Cards -->
     <div class="row g-3 mb-4">
-        <div class="col-md-3">
+        <div class="col-xl col-md-4 col-sm-6">
             <div class="card border-0 shadow-sm rounded-3 h-100" role="button" @onclick='() => Navigation.NavigateTo("users")'>
                 <div class="card-body d-flex align-items-center gap-3">
                     <div class="bg-primary-subtle text-primary p-3 rounded-circle d-inline-flex align-items-center justify-content-center">
@@ -62,7 +63,7 @@
             </div>
         </div>
 
-        <div class="col-md-3">
+        <div class="col-xl col-md-4 col-sm-6">
             <div class="card border-0 shadow-sm rounded-3 h-100" role="button" @onclick='() => Navigation.NavigateTo("users")'>
                 <div class="card-body d-flex align-items-center gap-3">
                     <div class="bg-warning-subtle text-warning-emphasis p-3 rounded-circle d-inline-flex align-items-center justify-content-center">
@@ -77,7 +78,7 @@
             </div>
         </div>
 
-        <div class="col-md-3">
+        <div class="col-xl col-md-4 col-sm-6">
             <div class="card border-0 shadow-sm rounded-3 h-100" role="button" @onclick='() => Navigation.NavigateTo("files")'>
                 <div class="card-body d-flex align-items-center gap-3">
                     <div class="bg-info-subtle text-info-emphasis p-3 rounded-circle d-inline-flex align-items-center justify-content-center">
@@ -92,7 +93,25 @@
             </div>
         </div>
 
-        <div class="col-md-3">
+        <div class="col-xl col-md-6 col-sm-6">
+            <div class="card border-0 shadow-sm rounded-3 h-100" role="button" @onclick='() => Navigation.NavigateTo("sessions")'>
+                <div class="card-body d-flex align-items-center gap-3">
+                    <div class="@(activeSessionsCount > 0 ? "bg-success-subtle text-success" : "bg-light text-muted") p-3 rounded-circle d-inline-flex align-items-center justify-content-center">
+                        <i class="bi bi-diagram-2-fill fs-3"></i>
+                    </div>
+                    <div>
+                        <div class="text-muted small fw-semibold">Active Sessions</div>
+                        <h4 class="fw-bold mb-0">@activeSessionsCount</h4>
+                        <small class="@(activeSessionsCount > 0 ? "text-success" : "text-muted") d-inline-flex align-items-center gap-1">
+                            <i class="bi @(activeSessionsCount > 0 ? "bi-broadcast" : "bi-dash-circle")"></i>
+                            <span>@(activeSessionsCount > 0 ? "กำลังเชื่อมต่อสด" : "ไม่มีการเชื่อมต่อ")</span>
+                        </small>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-xl col-md-6 col-sm-12">
             <div class="card border-0 shadow-sm rounded-3 h-100" role="button" @onclick='() => Navigation.NavigateTo("service")'>
                 <div class="card-body d-flex align-items-center gap-3">
                     <div class="@(serviceStatus?.Status == "Running" ? "bg-success-subtle text-success" : "bg-danger-subtle text-danger") p-3 rounded-circle d-inline-flex align-items-center justify-content-center">
@@ -278,6 +297,7 @@
     private int usersCount;
     private int activeUsersCount;
     private int keysCount;
+    private int activeSessionsCount;
     private long totalStorageBytes;
     private ServiceStatusInfo? serviceStatus;
     private List<AuditLog>? recentLogs;
@@ -301,6 +321,16 @@
 
             serviceStatus = SshManager.GetStatus();
             recentLogs = await AuditService.GetRecentLogsAsync(8);
+
+            try
+            {
+                var sessions = await SessionService.GetActiveSessionsAsync();
+                activeSessionsCount = sessions.TotalActiveSessions;
+            }
+            catch
+            {
+                activeSessionsCount = 0;
+            }
 
             // Cancel any in-flight storage calculation before starting a new one
             _storageCts?.Cancel();

@@ -19,6 +19,8 @@
 8. **Secure Web File Browser:** ระบบสำรวจไฟล์ผ่านเว็บอินเทอร์เฟซ โดยจำกัดขอบเขตภายใต้ SFTP Root อย่างเคร่งครัด
 9. **Authentication & Audit:** รองรับ LDAP / Active Directory ร่วมกับ Fallback Local Admin และบันทึก Audit Logs ทุกกิจกรรมลง SQLite (WAL Mode)
 10. **Web Admin & RBAC Management (`IWebAdminService`):** จัดการบัญชีผู้ดูแลหน้าเว็บแยกรายบุคคล (Local Admin พร้อมรหัสผ่าน PBKDF2 และเชื่อมโยงผู้ใช้ Active Directory ผ่าน Live Search), กำหนดบทบาทสิทธิ์ (`SuperAdmin`, `Operator`, `Auditor`), ระบบคุ้มกันความปลอดภัย (Self-Lockout Prevention, Last SuperAdmin Protection) และการบันทึก Audit Accountability รายคน
+11. **Real-Time Live SFTP Session Management (`ISftpSessionService`):** ตรวจสอบเซสชันสดผ่าน Win32 TCP Table + Process Token API, ระบุชื่อผู้ใช้แบบ Canonical, ตรวจจับการเชื่อมต่อซ้ำซ้อน (> 5 sessions), สั่งเตะเซสชันรายตัวหรือรายยูสเซอร์พร้อม Safety Guard (sshd/sftp-server only) และเก็บบันทึก Audit Logs
+12. **High-Concurrency Performance Tuning Engine (`ISshdConfigService`):** จัดการและปรับแต่งพารามิเตอร์ Concurrency (`MaxStartups`, `MaxSessions`, `ClientAliveInterval`, `ClientAliveCountMax`, `LoginGraceTime`) แบบ Presets ใน `GlobalLines` พร้อม `sshd -t` syntax check และ Atomic Write
 
 ---
 
@@ -37,6 +39,7 @@ OpensshUI (Root Project - net8.0-windows)
 │   │   ├── Groups/         # Group Management
 │   │   ├── Logs/           # OpenSshLogPage (Event Logs), WebAuditLogPage
 │   │   ├── Service/        # ServiceControlPage (sshd & ssh-agent controller)
+│   │   ├── Sessions/       # SessionManagement (SFTP Live Sessions & Disconnect)
 │   │   ├── Settings/       # Settings, LDAP Config
 │   │   └── Users/          # User Management, SshKeysModal
 │   └── Shared/             # Reusable UI widgets & Modals (e.g. FolderPickerModal)
@@ -47,7 +50,9 @@ OpensshUI (Root Project - net8.0-windows)
 │   ├── LdapConfig.cs
 │   ├── OpenSshLogEntry.cs  # Windows Event Log Models & Query Results
 │   ├── SftpGroup.cs
+│   ├── SftpSessionInfo.cs  # Active SFTP Live Sessions & Metrics
 │   ├── SftpUser.cs
+│   ├── SshdConcurrencySettings.cs # Concurrency & Connection Limit Settings
 │   ├── SshLogFilter.cs     # Time Presets & Filter Parameters
 │   ├── SshPublicKey.cs
 │   └── WebAdminUser.cs     # Web UI Admin Users, Account Types & Roles
@@ -60,6 +65,7 @@ OpensshUI (Root Project - net8.0-windows)
 │   │   ├── INtfsAclService.cs / NtfsAclService.cs             # Strict Chroot NTFS ACL & Junctions
 │   │   ├── ISshdConfigService.cs / SshdConfigService.cs       # Atomic sshd_config & syntax engine
 │   │   ├── ISshEventLogService.cs / SshEventLogService.cs     # Windows Event Log query & export
+│   │   ├── ISftpSessionService.cs / SftpSessionService.cs     # Real-time Win32 TCP & Live Session Orchestrator
 │   │   ├── SshLogParser.cs                                    # High-speed Event Log Regex Parser
 │   │   ├── IOpenSshServiceManager.cs / OpenSshServiceManager.cs # Service lifecycle (sshd & ssh-agent)
 │   │   ├── IWindowsUserManager.cs / WindowsUserManager.cs     # Local account orchestration
@@ -67,7 +73,7 @@ OpensshUI (Root Project - net8.0-windows)
 │   │   └── NativeAclProvisioner.cs / OpenSshLogService.cs     # Compatibility wrappers
 │   ├── Security/           # IProtectionService, ProtectionService, PasswordHasher
 │   └── Users/              # ISftpUserService, SftpUserService
-└── OpensshUI.Tests/        # Test Suite (xUnit, FluentAssertions, 210+ tests)
+└── OpensshUI.Tests/        # Test Suite (xUnit, FluentAssertions, 298+ tests)
 ```
 
 ### Architectural Rules for Agents:
@@ -200,7 +206,7 @@ AI Agent **ต้องปฏิบัติตามกฎเหล็กเห
    ```powershell
    dotnet test OpensshUI.Tests\OpensshUI.Tests.csproj
    ```
-3. **No Regressions & Security Coverage:** ชุดทดสอบทั้งหมด (285+ tests รวมถึง `EvilUserSecurityTests.cs` และ `GovernanceAndArchitectureTests.cs`) ต้องผ่านครบถ้วน (`Failed: 0`)
+3. **No Regressions & Security Coverage:** ชุดทดสอบทั้งหมด (298+ tests รวมถึง `EvilUserSecurityTests.cs` และ `GovernanceAndArchitectureTests.cs`) ต้องผ่านครบถ้วน (`Failed: 0`)
 
 ### 4.3 Security & Anti-Regression Quality Gate
 ทุกครั้งที่มีการแก้ไข Service หรือ Logic ด้านความปลอดภัย ชุดทดสอบกลุ่ม Security ทั้ง 3 ตัวนี้ต้องถูกเรียกตรวจเสมอ:
@@ -220,7 +226,7 @@ dotnet build OpensshUI.csproj
 # Build with Roslyn Analyzers & Code Style Verification (Zero Dead Code)
 dotnet build OpensshUI.csproj --no-restore /p:EnforceCodeStyleInBuild=true
 
-# Run Automated Tests (285+ Tests, 100% Pass)
+# Run Automated Tests (298+ Tests, 100% Pass)
 dotnet test OpensshUI.Tests\OpensshUI.Tests.csproj
 
 # Run Web Application (Development)
@@ -281,7 +287,7 @@ flowchart TD
 - [ ] **[Check 4] Dual-Layer RBAC Enforced:** Event handler ทุกตัวที่มีการแก้ข้อมูล มี Guard Clause ตรวจสิทธิ์บรรทัดแรกหรือไม่?
 - [ ] **[Check 5] Zero Dead Code & Ghost Injections:** ไม่มีตัวแปรไม่ได้ใช้ (`CS0168`, `CS0219`, `IDE0059`), ไม่มีฟังก์ชันผี (`IDE0051`), ไม่มี Unused Using (`IDE0005`), Drain ครบทุก Process Streams และไม่มี `@inject` ค้างใน Razor ใช่หรือไม่?
 - [ ] **[Check 6] 100% Service Contract Test Coverage:** เมธอดทุกตัวใน Service Interfaces มี Caller จาก UI หรือมี Unit Test ครอบคลุมครบถ้วน (ไม่มี Orphan Service APIs ที่ไร้การทดสอบ) ใช่หรือไม่?
-- [ ] **[Check 7] Test Suite 100% Pass:** รัน `dotnet test OpensshUI.Tests\OpensshUI.Tests.csproj` และผลผ่านทั้งหมด (285+ tests, Failed: 0) ใช่หรือไม่?
+- [ ] **[Check 7] Test Suite 100% Pass:** รัน `dotnet test OpensshUI.Tests\OpensshUI.Tests.csproj` และผลผ่านทั้งหมด (298+ tests, Failed: 0) ใช่หรือไม่?
 
 ---
 

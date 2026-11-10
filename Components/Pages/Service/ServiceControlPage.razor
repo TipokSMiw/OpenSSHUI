@@ -1,6 +1,7 @@
 @page "/service"
 @rendermode InteractiveServer
 @inject IOpenSshServiceManager SshManager
+@inject ISshdConfigService ConfigService
 @inject IAuditService AuditService
 @inject UserSessionState SessionState
 
@@ -210,6 +211,108 @@
         </div>
     </div>
 
+    <!-- Concurrency & Performance Tuning Card -->
+    <div class="card border-0 shadow-sm rounded-3 mb-4">
+        <div class="card-header bg-white border-bottom pt-3 pb-2 d-flex justify-content-between align-items-center">
+            <h6 class="fw-bold mb-0 d-flex align-items-center gap-2">
+                <i class="bi bi-speedometer text-primary"></i>
+                <span>การปรับแต่งประสิทธิภาพและการเชื่อมต่อ (Concurrency & Connection Limits)</span>
+            </h6>
+            <span class="badge @(concurrencySettings.AppliedProfile == "HighTraffic" ? "bg-warning-subtle text-warning-emphasis border border-warning-subtle" : "bg-light text-muted border") px-2.5 py-1">
+                Profile: @concurrencySettings.AppliedProfile
+            </span>
+        </div>
+        <div class="card-body">
+            <p class="small text-muted mb-3">
+                กำหนดค่าขีดจำกัดการเชื่อมต่อพร้อมกันใน <code>sshd_config</code> เพื่อรองรับกรณีผู้ใช้เชื่อมต่อหรือวางไฟล์พร้อมกันปริมาณมาก ป้องกันปัญหาการปฏิเสธการเชื่อมต่อ (Connection reset by peer)
+            </p>
+
+            <!-- Quick Presets -->
+            <div class="d-flex flex-wrap align-items-center gap-2 mb-4 p-2.5 bg-light rounded-2 border">
+                <span class="small fw-semibold text-muted me-1">
+                    <i class="bi bi-sliders"></i> พรีเซ็ตแนะนำ:
+                </span>
+                <button class="btn btn-outline-secondary btn-sm" @onclick="ApplyStandardPreset" disabled="@(!SessionState.CanManageSystem || isProcessing)">
+                    <i class="bi bi-check-circle"></i>
+                    <span>Standard (ไม่เกิน 50 ผู้ใช้)</span>
+                </button>
+                <button class="btn btn-outline-warning btn-sm text-dark fw-semibold" @onclick="ApplyHighTrafficPreset" disabled="@(!SessionState.CanManageSystem || isProcessing)">
+                    <i class="bi bi-lightning-charge-fill"></i>
+                    <span>High Traffic (100-300 ผู้ใช้)</span>
+                </button>
+                <button class="btn btn-outline-dark btn-sm" @onclick="ApplyDefaultPreset" disabled="@(!SessionState.CanManageSystem || isProcessing)">
+                    <i class="bi bi-arrow-counterclockwise"></i>
+                    <span>ค่าเริ่มต้น OpenSSH (Default)</span>
+                </button>
+            </div>
+
+            <!-- Parameters Grid -->
+            <div class="row g-3">
+                <div class="col-md-4">
+                    <label class="form-label small fw-semibold text-dark mb-1">
+                        MaxStartups (การเชื่อมต่อพร้อมกันช่วง Handshake)
+                    </label>
+                    <input type="text" class="form-control form-control-sm font-monospace" @bind="concurrencySettings.MaxStartups" disabled="@(!SessionState.CanManageSystem || isProcessing)" placeholder="10:30:100 หรือ 100:30:300" />
+                    <div class="form-text small text-muted">เช่น <code>100:30:300</code> (เริ่มสุ่มดร็อปที่ 100 ดร็อป 100% ที่ 300)</div>
+                </div>
+
+                <div class="col-md-4">
+                    <label class="form-label small fw-semibold text-dark mb-1">
+                        MaxSessions (ช่องสัญญาณต่อการเชื่อมต่อ)
+                    </label>
+                    <input type="number" class="form-control form-control-sm" @bind="concurrencySettings.MaxSessions" min="1" max="500" disabled="@(!SessionState.CanManageSystem || isProcessing)" />
+                    <div class="form-text small text-muted">ค่าเริ่มต้น <code>10</code> (แนะนำ <code>20-50</code> หากเปิดหลายเธรด)</div>
+                </div>
+
+                <div class="col-md-4">
+                    <label class="form-label small fw-semibold text-dark mb-1">
+                        ClientAliveInterval (วินาทีตรวจสอบการเชื่อมต่อ)
+                    </label>
+                    <input type="number" class="form-control form-control-sm" @bind="concurrencySettings.ClientAliveInterval" min="0" max="3600" disabled="@(!SessionState.CanManageSystem || isProcessing)" />
+                    <div class="form-text small text-muted"><code>0</code> = ปิด, แนะนำ <code>30</code> หรือ <code>60</code> วินาทีเพื่อเคลียร์เซสชันผี</div>
+                </div>
+
+                <div class="col-md-4">
+                    <label class="form-label small fw-semibold text-dark mb-1">
+                        ClientAliveCountMax (จำนวนครั้งที่ไม่ตอบกลับ)
+                    </label>
+                    <input type="number" class="form-control form-control-sm" @bind="concurrencySettings.ClientAliveCountMax" min="1" max="20" disabled="@(!SessionState.CanManageSystem || isProcessing)" />
+                    <div class="form-text small text-muted">ค่าเริ่มต้น <code>3</code> ครั้งก่อนตัดการเชื่อมต่อ</div>
+                </div>
+
+                <div class="col-md-4">
+                    <label class="form-label small fw-semibold text-dark mb-1">
+                        LoginGraceTime (เวลารอการยืนยันตัวตน วินาที)
+                    </label>
+                    <input type="number" class="form-control form-control-sm" @bind="concurrencySettings.LoginGraceTime" min="5" max="600" disabled="@(!SessionState.CanManageSystem || isProcessing)" />
+                    <div class="form-text small text-muted">ค่าเริ่มต้น <code>120</code> (แนะนำ <code>30-60</code> เมื่อทราฟฟิกสูง)</div>
+                </div>
+            </div>
+
+            @if (SessionState.CanManageSystem)
+            {
+                <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mt-4 pt-3 border-top">
+                    <div class="small text-muted d-flex align-items-center gap-1">
+                        <i class="bi bi-info-circle text-primary"></i>
+                        <span>การปรับค่าจะมีผลสมบูรณ์เมื่อสั่ง <strong>Restart Service (sshd)</strong> ด้านบน</span>
+                    </div>
+                    <button class="btn btn-primary btn-sm fw-semibold" @onclick="SaveConcurrencySettings" disabled="@isProcessing">
+                        @if (isProcessing)
+                        {
+                            <span class="spinner-border spinner-border-sm"></span>
+                            <span>กำลังตรวจสอบและบันทึก...</span>
+                        }
+                        else
+                        {
+                            <i class="bi bi-check2-circle"></i>
+                            <span>ตรวจสอบไวยากรณ์และบันทึกค่า (Apply & Validate)</span>
+                        }
+                    </button>
+                </div>
+            }
+        </div>
+    </div>
+
     <!-- Zero-Config Group Block Setup -->
     <div class="card border-0 shadow-sm rounded-3">
         <div class="card-header bg-white border-bottom pt-3 pb-2 d-flex justify-content-between align-items-center">
@@ -246,6 +349,7 @@
     private ServiceStatusInfo? serviceInfo;
     private ServiceStatusInfo? agentInfo;
     private ConfigValidationResult? lastValidationResult;
+    private SshdConcurrencySettings concurrencySettings = new();
     private string zeroConfigPreview = "";
     private bool isProcessing;
     private bool isCheckingSyntax;
@@ -255,7 +359,56 @@
     protected override void OnInitialized()
     {
         zeroConfigPreview = SshManager.GetZeroConfigBlockTemplate(SshManager.SftpRoot, SshManager.KeysPath);
+        concurrencySettings = ConfigService.GetConcurrencySettings();
         RefreshStatus();
+    }
+
+    private void ApplyStandardPreset()
+    {
+        concurrencySettings.MaxStartups = "20:30:100";
+        concurrencySettings.MaxSessions = 15;
+        concurrencySettings.ClientAliveInterval = 60;
+        concurrencySettings.ClientAliveCountMax = 3;
+        concurrencySettings.LoginGraceTime = 60;
+        concurrencySettings.AppliedProfile = "Standard";
+    }
+
+    private void ApplyHighTrafficPreset()
+    {
+        concurrencySettings.MaxStartups = "100:30:300";
+        concurrencySettings.MaxSessions = 30;
+        concurrencySettings.ClientAliveInterval = 30;
+        concurrencySettings.ClientAliveCountMax = 3;
+        concurrencySettings.LoginGraceTime = 30;
+        concurrencySettings.AppliedProfile = "HighTraffic";
+    }
+
+    private void ApplyDefaultPreset()
+    {
+        concurrencySettings.MaxStartups = "10:30:100";
+        concurrencySettings.MaxSessions = 10;
+        concurrencySettings.ClientAliveInterval = 0;
+        concurrencySettings.ClientAliveCountMax = 3;
+        concurrencySettings.LoginGraceTime = 120;
+        concurrencySettings.AppliedProfile = "Default";
+    }
+
+    private async Task SaveConcurrencySettings()
+    {
+        if (!SessionState.CanManageSystem) return;
+        isProcessing = true;
+        var op = string.IsNullOrEmpty(SessionState.CurrentUsername) ? "admin" : SessionState.CurrentUsername;
+
+        var (ok, msg) = await ConfigService.UpdateConcurrencySettingsAsync(concurrencySettings);
+        isProcessing = false;
+        SetAlert(msg, ok);
+
+        await AuditService.LogAsync("SSHD_CONCURRENCY_UPDATED", msg, ok, op);
+
+        if (ok)
+        {
+            concurrencySettings = ConfigService.GetConcurrencySettings();
+        }
     }
 
     private void RefreshStatus()

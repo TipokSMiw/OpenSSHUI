@@ -1,0 +1,538 @@
+@page "/sessions"
+@rendermode InteractiveServer
+@inject ISftpSessionService SessionService
+@inject IAuditService AuditService
+@inject UserSessionState SessionState
+@implements IDisposable
+
+<PageTitle>SFTP Live Sessions - OpensshUI</PageTitle>
+
+<div class="container-fluid p-0">
+    <!-- Standardized Page Header -->
+    <div class="page-header">
+        <div>
+            <h3 class="page-title">
+                <i class="bi bi-diagram-2-fill text-primary"></i>
+                <span>เซสชันสด (SFTP Live Sessions)</span>
+            </h3>
+            <p class="text-muted small mb-0">ตรวจสอบและจัดการการเชื่อมต่อ SFTP ของไคลเอนต์แบบ Real-time พร้อมระบบสั่งตัดการเชื่อมต่อ (Disconnect)</p>
+        </div>
+        <div class="d-flex align-items-center gap-2">
+            <!-- Demo Mode Toggle -->
+            <button class="btn @(SessionService.IsDemoMode ? "btn-warning text-dark fw-bold" : "btn-outline-secondary") btn-sm" @onclick="ToggleDemoMode" title="สลับระหว่างข้อมูลจริงบนระบบกับโหมดจำลองสำหรับทดสอบ">
+                <i class="bi @(SessionService.IsDemoMode ? "bi-check-circle-fill" : "bi-cpu")"></i>
+                <span>@(SessionService.IsDemoMode ? "โหมดทดสอบ: ข้อมูลจำลอง (Demo)" : "จำลองข้อมูล (Demo Mode)")</span>
+            </button>
+
+            <!-- Auto-Refresh Selector -->
+            <div class="d-flex align-items-center gap-1.5 border rounded-2 px-2 py-1 bg-white shadow-sm">
+                <i class="bi bi-clock-history text-muted small"></i>
+                <span class="small text-muted me-1">Auto-Refresh:</span>
+                <select class="form-select form-select-sm border-0 py-0 ps-1 pe-4 bg-transparent fw-semibold" style="width: auto; cursor: pointer;" @bind="autoRefreshSeconds" @bind:after="OnAutoRefreshChanged">
+                    <option value="0">ปิด</option>
+                    <option value="10">ทุก 10 วินาที</option>
+                    <option value="30">ทุก 30 วินาที</option>
+                </select>
+            </div>
+
+            <!-- Manual Refresh Button -->
+            <button class="btn btn-outline-secondary btn-sm" @onclick="LoadSessions" disabled="@isLoading">
+                @if (isLoading)
+                {
+                    <span class="spinner-border spinner-border-sm"></span>
+                    <span>กำลังโหลด...</span>
+                }
+                else
+                {
+                    <i class="bi bi-arrow-clockwise"></i>
+                    <span>รีเฟรชข้อมูล</span>
+                }
+            </button>
+        </div>
+    </div>
+
+    <!-- Demo Mode Notice Banner -->
+    @if (SessionService.IsDemoMode)
+    {
+        <div class="alert alert-warning border-0 shadow-sm rounded-3 py-2 px-3 mb-3 d-flex align-items-center justify-content-between" role="alert">
+            <div class="d-flex align-items-center gap-2 small">
+                <i class="bi bi-info-circle-fill fs-5 text-warning flex-shrink-0"></i>
+                <div>
+                    <strong>กำลังใช้งานโหมดจำลองข้อมูล (Demo Mock Mode):</strong>
+                    <span> ข้อมูลเซสชันและพฤติกรรมตัดการเชื่อมต่อด้านล่างเป็นข้อมูลจำลองเพื่อความสะดวกในการทดสอบฟังก์ชันบนสภาพแวดล้อม Development</span>
+                </div>
+            </div>
+            <button class="btn btn-sm btn-outline-dark" @onclick="ToggleDemoMode">สลับกลับไปโหมดข้อมูลจริง</button>
+        </div>
+    }
+
+    <!-- Alert Message Banner -->
+    @if (!string.IsNullOrEmpty(alertMessage))
+    {
+        <div class="alert @(isAlertSuccess ? "alert-success" : "alert-danger") alert-dismissible fade show py-2 small d-flex align-items-center gap-2 mb-3" role="alert">
+            <i class="bi @(isAlertSuccess ? "bi-check-circle-fill" : "bi-exclamation-triangle-fill") flex-shrink-0"></i>
+            <div>@alertMessage</div>
+            <button type="button" class="btn-close" @onclick="() => alertMessage = null"></button>
+        </div>
+    }
+
+    <!-- KPI Summary Cards -->
+    <div class="row g-3 mb-4">
+        <div class="col-md-4">
+            <div class="card border-0 shadow-sm rounded-3 h-100">
+                <div class="card-body d-flex align-items-center gap-3">
+                    <div class="bg-primary-subtle text-primary p-3 rounded-circle d-inline-flex align-items-center justify-content-center">
+                        <i class="bi bi-activity fs-3"></i>
+                    </div>
+                    <div>
+                        <div class="text-muted small fw-semibold">Active SFTP Sessions</div>
+                        <h3 class="fw-bold mb-0">@(overview?.TotalActiveSessions ?? 0)</h3>
+                        <small class="text-muted">เซสชันที่เชื่อมต่ออยู่ ณ ขณะนี้</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-4">
+            <div class="card border-0 shadow-sm rounded-3 h-100">
+                <div class="card-body d-flex align-items-center gap-3">
+                    <div class="bg-success-subtle text-success p-3 rounded-circle d-inline-flex align-items-center justify-content-center">
+                        <i class="bi bi-people-fill fs-3"></i>
+                    </div>
+                    <div>
+                        <div class="text-muted small fw-semibold">Active SFTP Users</div>
+                        <h3 class="fw-bold mb-0">@(overview?.UniqueUsersCount ?? 0)</h3>
+                        <small class="text-muted">จำนวนผู้ใช้ที่ไม่ซ้ำกัน</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-4">
+            <div class="card border-0 shadow-sm rounded-3 h-100">
+                <div class="card-body d-flex align-items-center gap-3">
+                    <div class="@(ExcessiveSessionsCount > 0 ? "bg-warning-subtle text-warning-emphasis" : "bg-light text-muted") p-3 rounded-circle d-inline-flex align-items-center justify-content-center">
+                        <i class="bi @(ExcessiveSessionsCount > 0 ? "bi-exclamation-triangle-fill" : "bi-shield-check") fs-3"></i>
+                    </div>
+                    <div>
+                        <div class="text-muted small fw-semibold">Excessive Connections</div>
+                        <h3 class="fw-bold mb-0 @(ExcessiveSessionsCount > 0 ? "text-warning-emphasis" : "")">@ExcessiveSessionsCount</h3>
+                        <small class="text-muted">เซสชันที่เปิดซ้ำซ้อน (> 5 ต่อผู้ใช้)</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Table & Filter Card -->
+    <div class="card border-0 shadow-sm rounded-3">
+        <div class="card-header bg-white border-bottom pt-3 pb-2 d-flex flex-wrap justify-content-between align-items-center gap-2">
+            <div class="d-flex align-items-center gap-2">
+                <h6 class="fw-bold mb-0 d-flex align-items-center gap-2">
+                    <i class="bi bi-list-ul text-primary"></i>
+                    <span>รายการเซสชันที่เชื่อมต่อสด</span>
+                </h6>
+                <span class="badge bg-secondary-subtle text-secondary border px-2 py-0.5">
+                    @FilteredSessions.Count รายการ
+                </span>
+                @if (autoRefreshSeconds > 0)
+                {
+                    <span class="badge bg-success-subtle text-success border border-success-subtle d-inline-flex align-items-center gap-1">
+                        <span class="spinner-grow spinner-grow-sm" style="width: 0.5rem; height: 0.5rem;"></span>
+                        <span>Auto-Refresh @(autoRefreshSeconds)s</span>
+                    </span>
+                }
+            </div>
+
+            <div class="d-flex align-items-center gap-2" style="max-width: 350px;">
+                <div class="input-group input-group-sm">
+                    <span class="input-group-text bg-light border-end-0">
+                        <i class="bi bi-search text-muted"></i>
+                    </span>
+                    <input type="text" class="form-control border-start-0" placeholder="ค้นหาตามชื่อ User หรือ IP..." @bind="searchQuery" @bind:event="oninput" />
+                    @if (!string.IsNullOrEmpty(searchQuery))
+                    {
+                        <button class="btn btn-outline-secondary border-start-0" @onclick="() => searchQuery = string.Empty">
+                            <i class="bi bi-x"></i>
+                        </button>
+                    }
+                </div>
+            </div>
+        </div>
+
+        <div class="card-body p-0">
+            @if (isLoading && overview == null)
+            {
+                <div class="text-center py-5">
+                    <span class="spinner-border spinner-border-sm text-primary"></span>
+                    <p class="text-muted small mt-2 mb-0">กำลังสำรวจเซสชันการเชื่อมต่อ...</p>
+                </div>
+            }
+            else if (FilteredSessions.Count == 0)
+            {
+                <div class="text-center py-5 text-muted">
+                    <i class="bi bi-broadcast fs-1 text-secondary opacity-50 d-block mb-2"></i>
+                    <h6 class="fw-semibold">ไม่พบเซสชันที่กำลังเชื่อมต่อ</h6>
+                    <p class="small mb-0">@(string.IsNullOrEmpty(searchQuery) ? (overview?.StatusNote ?? "ไม่มีไคลเอนต์ SFTP เชื่อมต่ออยู่ในขณะนี้") : "ไม่พบข้อมูลที่ตรงกับคำค้นหา")</p>
+                </div>
+            }
+            else
+            {
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0">
+                        <thead class="table-light small text-muted">
+                            <tr>
+                                <th class="ps-3" style="width: 220px;">ผู้ใช้งาน (User)</th>
+                                <th style="width: 200px;">ปลายทาง (Remote Endpoint)</th>
+                                <th style="width: 150px;">เวลาเชื่อมต่อ (Duration)</th>
+                                <th style="width: 140px;">โพรเซส (PID)</th>
+                                <th style="width: 120px;">หน่วยความจำ</th>
+                                <th style="width: 130px;">สถานะ</th>
+                                <th class="text-end pe-3">การจัดการ (Actions)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var session in FilteredSessions)
+                            {
+                                var userSessionCount = overview?.Sessions.Count(s => s.Username.Equals(session.Username, StringComparison.OrdinalIgnoreCase)) ?? 1;
+
+                                <tr>
+                                    <td class="ps-3">
+                                        <div class="d-flex align-items-center gap-2">
+                                            <div class="rounded-circle bg-primary-subtle text-primary d-inline-flex align-items-center justify-content-center fw-bold" style="width: 32px; height: 32px; font-size: 0.85rem;">
+                                                @(string.IsNullOrEmpty(session.Username) ? "?" : session.Username[..1].ToUpperInvariant())
+                                            </div>
+                                            <div>
+                                                <div class="fw-semibold text-dark">@session.Username</div>
+                                                <small class="text-muted">Port @session.LocalPort (SFTP)</small>
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <div class="font-monospace small">@session.RemoteIp</div>
+                                        <small class="text-muted font-monospace">Port: @session.RemotePort</small>
+                                    </td>
+                                    <td>
+                                        <div class="small fw-semibold text-dark">@FormatDuration(session.Duration)</div>
+                                        <small class="text-muted">ตั้งแต่ @session.ConnectedAt.ToString("HH:mm:ss")</small>
+                                    </td>
+                                    <td>
+                                        <span class="badge bg-light text-dark border font-monospace">
+                                            PID @session.ProcessId
+                                        </span>
+                                        <div class="small text-muted font-monospace">@session.ProcessName</div>
+                                    </td>
+                                    <td>
+                                        <span class="small font-monospace text-muted">
+                                            @FormatBytes(session.WorkingSetMemoryBytes)
+                                        </span>
+                                    </td>
+                                    <td>
+                                        @if (session.IsExcessiveConnection)
+                                        {
+                                            <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle" title="ผู้ใช้รายนี้เปิดเซสชันมากกว่า 5 รายการพร้อมกัน">
+                                                <i class="bi bi-exclamation-triangle-fill"></i>
+                                                <span>หนาแน่น (@userSessionCount)</span>
+                                            </span>
+                                        }
+                                        else
+                                        {
+                                            <span class="badge bg-success-subtle text-success border border-success-subtle">
+                                                <i class="bi bi-check-circle-fill"></i>
+                                                <span>ปกติ</span>
+                                            </span>
+                                        }
+                                    </td>
+                                    <td class="text-end pe-3">
+                                        @if (SessionState.CanManageSftp)
+                                        {
+                                            <div class="action-bar justify-content-end">
+                                                <button class="btn btn-outline-danger btn-sm" @onclick="() => PromptDisconnectSingle(session)" title="ตัดการเชื่อมต่อเซสชันนี้ทันที">
+                                                    <i class="bi bi-x-circle-fill"></i>
+                                                    <span>เตะ (Disconnect)</span>
+                                                </button>
+
+                                                @if (userSessionCount > 1)
+                                                {
+                                                    <span class="action-divider"></span>
+                                                    <button class="btn btn-outline-warning btn-sm text-dark" @onclick="() => PromptDisconnectUser(session.Username, userSessionCount)" title="ตัดทุกเซสชันของผู้ใช้คนนี้">
+                                                        <i class="bi bi-people-fill"></i>
+                                                        <span>เตะทั้งหมด (@userSessionCount)</span>
+                                                    </button>
+                                                }
+                                            </div>
+                                        }
+                                        else
+                                        {
+                                            <span class="text-muted small fst-italic">Read-Only</span>
+                                        }
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+<!-- Disconnect Single Session Confirmation Modal -->
+@if (confirmSessionTarget != null)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content shadow-lg border-0 rounded-3">
+                <div class="modal-header bg-danger text-white py-2.5">
+                    <h6 class="modal-title fw-bold d-flex align-items-center gap-2">
+                        <i class="bi bi-exclamation-triangle-fill"></i>
+                        <span>ยืนยันการตัดการเชื่อมต่อ SFTP (Disconnect)</span>
+                    </h6>
+                    <button type="button" class="btn-close btn-close-white" @onclick="() => confirmSessionTarget = null"></button>
+                </div>
+                <div class="modal-body p-4">
+                    <div class="alert alert-warning py-2 px-3 small d-flex align-items-center gap-2 mb-3">
+                        <i class="bi bi-shield-exclamation text-warning fs-4 flex-shrink-0"></i>
+                        <div>
+                            <strong>คำเตือนความเสี่ยง:</strong> การตัดการเชื่อมต่อจะยุติโพรเซส SFTP ทันที หากผู้ใช้กำลังเขียนหรือโอนย้ายไฟล์อยู่ ข้อมูลไฟล์อาจหยุดชะงักหรือไม่สมบูรณ์
+                        </div>
+                    </div>
+
+                    <div class="bg-light p-3 rounded-2 border mb-3">
+                        <div class="row g-2 small">
+                            <div class="col-4 text-muted">ชื่อผู้ใช้งาน:</div>
+                            <div class="col-8 fw-bold text-dark">@confirmSessionTarget.Username</div>
+
+                            <div class="col-4 text-muted">IP ไคลเอนต์:</div>
+                            <div class="col-8 font-monospace">@confirmSessionTarget.RemoteIp:@confirmSessionTarget.RemotePort</div>
+
+                            <div class="col-4 text-muted">Process ID:</div>
+                            <div class="col-8 font-monospace">PID @confirmSessionTarget.ProcessId (@confirmSessionTarget.ProcessName)</div>
+
+                            <div class="col-4 text-muted">ระยะเวลา:</div>
+                            <div class="col-8 fw-semibold">@FormatDuration(confirmSessionTarget.Duration)</div>
+                        </div>
+                    </div>
+
+                    <p class="small text-muted mb-0">คุณแน่ใจหรือไม่ว่าต้องการตัดการเชื่อมต่อเซสชันนี้ออกจากเซิร์ฟเวอร์?</p>
+                </div>
+                <div class="modal-footer bg-light py-2">
+                    <button type="button" class="btn btn-secondary btn-sm" @onclick="() => confirmSessionTarget = null" disabled="@isTerminating">ยกเลิก</button>
+                    <button type="button" class="btn btn-danger btn-sm fw-bold" @onclick="ExecuteDisconnectSingle" disabled="@isTerminating">
+                        @if (isTerminating)
+                        {
+                            <span class="spinner-border spinner-border-sm"></span>
+                            <span>กำลังตัดการเชื่อมต่อ...</span>
+                        }
+                        else
+                        {
+                            <i class="bi bi-power"></i>
+                            <span>ยืนยันตัดการเชื่อมต่อ</span>
+                        }
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Disconnect All User Sessions Confirmation Modal -->
+@if (!string.IsNullOrEmpty(confirmUserTarget))
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content shadow-lg border-0 rounded-3">
+                <div class="modal-header bg-danger text-white py-2.5">
+                    <h6 class="modal-title fw-bold d-flex align-items-center gap-2">
+                        <i class="bi bi-people-fill"></i>
+                        <span>ยืนยันตัดทุกเซสชันของผู้ใช้ (Disconnect All)</span>
+                    </h6>
+                    <button type="button" class="btn-close btn-close-white" @onclick="() => confirmUserTarget = null"></button>
+                </div>
+                <div class="modal-body p-4">
+                    <div class="alert alert-danger py-2 px-3 small d-flex align-items-center gap-2 mb-3">
+                        <i class="bi bi-exclamation-octagon-fill text-danger fs-4 flex-shrink-0"></i>
+                        <div>
+                            ระบบจะสั่งยุติ <strong>ทุกการเชื่อมต่อ (@confirmUserTargetCount เซสชัน)</strong> ของผู้ใช้ <strong>@confirmUserTarget</strong> พร้อมกันทันที
+                        </div>
+                    </div>
+                    <p class="small text-muted mb-0">การกระทำนี้จะส่งผลให้โปรแกรม SFTP ไคลเอนต์ทั้งหมดของผู้ใช้รายนี้หลุดจากการเชื่อมต่อทันที</p>
+                </div>
+                <div class="modal-footer bg-light py-2">
+                    <button type="button" class="btn btn-secondary btn-sm" @onclick="() => confirmUserTarget = null" disabled="@isTerminating">ยกเลิก</button>
+                    <button type="button" class="btn btn-danger btn-sm fw-bold" @onclick="ExecuteDisconnectUser" disabled="@isTerminating">
+                        @if (isTerminating)
+                        {
+                            <span class="spinner-border spinner-border-sm"></span>
+                            <span>กำลังตัดการเชื่อมต่อ...</span>
+                        }
+                        else
+                        {
+                            <i class="bi bi-power"></i>
+                            <span>ยืนยันตัด @confirmUserTargetCount เซสชัน</span>
+                        }
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private SftpSessionOverview? overview;
+    private bool isLoading;
+    private bool isTerminating;
+    private string? alertMessage;
+    private bool isAlertSuccess;
+    private string searchQuery = string.Empty;
+
+    private int autoRefreshSeconds = 0;
+    private Timer? autoRefreshTimer;
+
+    private SftpSessionInfo? confirmSessionTarget;
+    private string? confirmUserTarget;
+    private int confirmUserTargetCount;
+
+    private int ExcessiveSessionsCount => overview?.Sessions.Count(s => s.IsExcessiveConnection) ?? 0;
+
+    private List<SftpSessionInfo> FilteredSessions
+    {
+        get
+        {
+            if (overview == null) return new List<SftpSessionInfo>();
+            if (string.IsNullOrWhiteSpace(searchQuery)) return overview.Sessions;
+
+            var q = searchQuery.Trim().ToLowerInvariant();
+            return overview.Sessions
+                .Where(s => s.Username.ToLowerInvariant().Contains(q) || s.RemoteIp.Contains(q))
+                .ToList();
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadSessions();
+    }
+
+    private async Task LoadSessions()
+    {
+        isLoading = true;
+        try
+        {
+            overview = await SessionService.GetActiveSessionsAsync();
+        }
+        catch (Exception ex)
+        {
+            SetAlert($"ไม่สามารถโหลดรายการเซสชันได้: {ex.Message}", false);
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task ToggleDemoMode()
+    {
+        SessionService.ToggleDemoMode();
+        await LoadSessions();
+    }
+
+    private void OnAutoRefreshChanged()
+    {
+        autoRefreshTimer?.Dispose();
+        autoRefreshTimer = null;
+
+        if (autoRefreshSeconds > 0)
+        {
+            autoRefreshTimer = new Timer(async _ =>
+            {
+                await InvokeAsync(async () =>
+                {
+                    try
+                    {
+                        overview = await SessionService.GetActiveSessionsAsync();
+                        StateHasChanged();
+                    }
+                    catch { }
+                });
+            }, null, TimeSpan.FromSeconds(autoRefreshSeconds), TimeSpan.FromSeconds(autoRefreshSeconds));
+        }
+    }
+
+    private void PromptDisconnectSingle(SftpSessionInfo session)
+    {
+        if (!SessionState.CanManageSftp) return;
+        confirmSessionTarget = session;
+    }
+
+    private void PromptDisconnectUser(string username, int count)
+    {
+        if (!SessionState.CanManageSftp) return;
+        confirmUserTarget = username;
+        confirmUserTargetCount = count;
+    }
+
+    private async Task ExecuteDisconnectSingle()
+    {
+        // Dual-Layer RBAC: Layer 2 Code-Behind Guard
+        if (!SessionState.CanManageSftp || confirmSessionTarget == null) return;
+
+        isTerminating = true;
+        var op = string.IsNullOrEmpty(SessionState.CurrentUsername) ? "admin" : SessionState.CurrentUsername;
+        var (ok, msg) = await SessionService.TerminateSessionAsync(confirmSessionTarget.ProcessId, op);
+        isTerminating = false;
+        confirmSessionTarget = null;
+
+        SetAlert(msg, ok);
+        await LoadSessions();
+    }
+
+    private async Task ExecuteDisconnectUser()
+    {
+        // Dual-Layer RBAC: Layer 2 Code-Behind Guard
+        if (!SessionState.CanManageSftp || string.IsNullOrEmpty(confirmUserTarget)) return;
+
+        isTerminating = true;
+        var op = string.IsNullOrEmpty(SessionState.CurrentUsername) ? "admin" : SessionState.CurrentUsername;
+        var (ok, msg) = await SessionService.TerminateUserSessionsAsync(confirmUserTarget, op);
+        isTerminating = false;
+        confirmUserTarget = null;
+
+        SetAlert(msg, ok);
+        await LoadSessions();
+    }
+
+    private void SetAlert(string message, bool isSuccess)
+    {
+        alertMessage = message;
+        isAlertSuccess = isSuccess;
+    }
+
+    private static string FormatDuration(TimeSpan d)
+    {
+        if (d.TotalDays >= 1) return $"{(int)d.TotalDays}d {d.Hours}h {d.Minutes}m";
+        if (d.TotalHours >= 1) return $"{(int)d.TotalHours}h {d.Minutes}m {d.Seconds}s";
+        if (d.TotalMinutes >= 1) return $"{(int)d.TotalMinutes}m {d.Seconds}s";
+        return $"{Math.Max(0, (int)d.TotalSeconds)}s";
+    }
+
+    private static string FormatBytes(long bytes)
+    {
+        if (bytes <= 0) return "-";
+        string[] sizes = { "B", "KB", "MB", "GB" };
+        int order = 0;
+        double len = bytes;
+        while (len >= 1024 && order < sizes.Length - 1)
+        {
+            order++;
+            len /= 1024;
+        }
+        return $"{len:0.0} {sizes[order]}";
+    }
+
+    public void Dispose()
+    {
+        autoRefreshTimer?.Dispose();
+        autoRefreshTimer = null;
+    }
+}

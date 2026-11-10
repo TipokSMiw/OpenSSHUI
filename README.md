@@ -18,6 +18,8 @@
   * รองรับการซิงค์บล็อกการตั้งค่าเฉพาะ (`# BEGIN MANAGED OPENSSH-UI BLOCKS`) โดยไม่กระทบการตั้งค่าเดิมของแอดมิน
 * **Dual Service Controller (`sshd` & `ssh-agent`):** ตรวจสอบและสั่ง Start / Stop / Restart ทั้งบริการ `sshd` และ `ssh-agent` จากหน้าเว็บ พร้อมปุ่มทดสอบไวยากรณ์ (`sshd.exe -t`) แบบ On-demand ก่อน Restart
 * **Zero-Config Reload Architecture:** รองรับโครงสร้าง `Match Group SFTP-Users` ร่วมกับ `%u` token ช่วยให้เพิ่มผู้ใช้ใหม่หรืออัปเดต SSH Key ได้ทันทีโดยไม่ต้องแก้ไขไฟล์ config และไม่ต้อง Restart Service
+* **Real-Time SFTP Live Session Monitor & Termination (`ISftpSessionService`):** ตรวจสอบสถานะการเชื่อมต่อ SFTP แบบสดผ่าน Win32 P/Invoke (`iphlpapi.dll`) ความเร็วสูง ตรวจจับ Session ซ้ำซ้อน (> 5 connections) สั่งตัดการเชื่อมต่อ (Disconnect) รายเซสชันหรือรายยูสเซอร์ทันที พร้อมโหมดจำลองข้อมูล (Demo Mock Mode) และ Modal ป้องกันความผิดพลาด
+* **Concurrency & High-Traffic Performance Tuning Engine:** แผงควบคุมและปรับแต่งพารามิเตอร์ Concurrency ใน `sshd_config` (`MaxStartups`, `MaxSessions`, `ClientAliveInterval`, `ClientAliveCountMax`, `LoginGraceTime`) พร้อม Presets สำหรับรองรับผู้ใช้พร้อมกันปริมาณมาก ป้องกันปัญหา Connection Reset และเขียนไฟล์แบบ Atomic ร่วมกับ `sshd.exe -t` syntax guard
 * **High-Performance Event Log Engine (`ISshEventLogService`):** เชื่อมต่อและดึงข้อมูลจาก Windows Event Log (`OpenSSH/Operational`) ผ่าน Optimized Regex Parser แยกข้อมูล Username, IP Address, Port, Authentication Method, Event Type และความรุนแรง พร้อมตัวกรองเวลาด่วน, Auto-Refresh, ระบบ Export รายงาน CSV และโหมดจำลองข้อมูล (Demo Mock Mode)
 * **Secure Web File Browser:** สำรวจและจัดการไฟล์ใน SFTP Root ผ่านเว็บอินเทอร์เฟซ จำกัดขอบเขตอย่างเข้มงวด ป้องกัน Directory Traversal
 * **Web Admin Management & Role-Based Access Control (RBAC):**
@@ -43,7 +45,7 @@
 # Restore & Build Project
 dotnet build OpensshUI.csproj
 
-# Run Automated Test Suite (210+ Tests)
+# Run Automated Test Suite (298+ Tests)
 dotnet test OpensshUI.Tests\OpensshUI.Tests.csproj
 
 # Run Web Application (Development Mode)

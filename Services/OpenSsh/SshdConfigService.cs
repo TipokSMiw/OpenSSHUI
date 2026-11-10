@@ -1,7 +1,9 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Runtime.Versioning;
 using System.Text;
 using System.Text.RegularExpressions;
+using OpensshUI.Models;
 using OpensshUI.Services.Security;
 
 namespace OpensshUI.Services.OpenSsh;
@@ -15,7 +17,8 @@ public class SshdConfigService : ISshdConfigService
     private static readonly HashSet<string> GlobalOnlyDirectives = new(StringComparer.OrdinalIgnoreCase)
     {
         "Port", "ListenAddress", "HostKey", "AddressFamily", "PidFile",
-        "Subsystem", "SyslogFacility", "Protocol", "AcceptEnv", "UsePAM"
+        "Subsystem", "SyslogFacility", "Protocol", "AcceptEnv", "UsePAM",
+        "MaxStartups"
     };
 
     private static readonly Regex LineErrorRegex = new(@"line\s+\d+:", RegexOptions.Compiled | RegexOptions.IgnoreCase);
@@ -561,6 +564,154 @@ public class SshdConfigService : ISshdConfigService
 
             var serialized = Serialize(configFile);
             return await AtomicWriteAndApplyCoreAsync(serialized, finalPath);
+        }
+        finally
+        {
+            _fileLock.Release();
+        }
+    }
+
+    public SshdConcurrencySettings GetConcurrencySettings(string? targetPath = null)
+    {
+        var path = targetPath ?? ConfigPath;
+        var settings = new SshdConcurrencySettings();
+        if (!File.Exists(path))
+        {
+            return settings;
+        }
+
+        try
+        {
+            var content = File.ReadAllText(path);
+            var configFile = Parse(content);
+
+            foreach (var line in configFile.GlobalLines)
+            {
+                var trimmed = line.Trim();
+                if (string.IsNullOrWhiteSpace(trimmed) || trimmed.StartsWith("#")) continue;
+
+                var parts = trimmed.Split(new[] { ' ', '\t' }, 2, StringSplitOptions.RemoveEmptyEntries);
+                if (parts.Length < 2) continue;
+
+                var key = parts[0];
+                var val = parts[1].Trim();
+
+                if (key.Equals("MaxStartups", StringComparison.OrdinalIgnoreCase))
+                {
+                    settings.MaxStartups = val;
+                }
+                else if (key.Equals("MaxSessions", StringComparison.OrdinalIgnoreCase) && int.TryParse(val, out var maxSess))
+                {
+                    settings.MaxSessions = maxSess;
+                }
+                else if (key.Equals("ClientAliveInterval", StringComparison.OrdinalIgnoreCase) && int.TryParse(val, out var interval))
+                {
+                    settings.ClientAliveInterval = interval;
+                }
+                else if (key.Equals("ClientAliveCountMax", StringComparison.OrdinalIgnoreCase) && int.TryParse(val, out var countMax))
+                {
+                    settings.ClientAliveCountMax = countMax;
+                }
+                else if (key.Equals("LoginGraceTime", StringComparison.OrdinalIgnoreCase))
+                {
+                    var numStr = new string(val.TakeWhile(char.IsDigit).ToArray());
+                    if (int.TryParse(numStr, out var graceTime))
+                    {
+                        settings.LoginGraceTime = graceTime;
+                    }
+                }
+            }
+
+            if (settings.MaxStartups == "10:30:100" && settings.ClientAliveInterval == 0 && settings.MaxSessions == 10)
+            {
+                settings.AppliedProfile = "Default";
+            }
+            else if (settings.MaxStartups == "20:30:100" && settings.ClientAliveInterval == 60)
+            {
+                settings.AppliedProfile = "Standard";
+            }
+            else if (settings.MaxStartups == "100:30:300" && settings.ClientAliveInterval == 30)
+            {
+                settings.AppliedProfile = "HighTraffic";
+            }
+            else
+            {
+                settings.AppliedProfile = "Custom";
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to read concurrency settings from {Path}", path);
+        }
+
+        return settings;
+    }
+
+    public async Task<(bool Success, string Message)> UpdateConcurrencySettingsAsync(SshdConcurrencySettings settings, string? targetPath = null)
+    {
+        var finalPath = targetPath ?? ConfigPath;
+        var dir = Path.GetDirectoryName(finalPath);
+        if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+        {
+            Directory.CreateDirectory(dir);
+        }
+
+        await _fileLock.WaitAsync();
+        try
+        {
+            var content = File.Exists(finalPath) ? await File.ReadAllTextAsync(finalPath) : "";
+            var configFile = Parse(content);
+
+            var maxStartups = SecurityValidator.SanitizeSingleLine(settings.MaxStartups)?.Trim() ?? "10:30:100";
+            var maxSessions = Math.Clamp(settings.MaxSessions, 1, 500);
+            var clientAliveInterval = Math.Clamp(settings.ClientAliveInterval, 0, 3600);
+            var clientAliveCountMax = Math.Clamp(settings.ClientAliveCountMax, 1, 20);
+            var loginGraceTime = Math.Clamp(settings.LoginGraceTime, 5, 600);
+
+            var concurrencyDirectives = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["MaxStartups"] = maxStartups,
+                ["MaxSessions"] = maxSessions.ToString(CultureInfo.InvariantCulture),
+                ["ClientAliveInterval"] = clientAliveInterval.ToString(CultureInfo.InvariantCulture),
+                ["ClientAliveCountMax"] = clientAliveCountMax.ToString(CultureInfo.InvariantCulture),
+                ["LoginGraceTime"] = loginGraceTime.ToString(CultureInfo.InvariantCulture)
+            };
+
+            configFile.GlobalLines.RemoveAll(line =>
+            {
+                var trimmed = line.Trim();
+                if (string.IsNullOrWhiteSpace(trimmed) || trimmed.StartsWith("#", StringComparison.Ordinal)) return false;
+                var key = trimmed.Split(new[] { ' ', '\t' }, 2, StringSplitOptions.RemoveEmptyEntries)[0];
+                return concurrencyDirectives.ContainsKey(key);
+            });
+
+            var newLines = new List<string>
+            {
+                "# --- Concurrency & Connection Limits (Managed by OpensshUI) ---",
+                $"MaxStartups {maxStartups}",
+                $"MaxSessions {maxSessions}",
+                $"ClientAliveInterval {clientAliveInterval}",
+                $"ClientAliveCountMax {clientAliveCountMax}",
+                $"LoginGraceTime {loginGraceTime}",
+                "# -----------------------------------------------------------------"
+            };
+
+            configFile.GlobalLines.InsertRange(0, newLines);
+
+            var serialized = Serialize(configFile);
+            var validation = ValidateSyntaxContent(serialized);
+            if (!validation.IsValid)
+            {
+                _logger.LogWarning("Syntax check failed when updating concurrency settings: {Error}", validation.ErrorMessage);
+                return (false, $"การตรวจสอบไวยากรณ์ไม่ผ่าน (Syntax Error): {validation.ErrorMessage ?? validation.Output}");
+            }
+
+            return await AtomicWriteAndApplyCoreAsync(serialized, finalPath);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to update concurrency settings on {Path}", finalPath);
+            return (false, $"เกิดข้อผิดพลาดในการบันทึกค่า Concurrency: {ex.Message}");
         }
         finally
         {

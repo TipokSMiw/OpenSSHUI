@@ -59,6 +59,7 @@ builder.Services.AddSingleton<IWindowsUserManager, WindowsUserManager>();
 builder.Services.AddSingleton<IOpenSshServiceManager, OpenSshServiceManager>();
 builder.Services.AddSingleton<ISshEventLogService, SshEventLogService>();
 builder.Services.AddSingleton<IOpenSshLogService, SshEventLogService>();
+builder.Services.AddSingleton<ISftpSessionService, SftpSessionService>();
 builder.Services.AddSingleton<ISshKeyGenerator, SshKeyGenerator>();
 builder.Services.AddSingleton<ISecureFileBrowserService, SecureFileBrowserService>(sp =>
 {

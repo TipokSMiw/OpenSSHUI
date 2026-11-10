@@ -1,3 +1,5 @@
+using OpensshUI.Models;
+
 namespace OpensshUI.Services.OpenSsh;
 
 public class SshdDirective
@@ -33,4 +35,6 @@ public interface ISshdConfigService
     Task<(bool Success, string Message)> AtomicWriteAndApplyAsync(string newContent, string? targetPath = null);
     Task<(bool Success, string Message)> SyncManagedBlocksAsync(IEnumerable<DirectChrootRule> rules, string sftpRoot, string keysPath, string? targetPath = null);
     List<string> GetBackupFiles(int maxBackups = 5);
+    SshdConcurrencySettings GetConcurrencySettings(string? targetPath = null);
+    Task<(bool Success, string Message)> UpdateConcurrencySettingsAsync(SshdConcurrencySettings settings, string? targetPath = null);
 }
