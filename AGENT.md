@@ -141,8 +141,34 @@ AI Agent **ต้องปฏิบัติตามกฎเหล็กเห
 3. **Idempotent OS Provisioning & SID Caching:**
    - การสร้าง NTFS Directory Junction (`CreateDirectoryJunction`) ต้องตรวจสอบด้วย `ResolveLinkTarget` ก่อนว่าลิงก์เดิมชี้ไปยังปลายทางที่ถูกต้องอยู่แล้วหรือไม่ หากตรงกันอยู่แล้วให้คืนค่า `true` ทันทีโดยไม่ลบและไม่แตกโปรเซส `cmd.exe /c mklink /J` ซ้ำ
    - ใช้ Thread-safe SID Cache สำหรับการแปลง `NTAccount` เพื่อลดการเรียก Windows LSASS RPC ซ้ำซ้อน
-4. **Bounded In-Memory State:** โครงสร้างข้อมูลแบบ Static หรือ Singleton ในหน่วยความจำ (เช่น `LoginAttempts` สำหรับป้องกัน Brute-force หรือ Cache ต่างๆ) ต้องมีเพดานขนาดสูงสุด (Bounded Capacity) และมีกลไก Pruning ล้างข้อมูลที่หมดอายุออกเสมอเพื่อป้องกัน Memory Leak
+4. **Bounded In-Memory State:** โครงสร้างข้อมูลแบบ Static หรือ Singleton ในหน่วยความจำ (เช่น `LoginAttempts` สำหรับป้องกัน Brute-force หรือ `AccountStateOverrides` ใน `UserSessionState`) ต้องมีเพดานขนาดสูงสุด (Bounded Capacity <= 1,000) และมีกลไก Pruning ล้างข้อมูลที่หมดอายุออกเสมอเพื่อป้องกัน Memory Leak
 5. **Native Event Log XPath Filtering & Compiled Regex:** การดึง Windows Event Log ต้องสร้าง XPath Time Filter (`@SystemTime`) ส่งให้ระดับ OS คัดกรองก่อนเสมอ และทุก Regex ที่ถูกเรียกซ้ำในลูป (รวมถึง `SecurityValidator.SanitizeSingleLine`) ต้องใช้ `RegexOptions.Compiled`
+
+### 3.7 Inviolable Security Commandments (8 กฎเหล็กห้ามละเมิดเด็ดขาด)
+> [!CAUTION]
+> กฎเหล็ก 8 ข้อนี้ถือเป็น "Absolute Security Baseline" ของระบบ OpensshUI ห้าม AI Agent หรือผู้พัฒนาแก้ไข ดัดแปลง หรือยกเว้นโดยเด็ดขาด การละเมิดข้อใดข้อหนึ่งจะถูกจับได้โดยชุดทดสอบ Governance & Evil User Suite ทันที:
+
+1. **[C1] Canonical Username Everywhere:** ทุกจุดที่มีการค้นหาฐานข้อมูล (`WebAdminUsers`), เช็คสิทธิ์ RBAC, ตรวจสอบ Self-Lockout, หรือนับโควตา Brute-Force Lockout **ต้องผ่าน `SecurityValidator.ExtractCanonicalUsername` เสมอ** เพื่อป้องกันการหลบเลี่ยงด้วยรูปแบบ `DOMAIN\user` หรือ `user@domain`
+2. **[C2] Full-Spectrum Safe Custom Path:** พาธใดๆ ที่รับจากภายนอกหรือผู้ใช้ (เช่น `CustomRootPath`, `RootPath`) **ต้องผ่าน `SecurityValidator.ValidateSafeCustomPath(path, sftpRoot)` เสมอ** ซึ่งจะปฏิเสธ UNC (`\\`), 8.3 Short Names (`~`), NTFS ADS (`:`), DOS device names (`CON`, `PRN`, ฯลฯ), โฟลเดอร์ `.ssh`, โฟลเดอร์โปรไฟล์ `C:\Users`, ราก `C:\ProgramData`, และการชี้ทับราก `SftpRoot`
+3. **[C3] RFC 4251 Wire-Format Verification:** การนำเข้าคีย์สาธารณะ OpenSSH หรือ PuTTY **ต้องถอดรหัสไบนารีด้านใน Base64 และตรวจหัวข้อ RFC 4251 string เสมอ** ว่าชนิดคีย์ตรงกับ Header ที่อ้างสิทธิ์ ห้ามเชื่อถือเพียงสตริงนำหน้า และต้องปฏิเสธคีย์ที่มีความยาวสั้นผิดปกติ (< 16 ไบต์) หรือยาวเกิน 16 KB
+4. **[C4] DirectChroot Preservation:** ห้ามลบหรืออนุญาตให้ผู้ใช้/แอดมินลบโฟลเดอร์ย่อย `files` ภายใต้รากของโหมด `DirectChroot` ผ่าน Web File Browser และห้าม `SecureFileBrowserService` สร้างโฟลเดอร์ราก `DirectChroot` ขึ้นใหม่ด้วยสิทธิ์ Inherited ปกติ (เพราะจะทำให้ OpenSSH Chroot ปฏิเสธการล็อกอินเนื่องจากผิดกฎ Strict Ownership)
+5. **[C5] Atomic sshd_config Pipeline:** ห้ามเขียนทับไฟล์ `sshd_config` ตรงๆ เด็ดขาด ต้องผ่าน `ISshdConfigService.AtomicWriteAndApplyAsync` หรือ `SyncManagedBlocksAsync` ที่มีขั้นตอน Pre-flight syntax check (`sshd.exe -t`), Atomic Replace ผ่านไฟล์ชั่วคราวบนไดรฟ์เดียวกัน และ Rolling Backup สูงสุด 5 ชุด
+6. **[C6] Junction Detach Safety Before Recursive Delete:** ก่อนที่ `SftpUserService.DeleteUserAsync` จะสั่งลบโฟลเดอร์ผู้ใช้แบบ Recursive (`Directory.Delete(userDir, true)`) ต้องยืนยันว่า `RemoveDirectoryJunction` ถอดสำเร็จทุกจุด หากมีจุดใดล้มเหลวและโฟลเดอร์ยังคงอยู่ **ต้องยกเลิกการลบโฟลเดอร์ทันที** เพื่อไม่ให้ข้อมูลในโฟลเดอร์แชร์ของกลุ่มถูกลบไปด้วย
+7. **[C7] Bounded In-Memory State & Auto-Pruning:** Static Collection ทุกตัวในระบบที่เก็บข้อมูลจากผู้ใช้ (เช่น `LoginAttempts` ใน `LdapAuthService` และ `AccountStateOverrides` ใน `UserSessionState`) ต้องจำกัดขนาดสูงสุดไม่เกิน 1,000 รายการ และมีกลไก Eviction/Pruning ข้อมูลเก่าอัตโนมัติ
+8. **[C8] Least Privilege AD Fallback Guard:** เมื่อเกิด Fallback AD Authentication หากผู้ใช้ไม่อยู่ในตาราง `WebAdminUsers` และไม่ได้กำหนดค่า `AdminGroup` ในระบบ **ต้องปฏิเสธการล็อกอินทันที** ห้ามมอบสิทธิ์ `SuperAdmin` ให้อัตโนมัติเด็ดขาด
+
+### 3.8 Anti-Regression Matrix (ตารางข้อพึงระวัง ป้องกันการแก้โค้ดย้อนกลับไปย้อนมา)
+> ตารางนี้เปรียบเทียบโค้ดที่ไม่ปลอดภัย (DON'T) กับโค้ดมาตรฐานที่ถูกต้อง (DO) เพื่อป้องกันไม่ให้ AI หรือผู้พัฒนาเผลอนำโค้ดรูปแบบเดิมกลับมาใช้:
+
+| หมวดหมู่ความปลอดภัย | ❌ DON'T (ห้ามเขียนแบบนี้เด็ดขาด) | ✅ DO (ต้องเขียนแบบนี้เสมอ) |
+|---|---|---|
+| **การค้นหาชื่อผู้ใช้ AD/Admin** | `db.WebAdminUsers.FirstOrDefault(u => u.Username.ToLower() == username.ToLower())` | `var canon = SecurityValidator.ExtractCanonicalUsername(username);`<br/>`db.WebAdminUsers.FirstOrDefault(u => u.Username.ToLower() == clean.ToLower() \|\| u.Username.ToLower() == canon.ToLower())` |
+| **การตรวจสอบ Path โฟลเดอร์** | `var full = Path.GetFullPath(path); Directory.CreateDirectory(full);` | `var (ok, err) = SecurityValidator.ValidateSafeCustomPath(path, sftpRoot);`<br/>`if (!ok) return (false, err);` |
+| **การตรวจคีย์สาธารณะ OpenSSH** | `var parts = line.Split(' '); if (Allowed.Contains(parts[0])) return true;` | `var res = SshKeyConverter.ParseAndNormalizeKey(line);`<br/>*(ระบบจะแกะตรวจ RFC 4251 Wire-Format Header ด้านใน Base64)* |
+| **การลบไฟล์/โฟลเดอร์ในเว็บ** | `Directory.Delete(targetPath, true);` | `if (isDirectChroot && target.Equals(filesDir)) throw new InvalidOperationException("Cannot delete protected 'files' folder.");` |
+| **การถอด Junction ก่อนลบ User** | `foreach (var j in junctions) RemoveJunction(j); Directory.Delete(userDir, true);` | `bool ok = RemoveJunction(j); if (!ok && Directory.Exists(j)) { abortRecursiveDelete = true; }` |
+| **การสร้างบล็อก `Match` ใน config** | `sb.AppendLine($"Match User {rule.Identifier}");` | กรองอักขระ `*`, `?`, `!`, `,` และช่องว่างออกจาก `rule.Identifier` ก่อนเสมอ |
+| **การรับพารามิเตอร์ Comment** | `key.Comment = comment ?? parsed.Comment;` | `key.Comment = SecurityValidator.SanitizeSingleLine(comment) ?? parsed.Comment;` |
 
 ---
 
@@ -165,7 +191,13 @@ AI Agent **ต้องปฏิบัติตามกฎเหล็กเห
    ```powershell
    dotnet test OpensshUI.Tests\OpensshUI.Tests.csproj
    ```
-3. **No Regressions:** ชุดทดสอบทั้งหมด (210+ tests) ต้องผ่านครบถ้วน (`Failed: 0`)
+3. **No Regressions & Security Coverage:** ชุดทดสอบทั้งหมด (260+ tests รวมถึง `EvilUserSecurityTests.cs` และ `GovernanceAndArchitectureTests.cs`) ต้องผ่านครบถ้วน (`Failed: 0`)
+
+### 4.3 Security & Anti-Regression Quality Gate
+ทุกครั้งที่มีการแก้ไข Service หรือ Logic ด้านความปลอดภัย ชุดทดสอบกลุ่ม Security ทั้ง 3 ตัวนี้ต้องถูกเรียกตรวจเสมอ:
+- `EvilUserSecurityTests.cs`: ทดสอบการโจมตีเชิงพฤติกรรม (Canonical AD bypass, Wire-format key spoofing, DirectChroot subfolder deletion, DOS devices, 8.3 short names, ADS)
+- `ProductionHardeningAndSecurityTests.cs`: ทดสอบ `sshd_config` parser hierarchy, atomic replace, rolling backups, และ event log regex
+- `GovernanceAndArchitectureTests.cs`: ตรวจสอบความสมบูรณ์ของกฎเกณฑ์ในโค้ดและเอกสารแบบอัตโนมัติ
 
 ---
 
@@ -228,6 +260,14 @@ flowchart TD
 3. **เขียนโค้ด (Implement):** พัฒนาตามหลัก Clean Service Layer และ Hybrid Monolith
 4. **เขียนและรันชุดทดสอบ (Test):** เขียน Unit Test ครอบคลุม Business Logic ใหม่ และรัน `dotnet test OpensshUI.Tests\OpensshUI.Tests.csproj`
 5. **ตรวจสอบความเรียบร้อย (Verify):** ยืนยันว่าโค้ดคอมไพล์ผ่าน ไม่เกิด Warning สำคัญ และเทสผ่านครบ 100%
+
+### 7.1 Pre-Commit Quality & Security Gate (Checklist 5 ข้อยืนยันก่อนจบงาน)
+ก่อนที่ AI Agent หรือผู้พัฒนาจะสรุปผลงานเสร็จสิ้น ต้องตรวจสอบตนเองผ่าน Checklist 5 ข้อนี้เสมอ:
+- [ ] **[Check 1] Canonical AD User Check:** มีการใช้ `SecurityValidator.ExtractCanonicalUsername` ในจุดค้นหา/พิสูจน์ตัวตนหรือไม่?
+- [ ] **[Check 2] Safe Custom Path Guard:** พาธโฟลเดอร์ใดๆ ผ่าน `SecurityValidator.ValidateSafeCustomPath(path, sftpRoot)` ครบถ้วนหรือไม่?
+- [ ] **[Check 3] UI Decoupling Kept:** Component หน้าเว็บไม่มีการเรียกใช้ `File.*`, `Directory.*`, `Process.*` โดยตรงใช่หรือไม่?
+- [ ] **[Check 4] Dual-Layer RBAC Enforced:** Event handler ทุกตัวที่มีการแก้ข้อมูล มี Guard Clause ตรวจสิทธิ์บรรทัดแรกหรือไม่?
+- [ ] **[Check 5] Test Suite 100% Pass:** รัน `dotnet test OpensshUI.Tests\OpensshUI.Tests.csproj` และผลผ่านทั้งหมด (Failed: 0) หรือไม่?
 
 ---
 
