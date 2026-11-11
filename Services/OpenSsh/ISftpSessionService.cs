@@ -13,9 +13,19 @@ public interface ISftpSessionService
     Task<SftpSessionOverview> GetActiveSessionsAsync(bool forceMock = false);
 
     /// <summary>
-    /// Terminates an active SFTP session by process ID.
+    /// Terminates an active SFTP session by process ID (with Master Service Immunity Guard).
     /// </summary>
     Task<(bool Success, string Message)> TerminateSessionAsync(int processId, string operatorUsername);
+
+    /// <summary>
+    /// Terminates an active SFTP session using session details via Win32 SetTcpEntry (TCP RST).
+    /// </summary>
+    Task<(bool Success, string Message)> TerminateSessionAsync(SftpSessionInfo session, string operatorUsername);
+
+    /// <summary>
+    /// Terminates an active SFTP session by session ID.
+    /// </summary>
+    Task<(bool Success, string Message)> TerminateSessionAsync(string sessionId, string operatorUsername);
 
     /// <summary>
     /// Terminates all active sessions belonging to a specific SFTP user.

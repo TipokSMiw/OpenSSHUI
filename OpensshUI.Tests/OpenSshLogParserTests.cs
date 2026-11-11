@@ -246,6 +246,25 @@ public class OpenSshLogParserTests
         Assert.Contains(result.Entries, e => e.Username == "hacker");
     }
 
+    [Fact]
+    public void TC_PARSE_16_SessionStarted_ShouldParseUsernameEndpointAndAuthSuccess()
+    {
+        // Production log format from OpenSSH/Operational:
+        // sshd: Starting session: forced-command (config) 'internal-sftp' for bitec\tipoks from 172.16.232.19 port 60849 id 0
+        var raw = "sshd: Starting session: forced-command (config) 'internal-sftp' for bitec\\tipoks from 172.16.232.19 port 60849 id 0";
+        var time = DateTime.UtcNow;
+
+        var entry = SshLogParser.Parse(raw, time, eventId: 1000, level: "Information");
+
+        Assert.Equal(SshEventType.AuthSuccess, entry.EventType);
+        Assert.Equal(SshAuthStatus.Success, entry.AuthStatus);
+        Assert.Equal("bitec\\tipoks", entry.Username);
+        Assert.Equal("172.16.232.19", entry.ClientIp);
+        Assert.Equal(60849, entry.Port);
+        Assert.Equal("session", entry.AuthMethod);
+        Assert.Contains("bitec\\tipoks", entry.SummaryMessage);
+    }
+
     private readonly Xunit.Abstractions.ITestOutputHelper _output;
 
     public OpenSshLogParserTests(Xunit.Abstractions.ITestOutputHelper output)

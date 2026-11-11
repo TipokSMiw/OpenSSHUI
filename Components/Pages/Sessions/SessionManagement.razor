@@ -199,13 +199,28 @@
                                 <tr>
                                     <td class="ps-3">
                                         <div class="d-flex align-items-center gap-2">
-                                            <div class="rounded-circle bg-primary-subtle text-primary d-inline-flex align-items-center justify-content-center fw-bold" style="width: 32px; height: 32px; font-size: 0.85rem;">
-                                                @(string.IsNullOrEmpty(session.Username) ? "?" : session.Username[..1].ToUpperInvariant())
-                                            </div>
-                                            <div>
-                                                <div class="fw-semibold text-dark">@session.Username</div>
-                                                <small class="text-muted">Port @session.LocalPort (SFTP)</small>
-                                            </div>
+                                            @if (session.IsAuthenticating)
+                                            {
+                                                <div class="rounded-circle bg-warning-subtle text-warning-emphasis d-inline-flex align-items-center justify-content-center fw-bold" style="width: 32px; height: 32px; font-size: 0.85rem;" title="อยู่ระหว่างการยืนยันตัวตน (Pre-authentication)">
+                                                    <i class="bi bi-hourglass-split"></i>
+                                                </div>
+                                                <div>
+                                                    <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle">
+                                                        กำลังตรวจสอบสิทธิ์...
+                                                    </span>
+                                                    <div><small class="text-muted font-monospace">Port @session.LocalPort (SFTP)</small></div>
+                                                </div>
+                                            }
+                                            else
+                                            {
+                                                <div class="rounded-circle bg-primary-subtle text-primary d-inline-flex align-items-center justify-content-center fw-bold" style="width: 32px; height: 32px; font-size: 0.85rem;">
+                                                    @(string.IsNullOrEmpty(session.Username) ? "?" : session.Username[..1].ToUpperInvariant())
+                                                </div>
+                                                <div>
+                                                    <div class="fw-semibold text-dark">@session.Username</div>
+                                                    <small class="text-muted">Port @session.LocalPort (SFTP)</small>
+                                                </div>
+                                            }
                                         </div>
                                     </td>
                                     <td>
@@ -291,10 +306,10 @@
                     <button type="button" class="btn-close btn-close-white" @onclick="() => confirmSessionTarget = null"></button>
                 </div>
                 <div class="modal-body p-4">
-                    <div class="alert alert-warning py-2 px-3 small d-flex align-items-center gap-2 mb-3">
-                        <i class="bi bi-shield-exclamation text-warning fs-4 flex-shrink-0"></i>
+                    <div class="alert alert-info py-2 px-3 small d-flex align-items-center gap-2 mb-3">
+                        <i class="bi bi-shield-check text-info fs-4 flex-shrink-0"></i>
                         <div>
-                            <strong>คำเตือนความเสี่ยง:</strong> การตัดการเชื่อมต่อจะยุติโพรเซส SFTP ทันที หากผู้ใช้กำลังเขียนหรือโอนย้ายไฟล์อยู่ ข้อมูลไฟล์อาจหยุดชะงักหรือไม่สมบูรณ์
+                            <strong>ความปลอดภัยของระบบ:</strong> ระบบจะสั่งตัดการเชื่อมต่อ Socket ของเซสชันนี้โดยตรง (TCP RST) โดยบริการ OpenSSH Service หลักจะไม่ได้รับผลกระทบใดๆ
                         </div>
                     </div>
 
@@ -479,7 +494,7 @@
 
         isTerminating = true;
         var op = string.IsNullOrEmpty(SessionState.CurrentUsername) ? "admin" : SessionState.CurrentUsername;
-        var (ok, msg) = await SessionService.TerminateSessionAsync(confirmSessionTarget.ProcessId, op);
+        var (ok, msg) = await SessionService.TerminateSessionAsync(confirmSessionTarget, op);
         isTerminating = false;
         confirmSessionTarget = null;
 

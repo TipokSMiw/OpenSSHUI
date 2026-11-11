@@ -28,4 +28,8 @@
     <PackageReference Include="System.ServiceProcess.ServiceController" Version="8.0.1" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="OpensshUI.Tests" />
+  </ItemGroup>
+
 </Project>

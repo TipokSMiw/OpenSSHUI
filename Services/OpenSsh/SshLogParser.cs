@@ -25,6 +25,10 @@ public static class SshLogParser
         @"subsystem\s+request\s+for\s+sftp(?:\s+by\s+user\s+(?<user>[^\s]+))?",
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
+    private static readonly Regex SessionStartedRegex = new(
+        @"Starting\s+session:\s+.*?\s+for\s+(?<user>[^\s]+)\s+from\s+(?<ip>[^\s]+)\s+port\s+(?<port>\d+)",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
     public static OpenSshLogEntry Parse(string? rawMessage, DateTime timestamp, int eventId = 0, string level = "Information", long? recordId = null)
     {
         var entry = new OpenSshLogEntry
@@ -54,6 +58,20 @@ public static class SshLogParser
             entry.ClientIp = CleanIp(matchAccepted.Groups["ip"].Value);
             if (int.TryParse(matchAccepted.Groups["port"].Value, out var port)) entry.Port = port;
             entry.SummaryMessage = $"เข้าสู่ระบบสำเร็จ ({method}) - ผู้ใช้: {entry.Username}";
+            return entry;
+        }
+
+        // 1.1 Session Started Event (e.g. Starting session: forced-command ... for <user> from <ip> port <port>)
+        var matchSession = SessionStartedRegex.Match(rawMessage);
+        if (matchSession.Success)
+        {
+            entry.EventType = SshEventType.AuthSuccess;
+            entry.AuthStatus = SshAuthStatus.Success;
+            entry.AuthMethod = "session";
+            entry.Username = matchSession.Groups["user"].Value;
+            entry.ClientIp = CleanIp(matchSession.Groups["ip"].Value);
+            if (int.TryParse(matchSession.Groups["port"].Value, out var port)) entry.Port = port;
+            entry.SummaryMessage = $"เริ่มเซสชัน SFTP - ผู้ใช้: {entry.Username} ({entry.ClientIp}:{entry.Port})";
             return entry;
         }
 
