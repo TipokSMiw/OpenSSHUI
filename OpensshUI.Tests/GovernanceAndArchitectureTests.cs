@@ -84,6 +84,11 @@ public class GovernanceAndArchitectureTests
         sessionMaxField.Should().NotBeNull();
         var sessionMax = (int)sessionMaxField!.GetValue(null)!;
         sessionMax.Should().BeGreaterThan(0).And.BeLessThanOrEqualTo(1000);
+
+        var sessionCacheMaxField = typeof(SftpSessionService).GetField("MaxSessionCacheEntries", BindingFlags.NonPublic | BindingFlags.Static);
+        sessionCacheMaxField.Should().NotBeNull();
+        var sessionCacheMax = (int)sessionCacheMaxField!.GetValue(null)!;
+        sessionCacheMax.Should().BeGreaterThan(0).And.BeLessThanOrEqualTo(1000);
     }
 
     [Fact]

@@ -149,6 +149,7 @@ public class SshEventLogService : ISshEventLogService, IOpenSshLogService
 
         var (fromUtc, toUtc) = ResolveTimeRange(filter);
         var entries = new List<OpenSshLogEntry>();
+        int maxToFetch = Math.Clamp(filter.MaxRecords, 10, 2000);
 
         long recordId = 5000;
         foreach (var sample in rawSamples)
@@ -176,7 +177,7 @@ public class SshEventLogService : ISshEventLogService, IOpenSshLogService
             }
 
             entries.Add(entry);
-            if (entries.Count >= filter.MaxRecords)
+            if (entries.Count >= maxToFetch)
                 break;
         }
 

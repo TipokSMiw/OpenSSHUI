@@ -457,6 +457,7 @@
 
     private bool IsFallbackPasswordValid =>
         !string.IsNullOrWhiteSpace(newFallbackAdminPassword) &&
+        newFallbackAdminPassword.Length >= 8 &&
         newFallbackAdminPassword == confirmFallbackAdminPassword;
 
     private string SuggestedBaseDn
@@ -507,24 +508,33 @@
     {
         if (!SessionState.CanManageSystem || config == null) return;
         isSaving = true;
+        try
+        {
+            var op = string.IsNullOrEmpty(SessionState.CurrentUsername) ? "admin" : SessionState.CurrentUsername;
+            await LdapAuth.SaveConfigAsync(config, string.IsNullOrEmpty(newBindPassword) ? null : newBindPassword);
+            await AuditService.LogAsync("CONFIG_UPDATE", "Updated LDAP and system settings", true, op);
 
-        var op = string.IsNullOrEmpty(SessionState.CurrentUsername) ? "admin" : SessionState.CurrentUsername;
-        await LdapAuth.SaveConfigAsync(config, string.IsNullOrEmpty(newBindPassword) ? null : newBindPassword);
-        await AuditService.LogAsync("CONFIG_UPDATE", "Updated LDAP and system settings", true, op);
-
-        newBindPassword = "";
-        isSaving = false;
-        SetAlert("บันทึกการตั้งค่าระบบเรียบร้อยแล้ว", true);
-        await LoadConfig();
+            newBindPassword = "";
+            SetAlert("บันทึกการตั้งค่าระบบเรียบร้อยแล้ว", true);
+            await LoadConfig();
+        }
+        catch (Exception ex)
+        {
+            SetAlert(ex.Message, false);
+        }
+        finally
+        {
+            isSaving = false;
+        }
     }
 
     private async Task ChangeFallbackAdminPassword()
     {
         if (!SessionState.CanManageSystem || config == null) return;
 
-        if (string.IsNullOrWhiteSpace(newFallbackAdminPassword))
+        if (string.IsNullOrWhiteSpace(newFallbackAdminPassword) || newFallbackAdminPassword.Length < 8)
         {
-            SetAlert("กรุณาระบุรหัสผ่านใหม่", false);
+            SetAlert("รหัสผ่านใหม่ต้องมีความยาวอย่างน้อย 8 ตัวอักษร", false);
             return;
         }
 
@@ -534,14 +544,21 @@
             return;
         }
 
-        var op = string.IsNullOrEmpty(SessionState.CurrentUsername) ? "admin" : SessionState.CurrentUsername;
-        await LdapAuth.SaveConfigAsync(config, newFallbackAdminPassword: newFallbackAdminPassword);
-        await AuditService.LogAsync("ADMIN_PASSWORD_CHANGE", "Changed fallback local administrator password", true, op);
+        try
+        {
+            var op = string.IsNullOrEmpty(SessionState.CurrentUsername) ? "admin" : SessionState.CurrentUsername;
+            await LdapAuth.SaveConfigAsync(config, newFallbackAdminPassword: newFallbackAdminPassword);
+            await AuditService.LogAsync("ADMIN_PASSWORD_CHANGE", "Changed fallback local administrator password", true, op);
 
-        newFallbackAdminPassword = "";
-        confirmFallbackAdminPassword = "";
-        SetAlert("เปลี่ยนรหัสผ่าน Local Admin เรียบร้อยแล้ว", true);
-        isUsingDefaultAdminPassword = await LdapAuth.IsUsingDefaultFallbackPasswordAsync();
+            newFallbackAdminPassword = "";
+            confirmFallbackAdminPassword = "";
+            SetAlert("เปลี่ยนรหัสผ่าน Local Admin เรียบร้อยแล้ว", true);
+            isUsingDefaultAdminPassword = await LdapAuth.IsUsingDefaultFallbackPasswordAsync();
+        }
+        catch (Exception ex)
+        {
+            SetAlert(ex.Message, false);
+        }
     }
 
     private void SetAlert(string msg, bool success)

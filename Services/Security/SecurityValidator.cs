@@ -8,7 +8,9 @@ public static class SecurityValidator
     private static readonly Regex SafeGroupNameRegex = new(@"^[a-zA-Z0-9_\-\. ]{1,32}$", RegexOptions.Compiled);
     private static readonly Regex LocalDrivePathRegex = new(@"^[a-zA-Z]:[\\/]", RegexOptions.Compiled);
     private static readonly Regex ControlCharsRegex = new(@"[\r\n\t\x00-\x1F\x7F]", RegexOptions.Compiled);
+    private static readonly Regex MaxStartupsRegex = new(@"^\d+(:\d+:\d+)?$", RegexOptions.Compiled);
     private static readonly char[] DangerousPathChars = { ';', '&', '|', '`', '$', '>', '<', '^', '%', '"', '\r', '\n', '\0' };
+    private static readonly char[] InvalidLdapHostChars = { ' ', '\t', '\r', '\n', '\0', '?', '#', '@', ':', ';', '&', '|', '`', '$', '<', '>', '"', '\'' };
 
     private static readonly HashSet<string> ReservedWindowsNames = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -498,7 +500,7 @@ public static class SecurityValidator
             return (false, "LDAP Server/Host must be a hostname or IP address without URL scheme or path.");
         }
 
-        if (trimmed.IndexOfAny(new[] { ' ', '\t', '\r', '\n', '\0', '?', '#', '@' }) >= 0)
+        if (trimmed.IndexOfAny(InvalidLdapHostChars) >= 0)
         {
             return (false, "LDAP Server/Host contains invalid characters.");
         }
@@ -506,6 +508,44 @@ public static class SecurityValidator
         if (port < 1 || port > 65535)
         {
             return (false, "พอร์ตต้องอยู่ระหว่าง 1 ถึง 65535 (Port must be between 1 and 65535).");
+        }
+
+        return (true, null);
+    }
+
+    /// <summary>
+    /// Validates OpenSSH MaxStartups directive value (positive integer or 'start:rate:full' triplet, e.g. '10:30:100').
+    /// </summary>
+    public static (bool IsValid, string? ErrorMessage) ValidateMaxStartups(string? maxStartups)
+    {
+        if (string.IsNullOrWhiteSpace(maxStartups))
+        {
+            return (false, "MaxStartups cannot be empty.");
+        }
+
+        var trimmed = maxStartups.Trim();
+        if (!MaxStartupsRegex.IsMatch(trimmed))
+        {
+            return (false, "MaxStartups must be a positive integer or colon-separated triplet 'start:rate:full' (e.g. '10:30:100').");
+        }
+
+        var parts = trimmed.Split(':');
+        if (parts.Length == 1)
+        {
+            if (!int.TryParse(parts[0], out var single) || single < 1 || single > 10000)
+            {
+                return (false, "MaxStartups value must be between 1 and 10000.");
+            }
+        }
+        else if (parts.Length == 3)
+        {
+            if (!int.TryParse(parts[0], out var start) ||
+                !int.TryParse(parts[1], out var rate) ||
+                !int.TryParse(parts[2], out var full) ||
+                start < 1 || rate < 1 || rate > 100 || full < start || full > 10000)
+            {
+                return (false, "MaxStartups triplet 'start:rate:full' must have 1 <= start <= full <= 10000 and 1 <= rate <= 100.");
+            }
         }
 
         return (true, null);

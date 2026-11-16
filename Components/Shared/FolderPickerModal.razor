@@ -189,6 +189,7 @@
 
     private void LoadDrives()
     {
+        if (!SessionState.CanManageSftp) return;
         _availableDrives = AclProvisioner.ListAvailableDrives();
     }
 
@@ -199,6 +200,7 @@
 
     private void NavigateTo(string path)
     {
+        if (!SessionState.CanManageSftp) return;
         try
         {
             _errorMessage = null;
@@ -220,6 +222,7 @@
 
     private void GoToCurrentPath()
     {
+        if (!SessionState.CanManageSftp) return;
         if (!string.IsNullOrWhiteSpace(CurrentPath))
         {
             NavigateTo(CurrentPath);

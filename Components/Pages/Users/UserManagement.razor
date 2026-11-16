@@ -1943,6 +1943,7 @@ $Batch | & sftp.exe -i $KeyPath -b - "@(selectedUser.Username)@@localhost"</pre>
 
     private void OpenFolderBrowserForCreate()
     {
+        if (!SessionState.CanManageSftp) return;
         pickerTarget = "create";
         pickerCurrentPath = newUser.CustomRootPath ?? "";
         isFolderPickerOpen = true;
@@ -1950,6 +1951,7 @@ $Batch | & sftp.exe -i $KeyPath -b - "@(selectedUser.Username)@@localhost"</pre>
 
     private void OpenFolderBrowserForEdit()
     {
+        if (!SessionState.CanManageSftp) return;
         pickerTarget = "edit";
         pickerCurrentPath = editUserRequest?.CustomRootPath ?? "";
         isFolderPickerOpen = true;
@@ -1957,6 +1959,7 @@ $Batch | & sftp.exe -i $KeyPath -b - "@(selectedUser.Username)@@localhost"</pre>
 
     private void HandleFolderSelected(string path)
     {
+        if (!SessionState.CanManageSftp) return;
         if (pickerTarget == "create")
         {
             newUser.CustomRootPath = path;
@@ -1978,6 +1981,7 @@ $Batch | & sftp.exe -i $KeyPath -b - "@(selectedUser.Username)@@localhost"</pre>
 
     private async Task SearchActiveDirectory()
     {
+        if (!SessionState.CanManageSftp) return;
         if (isSearchingAd) return;
 
         isSearchingAd = true;
@@ -2272,6 +2276,7 @@ $Batch | & sftp.exe -i $KeyPath -b - "@(selectedUser.Username)@@localhost"</pre>
     private async Task DeletePublicKey(int keyId)
     {
         if (!SessionState.CanManageSftp || selectedUser == null) return;
+        if (!selectedUser.PublicKeys.Any(k => k.Id == keyId)) return;
         var op = string.IsNullOrEmpty(SessionState.CurrentUsername) ? "admin" : SessionState.CurrentUsername;
         var result = await UserService.DeletePublicKeyAsync(keyId, op);
         if (result.Success)

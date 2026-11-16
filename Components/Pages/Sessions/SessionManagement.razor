@@ -19,10 +19,13 @@
         </div>
         <div class="d-flex align-items-center gap-2">
             <!-- Demo Mode Toggle -->
-            <button class="btn @(SessionService.IsDemoMode ? "btn-warning text-dark fw-bold" : "btn-outline-secondary") btn-sm" @onclick="ToggleDemoMode" title="สลับระหว่างข้อมูลจริงบนระบบกับโหมดจำลองสำหรับทดสอบ">
-                <i class="bi @(SessionService.IsDemoMode ? "bi-check-circle-fill" : "bi-cpu")"></i>
-                <span>@(SessionService.IsDemoMode ? "โหมดทดสอบ: ข้อมูลจำลอง (Demo)" : "จำลองข้อมูล (Demo Mode)")</span>
-            </button>
+            @if (SessionState.CanManageSftp)
+            {
+                <button class="btn @(SessionService.IsDemoMode ? "btn-warning text-dark fw-bold" : "btn-outline-secondary") btn-sm" @onclick="ToggleDemoMode" title="สลับระหว่างข้อมูลจริงบนระบบกับโหมดจำลองสำหรับทดสอบ">
+                    <i class="bi @(SessionService.IsDemoMode ? "bi-check-circle-fill" : "bi-cpu")"></i>
+                    <span>@(SessionService.IsDemoMode ? "โหมดทดสอบ: ข้อมูลจำลอง (Demo)" : "จำลองข้อมูล (Demo Mode)")</span>
+                </button>
+            }
 
             <!-- Auto-Refresh Selector -->
             <div class="d-flex align-items-center gap-1.5 border rounded-2 px-2 py-1 bg-white shadow-sm">
@@ -448,6 +451,7 @@
 
     private async Task ToggleDemoMode()
     {
+        if (!SessionState.CanManageSftp) return;
         SessionService.ToggleDemoMode();
         await LoadSessions();
     }

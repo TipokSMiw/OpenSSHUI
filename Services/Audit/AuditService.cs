@@ -46,11 +46,12 @@ public class AuditService : IAuditService
 
     public async Task<List<AuditLog>> GetRecentLogsAsync(int count = 50)
     {
+        int safeCount = Math.Clamp(count, 1, 500);
         await using var db = await _dbFactory.CreateDbContextAsync();
         return await db.AuditLogs
             .AsNoTracking()
             .OrderByDescending(l => l.Timestamp)
-            .Take(count)
+            .Take(safeCount)
             .ToListAsync();
     }
 

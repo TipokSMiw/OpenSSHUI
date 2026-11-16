@@ -13,6 +13,7 @@ namespace OpensshUI.Services.OpenSsh;
 [SupportedOSPlatform("windows")]
 public class SftpSessionService : ISftpSessionService
 {
+    private const int MaxSessionCacheEntries = 1000;
     private readonly ILogger<SftpSessionService> _logger;
     private readonly IAuditService _auditService;
     private readonly ISshEventLogService? _eventLogService;
@@ -23,6 +24,25 @@ public class SftpSessionService : ISftpSessionService
     private readonly ConcurrentDictionary<(string Ip, int Port), (string Username, DateTime Timestamp)> _sessionUserCache = new();
     internal ConcurrentDictionary<(string Ip, int Port), (string Username, DateTime Timestamp)> SessionUserCache => _sessionUserCache;
     private bool _isDemoMode;
+
+    private void SetSessionCacheEntry((string Ip, int Port) key, (string Username, DateTime Timestamp) value)
+    {
+        if (!_sessionUserCache.ContainsKey(key) && _sessionUserCache.Count >= MaxSessionCacheEntries)
+        {
+            var oldestKeys = _sessionUserCache
+                .OrderBy(kvp => kvp.Value.Timestamp)
+                .Take(MaxSessionCacheEntries / 4)
+                .Select(kvp => kvp.Key)
+                .ToList();
+
+            foreach (var oldKey in oldestKeys)
+            {
+                _sessionUserCache.TryRemove(oldKey, out _);
+            }
+        }
+
+        _sessionUserCache[key] = value;
+    }
 
     public bool IsDemoMode
     {
@@ -509,7 +529,7 @@ public class SftpSessionService : ISftpSessionService
             authMap = await GetRecentAuthMapAsync();
             foreach (var kvp in authMap)
             {
-                _sessionUserCache[kvp.Key] = kvp.Value;
+                SetSessionCacheEntry(kvp.Key, kvp.Value);
             }
         }
 
@@ -545,7 +565,7 @@ public class SftpSessionService : ISftpSessionService
             {
                 cleanUser = SecurityValidator.ExtractCanonicalUsername(authInfo.Username);
                 startTime = authInfo.Timestamp;
-                _sessionUserCache[connKey] = authInfo;
+                SetSessionCacheEntry(connKey, authInfo);
             }
             else
             {
@@ -586,7 +606,7 @@ public class SftpSessionService : ISftpSessionService
                 if (!string.IsNullOrWhiteSpace(detectedChildUser))
                 {
                     cleanUser = detectedChildUser;
-                    _sessionUserCache[connKey] = (cleanUser, startTime);
+                    SetSessionCacheEntry(connKey, (cleanUser, startTime));
                 }
                 else if (isMaster)
                 {
@@ -604,7 +624,7 @@ public class SftpSessionService : ISftpSessionService
                     }
                     else
                     {
-                        _sessionUserCache[connKey] = (cleanUser, startTime);
+                        SetSessionCacheEntry(connKey, (cleanUser, startTime));
                     }
                 }
             }

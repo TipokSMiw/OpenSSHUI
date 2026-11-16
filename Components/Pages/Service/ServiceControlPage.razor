@@ -365,6 +365,7 @@
 
     private void ApplyStandardPreset()
     {
+        if (!SessionState.CanManageSystem) return;
         concurrencySettings.MaxStartups = "20:30:100";
         concurrencySettings.MaxSessions = 15;
         concurrencySettings.ClientAliveInterval = 60;
@@ -375,6 +376,7 @@
 
     private void ApplyHighTrafficPreset()
     {
+        if (!SessionState.CanManageSystem) return;
         concurrencySettings.MaxStartups = "100:30:300";
         concurrencySettings.MaxSessions = 30;
         concurrencySettings.ClientAliveInterval = 30;
@@ -385,6 +387,7 @@
 
     private void ApplyDefaultPreset()
     {
+        if (!SessionState.CanManageSystem) return;
         concurrencySettings.MaxStartups = "10:30:100";
         concurrencySettings.MaxSessions = 10;
         concurrencySettings.ClientAliveInterval = 0;

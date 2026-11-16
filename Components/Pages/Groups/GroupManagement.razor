@@ -1165,6 +1165,7 @@
 
     private void OpenFolderBrowserForCreate()
     {
+        if (!SessionState.CanManageSftp) return;
         _folderBrowserTarget = "create";
         _targetBrowserPath = _createRequest.RootPath;
         _showFolderBrowser = true;
@@ -1172,6 +1173,7 @@
 
     private void OpenFolderBrowserForEdit()
     {
+        if (!SessionState.CanManageSftp) return;
         _folderBrowserTarget = "edit";
         _targetBrowserPath = _editRequest.RootPath;
         _showFolderBrowser = true;
@@ -1179,6 +1181,7 @@
 
     private void HandleFolderSelected(string path)
     {
+        if (!SessionState.CanManageSftp) return;
         if (_folderBrowserTarget == "create")
         {
             _createRequest.RootPath = path;

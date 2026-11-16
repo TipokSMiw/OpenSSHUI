@@ -649,6 +649,12 @@ public class SshdConfigService : ISshdConfigService
 
     public async Task<(bool Success, string Message)> UpdateConcurrencySettingsAsync(SshdConcurrencySettings settings, string? targetPath = null)
     {
+        var (okMaxStartups, maxStartupsErr) = SecurityValidator.ValidateMaxStartups(settings.MaxStartups);
+        if (!okMaxStartups)
+        {
+            return (false, $"รูปแบบ MaxStartups ไม่ถูกต้อง: {maxStartupsErr}");
+        }
+
         var finalPath = targetPath ?? ConfigPath;
         var dir = Path.GetDirectoryName(finalPath);
         if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
@@ -662,7 +668,7 @@ public class SshdConfigService : ISshdConfigService
             var content = File.Exists(finalPath) ? await File.ReadAllTextAsync(finalPath) : "";
             var configFile = Parse(content);
 
-            var maxStartups = SecurityValidator.SanitizeSingleLine(settings.MaxStartups)?.Trim() ?? "10:30:100";
+            var maxStartups = settings.MaxStartups.Trim();
             var maxSessions = Math.Clamp(settings.MaxSessions, 1, 500);
             var clientAliveInterval = Math.Clamp(settings.ClientAliveInterval, 0, 3600);
             var clientAliveCountMax = Math.Clamp(settings.ClientAliveCountMax, 1, 20);

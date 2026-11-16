@@ -91,6 +91,27 @@ public class LdapAuthService : ILdapAuthService
 
     public async Task SaveConfigAsync(LdapConfig config, string? newBindPassword = null, string? newFallbackAdminPassword = null)
     {
+        if (!string.IsNullOrEmpty(newFallbackAdminPassword) && newFallbackAdminPassword.Length < 8)
+        {
+            throw new ArgumentException("Fallback administrator password must be at least 8 characters long.");
+        }
+
+        config.Server = SecurityValidator.SanitizeSingleLine(config.Server);
+        config.Domain = SecurityValidator.SanitizeSingleLine(config.Domain);
+        config.BaseDn = SecurityValidator.SanitizeSingleLine(config.BaseDn);
+        config.AdminGroup = SecurityValidator.SanitizeSingleLine(config.AdminGroup);
+        var cleanFallbackUser = SecurityValidator.ExtractCanonicalUsername(SecurityValidator.SanitizeSingleLine(config.FallbackAdminUsername));
+        config.FallbackAdminUsername = string.IsNullOrWhiteSpace(cleanFallbackUser) ? "admin" : cleanFallbackUser;
+
+        if (config.IsLdapEnabled)
+        {
+            var (isValidHost, hostErr) = SecurityValidator.ValidateLdapHost(config.Server, config.Port);
+            if (!isValidHost)
+            {
+                throw new ArgumentException($"Invalid LDAP server configuration: {hostErr}");
+            }
+        }
+
         await using var db = await _dbFactory.CreateDbContextAsync();
         var existing = await db.LdapConfigs.FirstOrDefaultAsync(c => c.Id == config.Id);
         if (existing == null)
@@ -133,6 +154,14 @@ public class LdapAuthService : ILdapAuthService
         if (!string.IsNullOrEmpty(newFallbackAdminPassword))
         {
             existing.FallbackAdminPasswordHash = PasswordHasher.HashPassword(newFallbackAdminPassword);
+
+            var fallbackLower = existing.FallbackAdminUsername.ToLowerInvariant();
+            var webAdmin = await db.WebAdminUsers.FirstOrDefaultAsync(
+                u => u.AccountType == WebAdminType.Local && u.Username.ToLower() == fallbackLower);
+            if (webAdmin != null)
+            {
+                webAdmin.PasswordHash = existing.FallbackAdminPasswordHash;
+            }
         }
 
         await db.SaveChangesAsync();
@@ -741,7 +770,10 @@ public class LdapAuthService : ILdapAuthService
         {
             var safeUsername = SecurityValidator.EscapeLdapFilter(username);
             var filter = $"(&(objectCategory=person)(objectClass=user)(sAMAccountName={safeUsername}))";
-            var request = new SearchRequest(config.BaseDn, filter, SearchScope.Subtree, "memberOf");
+            var request = new SearchRequest(config.BaseDn, filter, SearchScope.Subtree, "memberOf")
+            {
+                SizeLimit = 5
+            };
             var response = (SearchResponse)connection.SendRequest(request);
 
             if (response.Entries.Count == 0) return false;

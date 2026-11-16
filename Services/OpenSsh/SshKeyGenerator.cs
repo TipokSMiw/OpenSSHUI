@@ -218,6 +218,7 @@ public class SshKeyGenerator : ISshKeyGenerator
             proc.Start();
 
             var stdoutTask = proc.StandardOutput.ReadToEndAsync();
+            var stderrTask = proc.StandardError.ReadToEndAsync();
             var completed = await Task.Run(() => proc.WaitForExit(5000));
             if (!completed)
             {
@@ -226,6 +227,7 @@ public class SshKeyGenerator : ISshKeyGenerator
             }
 
             var stdout = await stdoutTask;
+            _ = await stderrTask;
             if (proc.ExitCode == 0 && !string.IsNullOrWhiteSpace(stdout))
             {
                 return stdout.Trim();

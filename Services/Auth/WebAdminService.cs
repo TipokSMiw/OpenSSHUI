@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using OpensshUI.Data;
 using OpensshUI.Models;
@@ -8,6 +9,7 @@ namespace OpensshUI.Services.Auth;
 
 public class WebAdminService : IWebAdminService
 {
+    private static readonly Regex SafeAdminUsernameRegex = new(@"^[a-zA-Z0-9_\-\.]+$", RegexOptions.Compiled);
     private readonly IDbContextFactory<AppDbContext> _dbFactory;
     private readonly IAuditService _auditService;
     private readonly ILogger<WebAdminService> _logger;
@@ -74,7 +76,13 @@ public class WebAdminService : IWebAdminService
         if (cleanUsername.Length < 3 || cleanUsername.Length > 50)
             return WebAdminOperationResult.Fail("Username ต้องมีความยาวระหว่าง 3 ถึง 50 ตัวอักษร");
 
-        if (string.IsNullOrWhiteSpace(displayName))
+        if (!SafeAdminUsernameRegex.IsMatch(cleanUsername))
+            return WebAdminOperationResult.Fail("Username มีอักขระที่ไม่อนุญาต (อนุญาตเฉพาะ a-z, 0-9, _, -, .)");
+
+        var cleanDisplayName = SecurityValidator.SanitizeSingleLine(displayName);
+        var cleanEmail = string.IsNullOrWhiteSpace(email) ? null : SecurityValidator.SanitizeSingleLine(email);
+
+        if (string.IsNullOrWhiteSpace(cleanDisplayName))
             return WebAdminOperationResult.Fail("กรุณาระบุชื่อ-นามสกุล (Display Name)");
 
         if (string.IsNullOrWhiteSpace(password) || password.Length < 8)
@@ -89,8 +97,8 @@ public class WebAdminService : IWebAdminService
         var user = new WebAdminUser
         {
             Username = cleanUsername,
-            DisplayName = displayName.Trim(),
-            Email = string.IsNullOrWhiteSpace(email) ? null : email.Trim(),
+            DisplayName = cleanDisplayName,
+            Email = string.IsNullOrWhiteSpace(cleanEmail) ? null : cleanEmail,
             AccountType = WebAdminType.Local,
             PasswordHash = PasswordHasher.HashPassword(password),
             Role = role,
@@ -124,6 +132,12 @@ public class WebAdminService : IWebAdminService
         if (string.IsNullOrWhiteSpace(cleanUsername))
             return WebAdminOperationResult.Fail("รูปแบบ Username ของ Active Directory ไม่ถูกต้อง");
 
+        if (!SafeAdminUsernameRegex.IsMatch(cleanUsername))
+            return WebAdminOperationResult.Fail("Username ของ Active Directory มีอักขระที่ไม่อนุญาต (อนุญาตเฉพาะ a-z, 0-9, _, -, .)");
+
+        var cleanDisplayName = SecurityValidator.SanitizeSingleLine(displayName);
+        var cleanEmail = string.IsNullOrWhiteSpace(email) ? null : SecurityValidator.SanitizeSingleLine(email);
+
         var cleanLower = cleanUsername.ToLowerInvariant();
         await using var db = await _dbFactory.CreateDbContextAsync();
         bool exists = await db.WebAdminUsers.AnyAsync(u => u.Username.ToLower() == cleanLower);
@@ -133,8 +147,8 @@ public class WebAdminService : IWebAdminService
         var user = new WebAdminUser
         {
             Username = cleanUsername,
-            DisplayName = string.IsNullOrWhiteSpace(displayName) ? cleanUsername : displayName.Trim(),
-            Email = string.IsNullOrWhiteSpace(email) ? null : email.Trim(),
+            DisplayName = string.IsNullOrWhiteSpace(cleanDisplayName) ? cleanUsername : cleanDisplayName,
+            Email = string.IsNullOrWhiteSpace(cleanEmail) ? null : cleanEmail,
             AccountType = WebAdminType.ActiveDirectory,
             PasswordHash = null,
             Role = role,
