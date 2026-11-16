@@ -1,6 +1,6 @@
 # คู่มือการติดตั้ง OpensshUI บน Windows Server ผ่าน IIS (รองรับ Drive D:)
 
-คู่มือฉบับนี้อธิบายขั้นตอนการนำ **OpensshUI** ไปติดตั้งและเปิดให้บริการบน **Windows Server** โดยกำหนดค่าให้ติดตั้งและเก็บข้อมูลไว้ที่ **Drive D:** (เช่น `D:\inetpub\OpensshUI` และ `D:\SFTPRoot`) เพื่อทำหน้าที่เป็น Web Management Console สำหรับควบคุมและบริหารจัดการ Windows OpenSSH SFTP Server โดยรันอยู่ภายใต้ **Internet Information Services (IIS)**
+คู่มือฉบับนี้อธิบายขั้นตอนการนำ **OpensshUI** ไปติดตั้งและเปิดให้บริการบน **Windows Server** โดยกำหนดค่าให้ติดตั้งและเก็บข้อมูลไว้ที่ **Drive D:** (เช่น `D:\inetpub\OpensshUI` และ `D:\SFTPRoot`) เพื่อทำหน้าที่เป็น Web Management Console (รองรับ **2 ภาษา TH / EN**) สำหรับควบคุมและบริหารจัดการ Windows OpenSSH SFTP Server โดยรันอยู่ภายใต้ **Internet Information Services (IIS)**
 
 ---
 
@@ -244,23 +244,23 @@ icacls "C:\ProgramData\ssh" /grant "SYSTEM:(OI)(CI)F" /grant "Administrators:(OI
 ## ขั้นตอนที่ 7: การเข้าสู่ระบบและการตั้งค่าเริ่มต้น
 
 1. เปิดเว็บเบราว์เซอร์ไปที่: `http://<IP-Address-ของ-Server>:8080`
-2. ระบบจะแสดงหน้า Login
+2. ระบบจะแสดงหน้า Login (สามารถสลับภาษา **TH / EN** ได้ทันทีทั้งจากหน้า Login และแถบด้านบนของระบบ โดยค่าที่เลือกจะถูกบันทึกใน `localStorage` ของเบราว์เซอร์)
 3. เข้าสู่ระบบด้วย **Default Fallback Administrator Credentials**:
    * **Username:** `admin`
    * **Password:** `Admin@123456`
 4. เมื่อเข้าสู่ระบบสำเร็จ:
-   * ไปที่เมนู **Settings**
+   * ไปที่เมนู **การตั้งค่าระบบ / Settings**
    * ทำการเปลี่ยนรหัสผ่าน Fallback Admin เป็นรหัสผ่านที่ปลอดภัยตามนโยบายองค์กรทันที
    * หากต้องการเชื่อมต่อกับ Domain Controller / Active Directory สามารถเปิดใช้งาน **LDAP Authentication** และระบุค่า Domain, Base DN, Bind Account และ Admin Group ได้ที่หน้านี้
-   * ไปที่เมนู **บริการ OpenSSH (Service Controller)**:
+   * ไปที่เมนู **ควบคุมบริการ / Service Control**:
      * ตรวจสอบสถานะการทำงานของบริการทั้ง `sshd` และ `ssh-agent`
-     * คลิกปุ่ม **"ตรวจสอบเดี๋ยวนี้"** เพื่อรันคำสั่ง `sshd.exe -t` ยืนยันว่าไวยากรณ์ของ `sshd_config` ถูกต้องสมบูรณ์
-     * ตรวจสอบส่วน **"โครงสร้าง Zero-Config Reload"** หากยังไม่ได้ติดตั้ง ให้กดปุ่ม **"ติดตั้งลง sshd_config"** เพื่อเปิดใช้งาน Chroot และ Centralized Authorized Keys (`C:\ProgramData\ssh\keys\%u`) สำหรับผู้ใช้กลุ่ม `SFTP-Users` ทำให้การเพิ่มผู้ใช้หลังจากนี้ไม่ต้อง Restart Service อีก
-   * ไปที่เมนู **ผู้ดูแลระบบ (Web Admins)**:
+     * คลิกปุ่ม **"ตรวจสอบเดี๋ยวนี้" / "Check Now"** เพื่อรันคำสั่ง `sshd.exe -t` ยืนยันว่าไวยากรณ์ของ `sshd_config` ถูกต้องสมบูรณ์
+     * ตรวจสอบส่วน **"โครงสร้าง Zero-Config Reload"** หากยังไม่ได้ติดตั้ง ให้กดปุ่ม **"ติดตั้งลง sshd_config" / "Install into sshd_config"** เพื่อเปิดใช้งาน Chroot และ Centralized Authorized Keys (`C:\ProgramData\ssh\keys\%u`) สำหรับผู้ใช้กลุ่ม `SFTP-Users` ทำให้การเพิ่มผู้ใช้หลังจากนี้ไม่ต้อง Restart Service อีก
+   * ไปที่เมนู **ผู้ดูแลเว็บ / Web Admins**:
      * สร้างบัญชีผู้ดูแลระบบส่วนบุคคล (Local Web Admin) หรือดึงบัญชีจาก Active Directory ผ่าน Live Search
      * กำหนดระดับสิทธิ์ (Role): `SuperAdmin`, `Operator` (สำหรับเจ้าหน้าที่ดูแล SFTP Users/Files), หรือ `Auditor` (สำหรับผู้ตรวจสอบระบบ ดูอย่างเดียว)
-     * หลีกเลี่ยงการใช้บัญชี `admin` กลางร่วมกัน เพื่อให้บันทึกในหน้า Audit Logs ตรวจสอบย้อนหลังได้ชัดเจนรายบุคคล
-   * ไปที่เมนู **Users** ทดลองสร้าง User ใหม่ และสังเกตว่า Home Directory ของ User จะถูกสร้างขึ้นภายใต้ `D:\SFTPRoot\<username>` โดยอัตโนมัติ พร้อมการจัดสรรสิทธิ์ NTFS ACLs ที่เข้มงวดตามมาตรฐาน OpenSSH Chroot
+     * หลีกเลี่ยงการใช้บัญชี `admin` กลางร่วมกัน เพื่อให้บันทึกในหน้า **บันทึกการใช้งาน / Audit Logs** ตรวจสอบย้อนหลังได้ชัดเจนรายบุคคล
+   * ไปที่เมนู **ผู้ใช้งาน / Users** ทดลองสร้าง User ใหม่ และสังเกตว่า Home Directory ของ User จะถูกสร้างขึ้นภายใต้ `D:\SFTPRoot\<username>` โดยอัตโนมัติ พร้อมการจัดสรรสิทธิ์ NTFS ACLs ที่เข้มงวดตามมาตรฐาน OpenSSH Chroot
 
 ---
 
@@ -287,7 +287,7 @@ icacls "C:\ProgramData\ssh" /grant "SYSTEM:(OI)(CI)F" /grant "Administrators:(OI
 * **สาเหตุ:** Application Pool Identity ไม่มีสิทธิ์ระดับ Local Administrator บนเครื่อง Server
 * **วิธีแก้:** ตรวจสอบใน IIS Manager -> Application Pools -> `OpensshUIPool` -> Advanced Settings -> **Identity** ให้เปลี่ยนเป็น **LocalSystem** หรือระบุ Service Account ที่เป็น Local Admin
 
-### ปัญหาที่ 5: หน้า "บันทึกเซิร์ฟเวอร์ (OpenSSH Logs)" ไม่แสดงข้อมูล หรือขึ้นเตือน Access Denied
+### ปัญหาที่ 5: หน้า "บันทึก OpenSSH / OpenSSH Logs" ไม่แสดงข้อมูล หรือขึ้นเตือน Access Denied
 * **สาเหตุ:**
   1. ยังไม่ได้เปิดใช้งาน Event Log Channel `OpenSSH/Operational` (Windows ปิดการบันทึกไว้เป็นค่าเริ่มต้น)
   2. บัญชีที่รัน Application Pool หรือ User ไม่มีสิทธิ์อ่าน Event Log ของ OpenSSH
@@ -296,11 +296,11 @@ icacls "C:\ProgramData\ssh" /grant "SYSTEM:(OI)(CI)F" /grant "Administrators:(OI
   wevtutil sl "OpenSSH/Operational" /e:true
   wevtutil sl "OpenSSH/Operational" /ca:"O:BAG:SYD:(A;;0x2;;;S-1-15-2-1)(A;;0x2;;;S-1-15-3-1024-3153509613-960666767-3724611135-2725662640-12138253-543910227-1950414635-4190290187)(A;;0xf0007;;;SY)(A;;0x7;;;BA)(A;;0x7;;;SO)(A;;0x3;;;IU)(A;;0x3;;;SU)(A;;0x3;;;S-1-5-3)(A;;0x3;;;S-1-5-33)(A;;0x1;;;S-1-5-32-573)(A;;0x1;;;AU)"
   ```
-  *(หรือหากใช้งานบนเครื่องพัฒนา สามารถคลิกปุ่ม **"จำลองข้อมูล (Demo Mode)"** บนหน้าเว็บเพื่อทดสอบการทำงานของระบบได้ทันที)*
+  *(หรือหากใช้งานบนเครื่องพัฒนา สามารถเปิด **"โหมดจำลองข้อมูล / Demo Mode"** บนหน้าเว็บเพื่อทดสอบการทำงานของระบบได้ทันที)*
 
 ### ปัญหาที่ 6: Restart Service ไม่ผ่านเนื่องจาก Syntax Error ใน sshd_config
 * **สาเหตุ:** ไฟล์ `sshd_config` มี Directive หรือไวยากรณ์ที่ไม่ถูกต้อง
-* **วิธีแก้:** เข้าหน้า **บริการ OpenSSH (Service Controller)** แล้วคลิกปุ่ม **"ตรวจสอบเดี๋ยวนี้"** เพื่อดูรายละเอียดข้อผิดพลาดที่ `sshd.exe -t` แจ้งเตือน ระบบมีไฟล์สำรองอัตโนมัติ (`sshd_config.bak.<timestamp>`) สูงสุด 5 ชุดอยู่ใน `C:\ProgramData\ssh\` ซึ่งสามารถนำมาใช้งานย้อนกลับได้ทันที
+* **วิธีแก้:** เข้าหน้า **ควบคุมบริการ / Service Control** แล้วคลิกปุ่ม **"ตรวจสอบเดี๋ยวนี้" / "Check Now"** เพื่อดูรายละเอียดข้อผิดพลาดที่ `sshd.exe -t` แจ้งเตือน ระบบมีไฟล์สำรองอัตโนมัติ (`sshd_config.bak.<timestamp>`) สูงสุด 5 ชุดอยู่ใน `C:\ProgramData\ssh\` ซึ่งสามารถนำมาใช้งานย้อนกลับได้ทันที
 
 ---
 
