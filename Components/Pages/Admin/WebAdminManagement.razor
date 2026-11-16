@@ -368,7 +368,7 @@
                                     <i class="bi bi-windows fs-3 text-purple" style="color: #6f42c1;"></i>
                                     <div>
                                         <div class="fw-bold text-dark small">@L["WebAdmins.AdRecommended"]</div>
-                                        <div class="text-muted mt-1" style="font-size: 0.75rem;">
+                                        <div class="form-hint mt-1">
                                             @L["WebAdmins.AdSourceDesc"]
                                         </div>
                                     </div>
@@ -383,7 +383,7 @@
                                     <i class="bi bi-hdd-network text-primary fs-3"></i>
                                     <div>
                                         <div class="fw-bold text-dark small">Local Web Admin</div>
-                                        <div class="text-muted mt-1" style="font-size: 0.75rem;">
+                                        <div class="form-hint mt-1">
                                             @L["WebAdmins.LocalSourceDesc"]
                                         </div>
                                     </div>
@@ -513,39 +513,39 @@
 
                     <div class="row g-2 mb-4">
                         <div class="col-md-4">
-                            <div class="selection-card h-100 p-2.5 @(selectedNewRole == WebAdminRole.SuperAdmin ? "active" : "")"
+                            <div class="selection-card h-100 p-2.5 d-block @(selectedNewRole == WebAdminRole.SuperAdmin ? "active" : "")"
                                  @onclick="() => selectedNewRole = WebAdminRole.SuperAdmin">
                                 <div class="fw-bold text-primary small d-flex align-items-center gap-1 mb-1">
                                     <i class="bi bi-shield-check"></i>
                                     <span>Super Admin</span>
                                 </div>
-                                <p class="text-muted mb-0" style="font-size: 0.72rem; line-height: 1.3;">
+                                <p class="form-hint mb-0">
                                     @L["WebAdmins.RoleSuperDesc"]
                                 </p>
                             </div>
                         </div>
 
                         <div class="col-md-4">
-                            <div class="selection-card h-100 p-2.5 @(selectedNewRole == WebAdminRole.Operator ? "active" : "")"
+                            <div class="selection-card h-100 p-2.5 d-block @(selectedNewRole == WebAdminRole.Operator ? "active" : "")"
                                  @onclick="() => selectedNewRole = WebAdminRole.Operator">
                                 <div class="fw-bold text-warning-emphasis small d-flex align-items-center gap-1 mb-1">
                                     <i class="bi bi-person-gear"></i>
                                     <span>Operator</span>
                                 </div>
-                                <p class="text-muted mb-0" style="font-size: 0.72rem; line-height: 1.3;">
+                                <p class="form-hint mb-0">
                                     @L["WebAdmins.RoleOpDesc"]
                                 </p>
                             </div>
                         </div>
 
                         <div class="col-md-4">
-                            <div class="selection-card h-100 p-2.5 @(selectedNewRole == WebAdminRole.Auditor ? "active" : "")"
+                            <div class="selection-card h-100 p-2.5 d-block @(selectedNewRole == WebAdminRole.Auditor ? "active" : "")"
                                  @onclick="() => selectedNewRole = WebAdminRole.Auditor">
                                 <div class="fw-bold text-secondary small d-flex align-items-center gap-1 mb-1">
                                     <i class="bi bi-eye"></i>
                                     <span>Auditor</span>
                                 </div>
-                                <p class="text-muted mb-0" style="font-size: 0.72rem; line-height: 1.3;">
+                                <p class="form-hint mb-0">
                                     @L["WebAdmins.RoleAudDesc"]
                                 </p>
                             </div>

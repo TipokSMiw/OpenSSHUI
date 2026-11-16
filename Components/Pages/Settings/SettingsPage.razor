@@ -79,25 +79,18 @@
                             <i class="bi bi-diagram-3-fill text-primary"></i>
                             <span>@L["Settings.LdapCardTitle"]</span>
                         </h6>
-                        <div class="form-check form-switch mb-0 d-flex align-items-center gap-2">
-                            <input class="form-check-input mt-0" type="checkbox" id="ldapSwitch" @bind="config.IsLdapEnabled" />
-                            <label class="form-check-label fw-bold small" for="ldapSwitch">@L["Settings.EnableAd"]</label>
+                        <div class="d-flex align-items-center gap-2">
+                            @if (!config.IsLdapEnabled)
+                            {
+                                <i class="bi bi-info-circle form-tooltip-icon" title="@L["Settings.AdDisabledNotice"]"></i>
+                            }
+                            <div class="form-check form-switch mb-0 d-flex align-items-center gap-2">
+                                <input class="form-check-input mt-0" type="checkbox" id="ldapSwitch" @bind="config.IsLdapEnabled" />
+                                <label class="form-check-label fw-bold small" for="ldapSwitch">@L["Settings.EnableAd"]</label>
+                            </div>
                         </div>
                     </div>
                     <div class="card-body">
-                        @if (!config.IsLdapEnabled)
-                        {
-                            <div class="alert alert-secondary py-2 px-3 small d-flex align-items-center justify-content-between gap-2 mb-3">
-                                <div class="d-flex align-items-center gap-2">
-                                    <i class="bi bi-info-circle-fill text-secondary"></i>
-                                    <span>@L["Settings.AdDisabledNotice"]</span>
-                                </div>
-                                <button type="button" class="btn btn-sm btn-outline-primary py-0.5 px-2 text-nowrap" @onclick="() => config.IsLdapEnabled = true">
-                                    @L["Settings.EnableAd"]
-                                </button>
-                            </div>
-                        }
-
                         <div class="@(!config.IsLdapEnabled ? "form-section-dimmed" : "")">
                             <!-- Step 1: Host & SSL -->
                             <div class="form-step-header">
@@ -105,16 +98,16 @@
                                     <span class="form-step-badge">1</span>
                                     <span>@L["Settings.Step1Title"]</span>
                                 </div>
-                                <span class="badge bg-primary-subtle text-primary border border-primary-subtle" style="font-size: 0.7rem;">@L["Settings.Step1Badge"]</span>
+                                <span class="badge bg-primary-subtle text-primary border border-primary-subtle form-hint py-0.5 px-2">@L["Settings.Step1Badge"]</span>
                             </div>
 
                             <div class="row g-3 mb-3">
                                 <div class="col-md-8">
-                                    <label class="form-label small fw-bold mb-1">LDAP / Domain Controller Host <span class="text-danger">*</span></label>
+                                    <label class="form-label-std">LDAP / Domain Controller Host <span class="text-danger">*</span></label>
                                     <input type="text" class="form-control form-control-sm font-monospace" placeholder="@L["Settings.HostPlaceholder"]" @bind="config.Server" @bind:event="oninput" />
                                 </div>
                                 <div class="col-md-4">
-                                    <label class="form-label small fw-bold mb-1">Port <span class="text-danger">*</span></label>
+                                    <label class="form-label-std">Port <span class="text-danger">*</span></label>
                                     <input type="number" class="form-control form-control-sm font-monospace" placeholder="@L["Settings.PortPlaceholder"]" @bind="config.Port" />
                                 </div>
                             </div>

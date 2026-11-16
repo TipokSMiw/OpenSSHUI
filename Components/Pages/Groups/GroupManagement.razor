@@ -230,7 +230,6 @@
                             <span class="form-step-badge">1</span>
                             <span>@L["Groups.Step1Title"]</span>
                         </div>
-                        <span class="badge bg-danger-subtle text-danger border border-danger-subtle" style="font-size: 0.7rem;">@L["Groups.RequiredBadge"]</span>
                     </div>
 
                     <div class="row g-3 mb-4">
@@ -282,11 +281,10 @@
                             <span class="form-step-badge">2</span>
                             <span>@L["Groups.Step2Title"]</span>
                         </div>
-                        <span class="badge bg-primary-subtle text-primary border border-primary-subtle" style="font-size: 0.72rem;">@L["Groups.SelectedBlueBadge"]</span>
                     </div>
 
                     <div class="mb-3">
-                        <label class="form-label small fw-bold mb-2">@L["Groups.SelectAccessModeLabel"]</label>
+                        <label class="form-label-std mb-2">@L["Groups.SelectAccessModeLabel"]</label>
                         <div class="row g-3">
                             <div class="col-md-6">
                                 <div class="selection-card @(_createRequest.AccessMode == SftpAccessMode.VirtualFolder ? "active" : "")"
@@ -297,18 +295,10 @@
                                             <i class="bi bi-folder-symlink text-primary"></i>
                                             <span>Virtual Folder (NTFS Junction)</span>
                                         </div>
-                                        <div class="text-muted small mt-1" style="font-size: 0.78rem;">
+                                        <div class="form-hint mt-1" style="padding-left: 1.6rem;">
                                             @L["Groups.VirtualDesc"]
                                         </div>
                                     </div>
-                                    @if (_createRequest.AccessMode == SftpAccessMode.VirtualFolder)
-                                    {
-                                        <span class="badge bg-primary text-white flex-shrink-0"><i class="bi bi-check-lg"></i> @L["Groups.SelectedBadge"]</span>
-                                    }
-                                    else
-                                    {
-                                        <span class="badge bg-light text-secondary border flex-shrink-0">@L["Groups.ClickSelectBadge"]</span>
-                                    }
                                 </div>
                             </div>
                             <div class="col-md-6">
@@ -320,25 +310,17 @@
                                             <i class="bi bi-box-arrow-in-down-right text-primary"></i>
                                             <span>Direct Chroot</span>
                                         </div>
-                                        <div class="text-muted small mt-1" style="font-size: 0.78rem;">
+                                        <div class="form-hint mt-1" style="padding-left: 1.6rem;">
                                             @L["Groups.ChrootDesc"]
                                         </div>
                                     </div>
-                                    @if (_createRequest.AccessMode == SftpAccessMode.DirectChroot)
-                                    {
-                                        <span class="badge bg-primary text-white flex-shrink-0"><i class="bi bi-check-lg"></i> @L["Groups.SelectedBadge"]</span>
-                                    }
-                                    else
-                                    {
-                                        <span class="badge bg-light text-secondary border flex-shrink-0">@L["Groups.ClickSelectBadge"]</span>
-                                    }
                                 </div>
                             </div>
                         </div>
                     </div>
 
                     <div class="mb-4">
-                        <label class="form-label small fw-bold mb-2">@L["Groups.SelectPermLabel"]</label>
+                        <label class="form-label-std mb-2">@L["Groups.SelectPermLabel"]</label>
                         <div class="row g-3">
                             <div class="col-md-6">
                                 <div class="selection-card @(_createRequest.PermissionType == SftpPermissionType.ReadWrite ? "active" : "")"
@@ -349,18 +331,10 @@
                                             <i class="bi bi-pencil-square text-success"></i>
                                             <span>@L["Groups.RwTitle"]</span>
                                         </div>
-                                        <div class="text-muted small mt-1" style="font-size: 0.78rem;">
+                                        <div class="form-hint mt-1" style="padding-left: 1.6rem;">
                                             @L["Groups.RwDesc"]
                                         </div>
                                     </div>
-                                    @if (_createRequest.PermissionType == SftpPermissionType.ReadWrite)
-                                    {
-                                        <span class="badge bg-primary text-white flex-shrink-0"><i class="bi bi-check-lg"></i> @L["Groups.SelectedBadge"]</span>
-                                    }
-                                    else
-                                    {
-                                        <span class="badge bg-light text-secondary border flex-shrink-0">@L["Groups.ClickSelectBadge"]</span>
-                                    }
                                 </div>
                             </div>
                             <div class="col-md-6">
@@ -372,18 +346,10 @@
                                             <i class="bi bi-eye text-secondary"></i>
                                             <span>@L["Groups.RoTitle"]</span>
                                         </div>
-                                        <div class="text-muted small mt-1" style="font-size: 0.78rem;">
+                                        <div class="form-hint mt-1" style="padding-left: 1.6rem;">
                                             @L["Groups.RoDesc"]
                                         </div>
                                     </div>
-                                    @if (_createRequest.PermissionType == SftpPermissionType.ReadOnly)
-                                    {
-                                        <span class="badge bg-primary text-white flex-shrink-0"><i class="bi bi-check-lg"></i> @L["Groups.SelectedBadge"]</span>
-                                    }
-                                    else
-                                    {
-                                        <span class="badge bg-light text-secondary border flex-shrink-0">@L["Groups.ClickSelectBadge"]</span>
-                                    }
                                 </div>
                             </div>
                         </div>
@@ -634,11 +600,10 @@
                             <span class="form-step-badge">2</span>
                             <span>@L["Groups.Step2Title"]</span>
                         </div>
-                        <span class="badge bg-primary-subtle text-primary border border-primary-subtle" style="font-size: 0.72rem;">@L["Groups.SelectedBlueBadge"]</span>
                     </div>
 
                     <div class="mb-3">
-                        <label class="form-label small fw-bold mb-2">@L["Groups.SelectAccessModeLabel"]</label>
+                        <label class="form-label-std mb-2">@L["Groups.SelectAccessModeLabel"]</label>
                         <div class="row g-3">
                             <div class="col-md-6">
                                 <div class="selection-card @(_editRequest.AccessMode == SftpAccessMode.VirtualFolder ? "active" : "")"
@@ -649,18 +614,10 @@
                                             <i class="bi bi-folder-symlink text-primary"></i>
                                             <span>Virtual Folder (NTFS Junction)</span>
                                         </div>
-                                        <div class="text-muted small mt-1" style="font-size: 0.78rem;">
+                                        <div class="form-hint mt-1" style="padding-left: 1.6rem;">
                                             @L["Groups.VirtualDesc"]
                                         </div>
                                     </div>
-                                    @if (_editRequest.AccessMode == SftpAccessMode.VirtualFolder)
-                                    {
-                                        <span class="badge bg-primary text-white flex-shrink-0"><i class="bi bi-check-lg"></i> @L["Groups.SelectedBadge"]</span>
-                                    }
-                                    else
-                                    {
-                                        <span class="badge bg-light text-secondary border flex-shrink-0">@L["Groups.ClickSelectBadge"]</span>
-                                    }
                                 </div>
                             </div>
                             <div class="col-md-6">
@@ -672,25 +629,17 @@
                                             <i class="bi bi-box-arrow-in-down-right text-primary"></i>
                                             <span>Direct Chroot</span>
                                         </div>
-                                        <div class="text-muted small mt-1" style="font-size: 0.78rem;">
+                                        <div class="form-hint mt-1" style="padding-left: 1.6rem;">
                                             @L["Groups.ChrootDesc"]
                                         </div>
                                     </div>
-                                    @if (_editRequest.AccessMode == SftpAccessMode.DirectChroot)
-                                    {
-                                        <span class="badge bg-primary text-white flex-shrink-0"><i class="bi bi-check-lg"></i> @L["Groups.SelectedBadge"]</span>
-                                    }
-                                    else
-                                    {
-                                        <span class="badge bg-light text-secondary border flex-shrink-0">@L["Groups.ClickSelectBadge"]</span>
-                                    }
                                 </div>
                             </div>
                         </div>
                     </div>
 
                     <div class="mb-4">
-                        <label class="form-label small fw-bold mb-2">@L["Groups.SelectPermLabel"]</label>
+                        <label class="form-label-std mb-2">@L["Groups.SelectPermLabel"]</label>
                         <div class="row g-3">
                             <div class="col-md-6">
                                 <div class="selection-card @(_editRequest.PermissionType == SftpPermissionType.ReadWrite ? "active" : "")"
@@ -701,18 +650,10 @@
                                             <i class="bi bi-pencil-square text-success"></i>
                                             <span>@L["Groups.RwTitle"]</span>
                                         </div>
-                                        <div class="text-muted small mt-1" style="font-size: 0.78rem;">
+                                        <div class="form-hint mt-1" style="padding-left: 1.6rem;">
                                             @L["Groups.RwDesc"]
                                         </div>
                                     </div>
-                                    @if (_editRequest.PermissionType == SftpPermissionType.ReadWrite)
-                                    {
-                                        <span class="badge bg-primary text-white flex-shrink-0"><i class="bi bi-check-lg"></i> @L["Groups.SelectedBadge"]</span>
-                                    }
-                                    else
-                                    {
-                                        <span class="badge bg-light text-secondary border flex-shrink-0">@L["Groups.ClickSelectBadge"]</span>
-                                    }
                                 </div>
                             </div>
                             <div class="col-md-6">
@@ -724,18 +665,10 @@
                                             <i class="bi bi-eye text-secondary"></i>
                                             <span>@L["Groups.RoTitle"]</span>
                                         </div>
-                                        <div class="text-muted small mt-1" style="font-size: 0.78rem;">
+                                        <div class="form-hint mt-1" style="padding-left: 1.6rem;">
                                             @L["Groups.RoDesc"]
                                         </div>
                                     </div>
-                                    @if (_editRequest.PermissionType == SftpPermissionType.ReadOnly)
-                                    {
-                                        <span class="badge bg-primary text-white flex-shrink-0"><i class="bi bi-check-lg"></i> @L["Groups.SelectedBadge"]</span>
-                                    }
-                                    else
-                                    {
-                                        <span class="badge bg-light text-secondary border flex-shrink-0">@L["Groups.ClickSelectBadge"]</span>
-                                    }
                                 </div>
                             </div>
                         </div>

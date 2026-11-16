@@ -251,43 +251,52 @@
             <!-- Parameters Grid -->
             <div class="row g-3">
                 <div class="col-md-4">
-                    <label class="form-label small fw-semibold text-dark mb-1">
-                        @L["Service.MaxStartupsLabel"]
+                    <label class="form-label-std">
+                        <span>@L["Service.MaxStartupsLabel"]</span>
+                        <i class="bi bi-info-circle form-tooltip-icon" title="@L["Service.MaxStartupsHelp"]"></i>
                     </label>
                     <input type="text" class="form-control form-control-sm font-monospace" @bind="concurrencySettings.MaxStartups" disabled="@(!SessionState.CanManageSystem || isProcessing)" placeholder="@L["Service.MaxStartupsPlaceholder"]" />
-                    <div class="form-text small text-muted">@L["Service.MaxStartupsHelp"]</div>
                 </div>
 
                 <div class="col-md-4">
-                    <label class="form-label small fw-semibold text-dark mb-1">
-                        @L["Service.MaxSessionsLabel"]
+                    <label class="form-label-std">
+                        <span>@L["Service.MaxSessionsLabel"]</span>
+                        <i class="bi bi-info-circle form-tooltip-icon" title="@L["Service.MaxSessionsHelp"]"></i>
                     </label>
                     <input type="number" class="form-control form-control-sm" @bind="concurrencySettings.MaxSessions" min="1" max="500" disabled="@(!SessionState.CanManageSystem || isProcessing)" />
-                    <div class="form-text small text-muted">@L["Service.MaxSessionsHelp"]</div>
                 </div>
 
                 <div class="col-md-4">
-                    <label class="form-label small fw-semibold text-dark mb-1">
-                        @L["Service.ClientAliveIntervalLabel"]
+                    <label class="form-label-std">
+                        <span>@L["Service.ClientAliveIntervalLabel"]</span>
+                        <i class="bi bi-info-circle form-tooltip-icon" title="@L["Service.ClientAliveIntervalHelp"]"></i>
                     </label>
-                    <input type="number" class="form-control form-control-sm" @bind="concurrencySettings.ClientAliveInterval" min="0" max="3600" disabled="@(!SessionState.CanManageSystem || isProcessing)" />
-                    <div class="form-text small text-muted">@L["Service.ClientAliveIntervalHelp"]</div>
+                    <div class="input-group input-group-sm">
+                        <input type="number" class="form-control" @bind="concurrencySettings.ClientAliveInterval" min="0" max="3600" disabled="@(!SessionState.CanManageSystem || isProcessing)" />
+                        <span class="input-group-text">@L["Service.SecondsUnit"]</span>
+                    </div>
                 </div>
 
                 <div class="col-md-4">
-                    <label class="form-label small fw-semibold text-dark mb-1">
-                        @L["Service.ClientAliveCountMaxLabel"]
+                    <label class="form-label-std">
+                        <span>@L["Service.ClientAliveCountMaxLabel"]</span>
+                        <i class="bi bi-info-circle form-tooltip-icon" title="@L["Service.ClientAliveCountMaxHelp"]"></i>
                     </label>
-                    <input type="number" class="form-control form-control-sm" @bind="concurrencySettings.ClientAliveCountMax" min="1" max="20" disabled="@(!SessionState.CanManageSystem || isProcessing)" />
-                    <div class="form-text small text-muted">@L["Service.ClientAliveCountMaxHelp"]</div>
+                    <div class="input-group input-group-sm">
+                        <input type="number" class="form-control" @bind="concurrencySettings.ClientAliveCountMax" min="1" max="20" disabled="@(!SessionState.CanManageSystem || isProcessing)" />
+                        <span class="input-group-text">@L["Service.TimesUnit"]</span>
+                    </div>
                 </div>
 
                 <div class="col-md-4">
-                    <label class="form-label small fw-semibold text-dark mb-1">
-                        @L["Service.LoginGraceTimeLabel"]
+                    <label class="form-label-std">
+                        <span>@L["Service.LoginGraceTimeLabel"]</span>
+                        <i class="bi bi-info-circle form-tooltip-icon" title="@L["Service.LoginGraceTimeHelp"]"></i>
                     </label>
-                    <input type="number" class="form-control form-control-sm" @bind="concurrencySettings.LoginGraceTime" min="5" max="600" disabled="@(!SessionState.CanManageSystem || isProcessing)" />
-                    <div class="form-text small text-muted">@L["Service.LoginGraceTimeHelp"]</div>
+                    <div class="input-group input-group-sm">
+                        <input type="number" class="form-control" @bind="concurrencySettings.LoginGraceTime" min="5" max="600" disabled="@(!SessionState.CanManageSystem || isProcessing)" />
+                        <span class="input-group-text">@L["Service.SecondsUnit"]</span>
+                    </div>
                 </div>
             </div>
 
