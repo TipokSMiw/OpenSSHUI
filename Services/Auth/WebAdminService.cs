@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using OpensshUI.Data;
 using OpensshUI.Models;
 using OpensshUI.Services.Audit;
+using OpensshUI.Services.Localization;
 using OpensshUI.Services.Security;
 
 namespace OpensshUI.Services.Auth;
@@ -13,15 +14,20 @@ public class WebAdminService : IWebAdminService
     private readonly IDbContextFactory<AppDbContext> _dbFactory;
     private readonly IAuditService _auditService;
     private readonly ILogger<WebAdminService> _logger;
+    private readonly ILocalizationService? _localizer;
+
+    private string Lang => _localizer?.CurrentLanguage ?? AppStrings.DefaultLanguage;
 
     public WebAdminService(
         IDbContextFactory<AppDbContext> dbFactory,
         IAuditService auditService,
-        ILogger<WebAdminService> logger)
+        ILogger<WebAdminService> logger,
+        ILocalizationService? localizer = null)
     {
         _dbFactory = dbFactory;
         _auditService = auditService;
         _logger = logger;
+        _localizer = localizer;
     }
 
     public async Task<List<WebAdminUser>> GetAllAdminsAsync()
@@ -74,10 +80,10 @@ public class WebAdminService : IWebAdminService
 
         var cleanUsername = SecurityValidator.ExtractCanonicalUsername(username);
         if (cleanUsername.Length < 3 || cleanUsername.Length > 50)
-            return WebAdminOperationResult.Fail("Username ต้องมีความยาวระหว่าง 3 ถึง 50 ตัวอักษร");
+            return WebAdminOperationResult.Fail(AppStrings.Get("Svc.WebAdmin.InvalidUsernameLen", Lang));
 
         if (!SafeAdminUsernameRegex.IsMatch(cleanUsername))
-            return WebAdminOperationResult.Fail("Username มีอักขระที่ไม่อนุญาต (อนุญาตเฉพาะ a-z, 0-9, _, -, .)");
+            return WebAdminOperationResult.Fail(AppStrings.Get("Svc.WebAdmin.InvalidUsernameChars", Lang));
 
         var cleanDisplayName = SecurityValidator.SanitizeSingleLine(displayName);
         var cleanEmail = string.IsNullOrWhiteSpace(email) ? null : SecurityValidator.SanitizeSingleLine(email);
@@ -86,13 +92,13 @@ public class WebAdminService : IWebAdminService
             return WebAdminOperationResult.Fail("กรุณาระบุชื่อ-นามสกุล (Display Name)");
 
         if (string.IsNullOrWhiteSpace(password) || password.Length < 8)
-            return WebAdminOperationResult.Fail("รหัสผ่านต้องมีความยาวอย่างน้อย 8 ตัวอักษร");
+            return WebAdminOperationResult.Fail(AppStrings.Get("Svc.WebAdmin.PasswordMinLen", Lang));
 
         var cleanLower = cleanUsername.ToLowerInvariant();
         await using var db = await _dbFactory.CreateDbContextAsync();
         bool exists = await db.WebAdminUsers.AnyAsync(u => u.Username.ToLower() == cleanLower);
         if (exists)
-            return WebAdminOperationResult.Fail($"ชื่อผู้ใช้ '{cleanUsername}' มีอยู่ในระบบแล้ว");
+            return WebAdminOperationResult.Fail(AppStrings.Format("Svc.WebAdmin.DuplicateUser", Lang, cleanUsername));
 
         var user = new WebAdminUser
         {
@@ -183,7 +189,7 @@ public class WebAdminService : IWebAdminService
 
             if (otherSuperAdminCount == 0)
             {
-                return WebAdminOperationResult.Fail("ไม่สามารถลดระดับสิทธิ์ของ Super Admin คนสุดท้ายของระบบได้");
+                return WebAdminOperationResult.Fail(AppStrings.Format("Svc.WebAdmin.CannotDemoteLastSuper", Lang, admin.Username));
             }
         }
 
@@ -239,7 +245,7 @@ public class WebAdminService : IWebAdminService
         // Guardrail: Cannot deactivate self (including canonical DOMAIN\user or user@domain forms)
         if (IsSameAccount(admin.Username, operatorUser) && admin.IsActive)
         {
-            return WebAdminOperationResult.Fail("ไม่สามารถระงับการใช้งานบัญชีของตนเองที่กำลังเข้าสู่ระบบอยู่ได้");
+            return WebAdminOperationResult.Fail(AppStrings.Get("Svc.WebAdmin.CannotDisableSelf", Lang));
         }
 
         // Guardrail: Cannot deactivate last active SuperAdmin
@@ -250,7 +256,7 @@ public class WebAdminService : IWebAdminService
 
             if (otherSuperAdminCount == 0)
             {
-                return WebAdminOperationResult.Fail("ไม่สามารถระงับการใช้งาน Super Admin บัญชีสุดท้ายของระบบได้");
+                return WebAdminOperationResult.Fail(AppStrings.Get("Svc.WebAdmin.CannotDisableLastSuper", Lang));
             }
         }
 
@@ -277,7 +283,7 @@ public class WebAdminService : IWebAdminService
         // Guardrail: Cannot delete self (including canonical DOMAIN\user or user@domain forms)
         if (IsSameAccount(admin.Username, operatorUser))
         {
-            return WebAdminOperationResult.Fail("ไม่สามารถลบบัญชีของตนเองที่กำลังเข้าสู่ระบบอยู่ได้");
+            return WebAdminOperationResult.Fail(AppStrings.Get("Svc.WebAdmin.CannotDeleteSelf", Lang));
         }
 
         // Guardrail: Cannot delete last active SuperAdmin
@@ -288,7 +294,7 @@ public class WebAdminService : IWebAdminService
 
             if (otherSuperAdminCount == 0)
             {
-                return WebAdminOperationResult.Fail("ไม่สามารถลบ Super Admin บัญชีสุดท้ายของระบบได้");
+                return WebAdminOperationResult.Fail(AppStrings.Get("Svc.WebAdmin.CannotDeleteLastSuper", Lang));
             }
         }
 

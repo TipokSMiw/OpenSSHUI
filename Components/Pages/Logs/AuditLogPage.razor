@@ -1,6 +1,8 @@
 @page "/audit"
 @rendermode InteractiveServer
 @inject IAuditService AuditService
+@inject ILocalizationService L
+@implements IDisposable
 
 <PageTitle>Audit Logs - OpensshUI</PageTitle>
 
@@ -10,14 +12,14 @@
         <div>
             <h3 class="page-title">
                 <i class="bi bi-journal-text text-primary"></i>
-                <span>บันทึกประวัติกิจกรรม (Audit Logs)</span>
+                <span>@L["Audit.Title"]</span>
             </h3>
-            <p class="text-muted small mb-0">ตรวจสอบกิจกรรมของผู้ดูแลระบบและการเปลี่ยนแปลงสิทธิ์ทั้งหมดบนเซิร์ฟเวอร์</p>
+            <p class="text-muted small mb-0">@L["Audit.Subtitle"]</p>
         </div>
         <div class="d-flex align-items-center gap-2">
             <button class="btn btn-outline-secondary btn-sm" @onclick="LoadLogs">
                 <i class="bi bi-arrow-clockwise"></i>
-                <span>รีเฟรชข้อมูล</span>
+                <span>@L["Home.RefreshBtn"]</span>
             </button>
         </div>
     </div>
@@ -27,34 +29,34 @@
         <div class="card-body py-2.5 px-3">
             <div class="row g-2 align-items-end">
                 <div class="col-md-3">
-                    <label class="form-label small fw-bold mb-1">ค้นหาประเภท Action</label>
+                    <label class="form-label small fw-bold mb-1">@L["Audit.FilterAction"]</label>
                     <div class="input-group input-group-sm">
                         <span class="input-group-text bg-white border-end-0 text-muted"><i class="bi bi-search"></i></span>
-                        <input type="text" class="form-control border-start-0" placeholder="เช่น USER_, GROUP_, SERVICE_..." @bind="filterAction" @bind:event="oninput" />
+                        <input type="text" class="form-control border-start-0" placeholder="@L["Audit.FilterActionPlaceholder"]" @bind="filterAction" @bind:event="oninput" />
                     </div>
                 </div>
                 <div class="col-md-3">
-                    <label class="form-label small fw-bold mb-1">ผู้ดำเนินการ (Operator)</label>
-                    <input type="text" class="form-control form-control-sm" placeholder="Username ผู้สั่งการ..." @bind="filterOperator" @bind:event="oninput" />
+                    <label class="form-label small fw-bold mb-1">@L["Audit.FilterOperator"]</label>
+                    <input type="text" class="form-control form-control-sm" placeholder="@L["Audit.FilterOperatorPlaceholder"]" @bind="filterOperator" @bind:event="oninput" />
                 </div>
                 <div class="col-md-2">
-                    <label class="form-label small fw-bold mb-1">ตั้งแต่วันที่</label>
+                    <label class="form-label small fw-bold mb-1">@L["Audit.FromDate"]</label>
                     <input type="date" class="form-control form-control-sm" @bind="fromDate" />
                 </div>
                 <div class="col-md-2">
-                    <label class="form-label small fw-bold mb-1">ถึงวันที่</label>
+                    <label class="form-label small fw-bold mb-1">@L["Audit.ToDate"]</label>
                     <input type="date" class="form-control form-control-sm" @bind="toDate" />
                 </div>
                 <div class="col-md-2 d-flex align-items-center justify-content-end gap-1.5">
                     @if (HasActiveFilter)
                     {
-                        <button class="btn btn-outline-secondary btn-sm" title="ล้างตัวกรอง" @onclick="ClearFilters">
+                        <button class="btn btn-outline-secondary btn-sm" title="@L["Audit.ClearFilters"]" @onclick="ClearFilters">
                             <i class="bi bi-x-circle"></i>
                         </button>
                     }
                     <button class="btn btn-primary btn-sm flex-grow-1 justify-content-center" @onclick="LoadLogs">
                         <i class="bi bi-funnel-fill"></i>
-                        <span>กรองข้อมูล</span>
+                        <span>@L["Audit.FilterBtn"]</span>
                     </button>
                 </div>
             </div>
@@ -68,14 +70,14 @@
             {
                 <div class="text-center py-5">
                     <span class="spinner-border spinner-border-sm text-primary"></span>
-                    <p class="text-muted small mt-2 mb-0">กำลังโหลดบันทึก Audit Logs...</p>
+                    <p class="text-muted small mt-2 mb-0">@L["Audit.Loading"]</p>
                 </div>
             }
             else if (logs.Count == 0)
             {
                 <div class="text-center text-muted py-5">
                     <i class="bi bi-journal-x fs-1 d-block mb-2"></i>
-                    <p class="mb-0">ไม่พบบันทึกประวัติการทำงานตามเงื่อนไขที่ระบุ</p>
+                    <p class="mb-0">@L["Audit.Empty"]</p>
                 </div>
             }
             else
@@ -84,12 +86,12 @@
                     <table class="table table-hover align-middle mb-0 small">
                         <thead class="table-light text-muted">
                             <tr>
-                                <th class="ps-3" style="width: 170px;">วัน-เวลา (LOCAL)</th>
+                                <th class="ps-3" style="width: 170px;">@L["Audit.ColTime"]</th>
                                 <th style="width: 170px;">ACTION</th>
-                                <th style="width: 140px;">ผู้ดำเนินการ</th>
-                                <th>รายละเอียด (DETAILS)</th>
-                                <th style="width: 110px;">สถานะ</th>
-                                <th class="text-end pe-3" style="width: 110px;">การจัดการ</th>
+                                <th style="width: 140px;">@L["Audit.ColOperator"]</th>
+                                <th>@L["Audit.ColDetails"]</th>
+                                <th style="width: 110px;">@L["Audit.ColStatus"]</th>
+                                <th class="text-end pe-3" style="width: 110px;">@L["Audit.ColManage"]</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -109,22 +111,22 @@
                                         {
                                             <span class="badge bg-success-subtle text-success border border-success-subtle">
                                                 <i class="bi bi-check-circle-fill"></i>
-                                                <span>สำเร็จ</span>
+                                                <span>@L["Home.Success"]</span>
                                             </span>
                                         }
                                         else
                                         {
                                             <span class="badge bg-danger-subtle text-danger border border-danger-subtle">
                                                 <i class="bi bi-x-circle-fill"></i>
-                                                <span>ล้มเหลว</span>
+                                                <span>@L["Home.Failed"]</span>
                                             </span>
                                         }
                                     </td>
                                     <td class="text-end pe-3">
                                         <div class="action-bar">
-                                            <button class="btn btn-outline-secondary btn-sm py-0.5 px-2" title="ดูรายละเอียดบันทึกนี้" @onclick="() => selectedLog = log">
+                                            <button class="btn btn-outline-secondary btn-sm py-0.5 px-2" title="@L["Audit.ViewTooltip"]" @onclick="() => selectedLog = log">
                                                 <i class="bi bi-eye"></i>
-                                                <span>ดูข้อมูล</span>
+                                                <span>@L["Audit.ViewBtn"]</span>
                                             </button>
                                         </div>
                                     </td>
@@ -147,22 +149,22 @@
                 <div class="modal-header bg-dark text-white">
                     <h5 class="modal-title d-flex align-items-center gap-2">
                         <i class="bi bi-journal-text text-primary"></i>
-                        <span>รายละเอียด Audit Log #@selectedLog.Id</span>
+                        <span>@L.Get("Audit.ModalTitle", selectedLog.Id)</span>
                     </h5>
                     <button type="button" class="btn-close btn-close-white" @onclick="() => selectedLog = null"></button>
                 </div>
                 <div class="modal-body p-4">
                     <div class="mb-3">
-                        <span class="small text-muted d-block">วัน-เวลา (UTC / Local):</span>
+                        <span class="small text-muted d-block">@L["Audit.ModalTime"]</span>
                         <strong class="font-monospace">@selectedLog.Timestamp.ToString("u")</strong>
                         <span class="text-muted small font-monospace"> (@selectedLog.Timestamp.ToLocalTime().ToString("dd/MM/yyyy HH:mm:ss"))</span>
                     </div>
                     <div class="mb-3">
-                        <span class="small text-muted d-block mb-1">ประเภทคำสั่ง (Action):</span>
+                        <span class="small text-muted d-block mb-1">@L["Audit.ModalAction"]</span>
                         <span class="badge @GetActionBadgeClass(selectedLog.Action) font-monospace">@selectedLog.Action</span>
                     </div>
                     <div class="mb-3">
-                        <span class="small text-muted d-block">ผู้ดำเนินการ (Operator & IP):</span>
+                        <span class="small text-muted d-block">@L["Audit.ModalOperator"]</span>
                         <strong>@selectedLog.Operator</strong>
                         @if (!string.IsNullOrEmpty(selectedLog.ClientIp))
                         {
@@ -170,29 +172,29 @@
                         }
                     </div>
                     <div class="mb-3">
-                        <span class="small text-muted d-block mb-1">ผลลัพธ์ (Status):</span>
+                        <span class="small text-muted d-block mb-1">@L["Audit.ModalStatus"]</span>
                         @if (selectedLog.IsSuccess)
                         {
                             <span class="badge bg-success-subtle text-success border border-success-subtle">
                                 <i class="bi bi-check-circle-fill"></i>
-                                <span>สำเร็จ (Success)</span>
+                                <span>@L["Audit.StatusSuccess"]</span>
                             </span>
                         }
                         else
                         {
                             <span class="badge bg-danger-subtle text-danger border border-danger-subtle">
                                 <i class="bi bi-x-circle-fill"></i>
-                                <span>ล้มเหลว (Failed)</span>
+                                <span>@L["Audit.StatusFailed"]</span>
                             </span>
                         }
                     </div>
                     <div>
-                        <span class="small text-muted d-block mb-1">รายละเอียด (Details):</span>
+                        <span class="small text-muted d-block mb-1">@L["Audit.ModalDetails"]</span>
                         <pre class="bg-light border p-3 rounded text-break small mb-0 font-monospace">@selectedLog.Details</pre>
                     </div>
                 </div>
                 <div class="modal-footer bg-light">
-                    <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="() => selectedLog = null">ปิดหน้าต่าง</button>
+                    <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="() => selectedLog = null">@L["Audit.CloseModal"]</button>
                 </div>
             </div>
         </div>
@@ -224,7 +226,13 @@
 
     protected override async Task OnInitializedAsync()
     {
+        L.OnLanguageChanged += StateHasChanged;
         await LoadLogs();
+    }
+
+    public void Dispose()
+    {
+        L.OnLanguageChanged -= StateHasChanged;
     }
 
     private async Task LoadLogs()

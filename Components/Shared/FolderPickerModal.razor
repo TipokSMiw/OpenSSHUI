@@ -1,5 +1,7 @@
 @inject INativeAclProvisioner AclProvisioner
 @inject OpensshUI.Services.Auth.UserSessionState SessionState
+@inject ILocalizationService L
+@implements IDisposable
 
 @if (IsOpen)
 {
@@ -9,7 +11,7 @@
                 <div class="modal-header bg-dark text-white">
                     <h5 class="modal-title d-flex align-items-center gap-2">
                         <i class="bi bi-folder2-open text-primary"></i>
-                        <span>เลือกโฟลเดอร์ (Select Folder / Path)</span>
+                        <span>@L["FolderPicker.Title"]</span>
                     </h5>
                     <button type="button" class="btn-close btn-close-white" @onclick="Close"></button>
                 </div>
@@ -17,22 +19,22 @@
                     <!-- Current Selected / Typed Path -->
                     <div class="mb-3">
                         <div class="d-flex justify-content-between align-items-center mb-1">
-                            <label class="form-label small fw-bold mb-0">1. โฟลเดอร์เป้าหมายที่เลือก (Selected Path)</label>
-                            <span class="badge bg-primary-subtle text-primary border border-primary-subtle font-monospace" style="font-size: 0.7rem;">พิมพ์ Path หรือคลิกเลือกด้านล่าง</span>
+                            <label class="form-label small fw-bold mb-0">@L["FolderPicker.Step1"]</label>
+                            <span class="badge bg-primary-subtle text-primary border border-primary-subtle font-monospace" style="font-size: 0.7rem;">@L["FolderPicker.PathHint"]</span>
                         </div>
                         <div class="input-group input-group-sm">
                             <span class="input-group-text bg-light"><i class="bi bi-folder-check text-primary"></i></span>
-                            <input type="text" class="form-control font-monospace" @bind="CurrentPath" @bind:event="oninput" @onkeyup="HandlePathKeyUp" placeholder="เช่น D:\SFTPShare\Marketing" />
-                            <button class="btn btn-outline-primary" type="button" @onclick="GoToCurrentPath" title="เปิดดูโฟลเดอร์ตาม Path ที่ระบุ">
+                            <input type="text" class="form-control font-monospace" @bind="CurrentPath" @bind:event="oninput" @onkeyup="HandlePathKeyUp" placeholder="@L["FolderPicker.PathPlaceholder"]" />
+                            <button class="btn btn-outline-primary" type="button" @onclick="GoToCurrentPath" title="@L["FolderPicker.OpenPathTooltip"]">
                                 <i class="bi bi-arrow-right-circle"></i>
-                                <span>เปิดดู Path นี้</span>
+                                <span>@L["FolderPicker.OpenPathBtn"]</span>
                             </button>
                         </div>
                     </div>
 
                     <!-- Drive Selection Buttons -->
                     <div class="mb-3">
-                        <label class="form-label small fw-bold mb-1">2. เลือกไดรฟ์และสำรวจโฟลเดอร์ย่อย (Browse Drives & Folders)</label>
+                        <label class="form-label small fw-bold mb-1">@L["FolderPicker.Step2"]</label>
                         <div class="d-flex flex-wrap gap-2">
                             @foreach (var drive in _availableDrives)
                             {
@@ -84,13 +86,13 @@
                         <div class="bg-light border-bottom px-2.5 py-2 d-flex flex-wrap justify-content-between align-items-center gap-2">
                             <span class="small fw-bold text-secondary d-inline-flex align-items-center gap-1">
                                 <i class="bi bi-diagram-2"></i>
-                                <span>โฟลเดอร์ย่อยภายใน (@_currentFolders.Count)</span>
+                                <span>@L.Get("FolderPicker.SubfoldersCount", _currentFolders.Count)</span>
                             </span>
                             <div class="input-group input-group-sm" style="max-width: 340px;">
-                                <input type="text" class="form-control" placeholder="ชื่อโฟลเดอร์ย่อยใหม่ (เช่น Data, Inbound)..." @bind="_newFolderName" @bind:event="oninput" @onkeyup="HandleNewFolderKeyUp" />
+                                <input type="text" class="form-control" placeholder="@L["FolderPicker.NewFolderPlaceholder"]" @bind="_newFolderName" @bind:event="oninput" @onkeyup="HandleNewFolderKeyUp" />
                                 <button type="button" class="btn btn-outline-primary" @onclick="CreateNewFolder" disabled="@(string.IsNullOrWhiteSpace(_newFolderName) || string.IsNullOrWhiteSpace(CurrentPath))">
                                     <i class="bi bi-folder-plus"></i>
-                                    <span>สร้างโฟลเดอร์</span>
+                                    <span>@L["FolderPicker.CreateFolder"]</span>
                                 </button>
                             </div>
                         </div>
@@ -99,7 +101,7 @@
                             {
                                 <div class="text-muted text-center py-4 small">
                                     <i class="bi bi-folder2-open fs-2 d-block mb-2"></i>
-                                    <span>ไม่มีโฟลเดอร์ย่อยภายในไดเรกทอรีนี้ (สามารถพิมพ์ชื่อเพื่อสร้างโฟลเดอร์ใหม่ที่มุมขวาบน)</span>
+                                    <span>@L["FolderPicker.EmptyFolder"]</span>
                                 </div>
                             }
                             else
@@ -109,7 +111,7 @@
                                     {
                                         <button type="button" class="list-group-item list-group-item-action py-1.5 px-2.5 d-flex align-items-center gap-2 text-primary fw-semibold" @onclick="() => NavigateTo(GetParentPath(CurrentPath)!)">
                                             <i class="bi bi-arrow-90deg-up"></i>
-                                            <span class="small font-monospace">.. (ย้อนกลับขึ้นหนึ่งระดับ)</span>
+                                            <span class="small font-monospace">@L["FolderPicker.ParentDir"]</span>
                                         </button>
                                     }
                                     @foreach (var folder in _currentFolders)
@@ -131,19 +133,19 @@
                     <div class="small text-truncate" style="max-width: 60%;">
                         @if (!string.IsNullOrWhiteSpace(CurrentPath))
                         {
-                            <span class="text-muted">จะเลือก: </span>
+                            <span class="text-muted">@L["FolderPicker.WillSelect"] </span>
                             <code class="fw-bold text-primary">@CurrentPath</code>
                         }
                         else
                         {
-                            <span class="text-warning-emphasis">กรุณาเลือกไดรฟ์หรือโฟลเดอร์</span>
+                            <span class="text-warning-emphasis">@L["FolderPicker.PromptSelect"]</span>
                         }
                     </div>
                     <div class="d-flex align-items-center gap-2">
-                        <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="Close">ยกเลิก</button>
+                        <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="Close">@L["Common.Cancel"]</button>
                         <button type="button" class="btn btn-primary btn-sm px-3" @onclick="ConfirmSelection" disabled="@(string.IsNullOrWhiteSpace(CurrentPath))">
                             <i class="bi bi-check-lg"></i>
-                            <span>ยืนยันเลือกโฟลเดอร์นี้</span>
+                            <span>@L["FolderPicker.ConfirmBtn"]</span>
                         </button>
                     </div>
                 </div>
@@ -164,6 +166,16 @@
     private string _newFolderName = string.Empty;
     private string? _errorMessage;
     private bool _wasOpen;
+
+    protected override void OnInitialized()
+    {
+        L.OnLanguageChanged += StateHasChanged;
+    }
+
+    public void Dispose()
+    {
+        L.OnLanguageChanged -= StateHasChanged;
+    }
 
     protected override void OnParametersSet()
     {
@@ -206,7 +218,7 @@
             _errorMessage = null;
             if (!AclProvisioner.DirectoryExists(path))
             {
-                _errorMessage = $"ไม่พบโฟลเดอร์ที่ระบุ: {path}";
+                _errorMessage = L.Get("FolderPicker.NotFound", path);
                 return;
             }
 
@@ -256,7 +268,7 @@
             var (okName, nameErr) = OpensshUI.Services.Security.SecurityValidator.ValidateFolderItemName(trimmedName);
             if (!okName)
             {
-                _errorMessage = $"ชื่อโฟลเดอร์ไม่ปลอดภัย: {nameErr}";
+                _errorMessage = L.Get("FolderPicker.UnsafeName", nameErr ?? string.Empty);
                 return;
             }
 
@@ -270,12 +282,12 @@
             }
             else
             {
-                _errorMessage = "ไม่สามารถสร้างโฟลเดอร์ได้ โฟลเดอร์ปลายทางอาจถูกจำกัดสิทธิ์โดยระบบรักษาความปลอดภัย";
+                _errorMessage = L["FolderPicker.CreateFailedSecurity"];
             }
         }
         catch (Exception ex)
         {
-            _errorMessage = $"ไม่สามารถสร้างโฟลเดอร์ได้: {ex.Message}";
+            _errorMessage = L.Get("FolderPicker.CreateFailed", ex.Message);
         }
     }
 
@@ -292,7 +304,7 @@
             var (okPath, pathErr) = OpensshUI.Services.Security.SecurityValidator.ValidateSafeCustomPath(CurrentPath);
             if (!okPath)
             {
-                _errorMessage = $"ไม่สามารถเลือกโฟลเดอร์นี้ได้: {pathErr}";
+                _errorMessage = L.Get("FolderPicker.UnsafePath", pathErr ?? string.Empty);
                 return;
             }
             await OnFolderSelected.InvokeAsync(CurrentPath);

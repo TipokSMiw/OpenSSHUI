@@ -5,6 +5,8 @@
 @inject IOpenSshServiceManager SshManager
 @inject UserSessionState SessionState
 @inject NavigationManager Navigation
+@inject ILocalizationService L
+@implements IDisposable
 
 <PageTitle>SFTP Groups - OpensshUI</PageTitle>
 
@@ -14,20 +16,20 @@
         <div>
             <h3 class="page-title">
                 <i class="bi bi-collection-fill text-primary"></i>
-                <span>จัดการกลุ่มผู้ใช้งาน SFTP (SFTP Groups)</span>
+                <span>@L["Groups.Title"]</span>
             </h3>
-            <p class="text-muted small mb-0">กำหนดโฟลเดอร์แชร์ร่วมกัน (Shared Folders), สิทธิ์ NTFS ACL, NTFS Directory Junctions และสมาชิกในกลุ่ม</p>
+            <p class="text-muted small mb-0">@L["Groups.Subtitle"]</p>
         </div>
         <div class="d-flex align-items-center gap-2">
             <button class="btn btn-outline-secondary btn-sm" @onclick="LoadData">
                 <i class="bi bi-arrow-clockwise"></i>
-                <span>รีเฟรช</span>
+                <span>@L["Common.Refresh"]</span>
             </button>
             @if (SessionState.CanManageSftp)
             {
                 <button class="btn btn-primary btn-sm" @onclick="OpenCreateModal">
                     <i class="bi bi-plus-circle-fill"></i>
-                    <span>สร้างกลุ่มใหม่</span>
+                    <span>@L["Groups.CreateBtn"]</span>
                 </button>
             }
         </div>
@@ -47,30 +49,30 @@
         <div class="card-body py-2.5 px-3">
             <div class="row g-2 align-items-end">
                 <div class="col-md-5">
-                    <label class="form-label small fw-bold mb-1">ค้นหากลุ่มแชร์ไฟล์</label>
+                    <label class="form-label small fw-bold mb-1">@L["Groups.SearchLabel"]</label>
                     <div class="input-group input-group-sm">
                         <span class="input-group-text bg-white border-end-0 text-muted"><i class="bi bi-search"></i></span>
-                        <input type="text" class="form-control border-start-0" placeholder="เช่น Marketing, Finance หรือ D:\SFTPShare..." @bind="_searchTerm" @bind:event="oninput" />
+                        <input type="text" class="form-control border-start-0" placeholder="@L["Groups.SearchPlaceholder"]" @bind="_searchTerm" @bind:event="oninput" />
                     </div>
                 </div>
                 <div class="col-md-3">
-                    <label class="form-label small fw-bold mb-1">โหมดการเข้าถึง (Access Mode)</label>
+                    <label class="form-label small fw-bold mb-1">@L["Groups.AccessModeLabel"]</label>
                     <select class="form-select form-select-sm" @bind="_modeFilter">
-                        <option value="">ทุกโหมดการเข้าถึง (All Modes)</option>
-                        <option value="VirtualFolder">Virtual Folder (โฟลเดอร์ย่อยใน Home)</option>
-                        <option value="DirectChroot">Direct Chroot (โฟลเดอร์หลักโดยตรง)</option>
+                        <option value="">@L["Groups.AllModes"]</option>
+                        <option value="VirtualFolder">@L["Groups.ModeVirtualOption"]</option>
+                        <option value="DirectChroot">@L["Groups.ModeChrootOption"]</option>
                     </select>
                 </div>
                 <div class="col-md-4 d-flex justify-content-end align-items-center gap-2">
                     @if (!string.IsNullOrWhiteSpace(_searchTerm) || !string.IsNullOrWhiteSpace(_modeFilter))
                     {
-                        <button class="btn btn-outline-secondary btn-sm py-0.5 px-2" title="ล้างตัวกรองทั้งหมด" @onclick="ClearFilters">
+                        <button class="btn btn-outline-secondary btn-sm py-0.5 px-2" title="@L["Groups.ClearAllFiltersTooltip"]" @onclick="ClearFilters">
                             <i class="bi bi-x-circle"></i>
-                            <span>ล้างตัวกรอง</span>
+                            <span>@L["Audit.ClearFilters"]</span>
                         </button>
                     }
                     <span class="text-muted small text-nowrap">
-                        แสดง <strong>@FilteredGroups.Count</strong> รายการ
+                        @L.Get("Groups.ShowingCount", FilteredGroups.Count)
                     </span>
                 </div>
             </div>
@@ -84,14 +86,14 @@
             {
                 <div class="text-center py-5">
                     <span class="spinner-border spinner-border-sm text-primary"></span>
-                    <p class="text-muted small mt-2 mb-0">กำลังโหลดข้อมูลกลุ่มผู้ใช้งาน...</p>
+                    <p class="text-muted small mt-2 mb-0">@L["Groups.Loading"]</p>
                 </div>
             }
             else if (FilteredGroups.Count == 0)
             {
                 <div class="text-center py-5 text-muted">
                     <i class="bi bi-collection fs-1 d-block mb-2"></i>
-                    <p class="mb-0">ไม่พบกลุ่มผู้ใช้งาน SFTP คลิกปุ่ม <strong>สร้างกลุ่มใหม่</strong> เพื่อเริ่มต้นใช้งาน</p>
+                    <p class="mb-0">@L["Groups.Empty"]</p>
                 </div>
             }
             else
@@ -100,13 +102,13 @@
                     <table class="table table-hover align-middle mb-0">
                         <thead class="table-light small text-muted">
                             <tr>
-                                <th class="ps-3">ชื่อกลุ่ม (GROUP)</th>
+                                <th class="ps-3">@L["Groups.ColName"]</th>
                                 <th>SHARED ROOT PATH</th>
                                 <th>ACCESS MODE</th>
-                                <th>ระดับสิทธิ์</th>
-                                <th>สมาชิก</th>
-                                <th>วันที่สร้าง</th>
-                                <th class="text-end pe-3">การจัดการ (ACTIONS)</th>
+                                <th>@L["Groups.ColPermission"]</th>
+                                <th>@L["Groups.ColMembers"]</th>
+                                <th>@L["Groups.ColCreated"]</th>
+                                <th class="text-end pe-3">@L["Files.ColActions"]</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -124,7 +126,7 @@
                                         }
                                     </td>
                                     <td>
-                                        <div class="path-badge path-badge-default text-wrap" title="โฟลเดอร์หลักของกลุ่ม: @grp.RootPath">
+                                        <div class="path-badge path-badge-default text-wrap" title="@L.Get("Groups.RootPathTooltip", grp.RootPath)">
                                             <i class="bi bi-folder2-open"></i>
                                             <span class="path-text">@grp.RootPath</span>
                                         </div>
@@ -132,14 +134,14 @@
                                     <td>
                                         @if (grp.AccessMode == SftpAccessMode.VirtualFolder)
                                         {
-                                            <span class="badge bg-info-subtle text-info-emphasis border border-info-subtle" title="ปรากฏเป็นโฟลเดอร์ย่อยภายใน Home ของผู้ใช้">
+                                            <span class="badge bg-info-subtle text-info-emphasis border border-info-subtle" title="@L["Groups.VirtualTooltip"]">
                                                 <i class="bi bi-folder-symlink"></i>
                                                 <span>Virtual Folder</span>
                                             </span>
                                         }
                                         else
                                         {
-                                            <span class="badge bg-primary-subtle text-primary border border-primary-subtle" title="เข้าถึงโฟลเดอร์กลุ่มเป็น Chroot หลักโดยตรง">
+                                            <span class="badge bg-primary-subtle text-primary border border-primary-subtle" title="@L["Groups.ChrootTooltip"]">
                                                 <i class="bi bi-box-arrow-in-down-right"></i>
                                                 <span>Direct Chroot</span>
                                             </span>
@@ -162,9 +164,9 @@
                                         }
                                     </td>
                                     <td>
-                                        <button class="btn btn-sm btn-outline-primary py-0.5 px-2.5 rounded-pill" title="คลิกเพื่อดูและจัดการสมาชิกในกลุ่ม" @onclick="() => OpenMembersModal(grp)">
+                                        <button class="btn btn-sm btn-outline-primary py-0.5 px-2.5 rounded-pill" title="@L["Groups.MembersTooltip"]" @onclick="() => OpenMembersModal(grp)">
                                             <i class="bi bi-people-fill"></i>
-                                            <span>@grp.Members.Count คน</span>
+                                            <span>@L.Get("Groups.MembersCount", grp.Members.Count)</span>
                                         </button>
                                     </td>
                                     <td class="small text-muted text-nowrap font-monospace">
@@ -172,19 +174,19 @@
                                     </td>
                                     <td class="text-end pe-3">
                                         <div class="action-bar">
-                                            <button class="btn btn-sm btn-outline-primary" title="เปิดดูและจัดการไฟล์ของกลุ่มนี้ใน Web File Browser" @onclick='() => Navigation.NavigateTo($"files/group/{grp.Name}")'>
+                                            <button class="btn btn-sm btn-outline-primary" title="@L["Groups.BrowseFilesTooltip"]" @onclick='() => Navigation.NavigateTo($"files/group/{grp.Name}")'>
                                                 <i class="bi bi-folder2-open"></i>
-                                                <span>ไฟล์</span>
+                                                <span>@L["Groups.FilesBtn"]</span>
                                             </button>
                                             @if (SessionState.CanManageSftp)
                                             {
                                                 <span class="action-divider"></span>
-                                                <button class="btn btn-sm btn-outline-secondary" title="แก้ไขการตั้งค่ากลุ่มและสมาชิก" @onclick="() => OpenEditModal(grp)">
+                                                <button class="btn btn-sm btn-outline-secondary" title="@L["Groups.EditTooltip"]" @onclick="() => OpenEditModal(grp)">
                                                     <i class="bi bi-pencil-square"></i>
-                                                    <span>แก้ไข</span>
+                                                    <span>@L["Common.Edit"]</span>
                                                 </button>
                                                 <span class="action-divider"></span>
-                                                <button class="btn btn-sm btn-outline-danger" title="ลบกลุ่มผู้ใช้งาน" @onclick="() => OpenDeleteModal(grp)">
+                                                <button class="btn btn-sm btn-outline-danger" title="@L["Groups.DeleteTooltip"]" @onclick="() => OpenDeleteModal(grp)">
                                                     <i class="bi bi-trash3"></i>
                                                 </button>
                                             }
@@ -209,7 +211,7 @@
                 <div class="modal-header bg-dark text-white">
                     <h5 class="modal-title d-flex align-items-center gap-2">
                         <i class="bi bi-collection-fill text-primary"></i>
-                        <span>สร้างกลุ่มผู้ใช้งาน SFTP ใหม่ (Guided Setup)</span>
+                        <span>@L["Groups.CreateModalTitle"]</span>
                     </h5>
                     <button type="button" class="btn-close btn-close-white" @onclick="CloseModals"></button>
                 </div>
@@ -226,15 +228,15 @@
                     <div class="form-step-header">
                         <div class="form-step-title">
                             <span class="form-step-badge">1</span>
-                            <span>ข้อมูลกลุ่มและโฟลเดอร์หลัก (Group Identity & Shared Path)</span>
+                            <span>@L["Groups.Step1Title"]</span>
                         </div>
-                        <span class="badge bg-danger-subtle text-danger border border-danger-subtle" style="font-size: 0.7rem;">จำเป็น</span>
+                        <span class="badge bg-danger-subtle text-danger border border-danger-subtle" style="font-size: 0.7rem;">@L["Groups.RequiredBadge"]</span>
                     </div>
 
                     <div class="row g-3 mb-4">
                         <div class="col-md-6">
                             <div class="d-flex justify-content-between align-items-center mb-1">
-                                <label class="form-label small fw-bold mb-0">ชื่อกลุ่ม (Group Name) <span class="text-danger">*</span></label>
+                                <label class="form-label small fw-bold mb-0">@L["Groups.GroupNameLabel"] <span class="text-danger">*</span></label>
                                 @if (!string.IsNullOrWhiteSpace(_createRequest.Name))
                                 {
                                     <span class="badge bg-primary-subtle text-primary border border-primary-subtle font-monospace" style="font-size: 0.7rem;">
@@ -242,33 +244,33 @@
                                     </span>
                                 }
                             </div>
-                            <input type="text" class="form-control form-control-sm" placeholder="เช่น Marketing, FinanceTeam, VendorShare" @bind="_createRequest.Name" @bind:event="oninput" />
+                            <input type="text" class="form-control form-control-sm" placeholder="@L["Groups.GroupNamePlaceholder"]" @bind="_createRequest.Name" @bind:event="oninput" />
                         </div>
 
                         <div class="col-md-6">
                             <div class="d-flex justify-content-between align-items-center mb-1">
-                                <label class="form-label small fw-bold mb-0">คำอธิบาย (Description)</label>
-                                <span class="text-muted" style="font-size: 0.75rem;">ไม่บังคับ</span>
+                                <label class="form-label small fw-bold mb-0">@L["Groups.DescLabel"]</label>
+                                <span class="text-muted" style="font-size: 0.75rem;">@L["Settings.Optional"]</span>
                             </div>
-                            <input type="text" class="form-control form-control-sm" placeholder="เช่น โฟลเดอร์แลกเปลี่ยนเอกสารฝ่ายการตลาด" @bind="_createRequest.Description" />
+                            <input type="text" class="form-control form-control-sm" placeholder="@L["Groups.DescPlaceholder"]" @bind="_createRequest.Description" />
                         </div>
 
                         <div class="col-12">
                             <div class="d-flex flex-wrap justify-content-between align-items-center gap-1 mb-1">
-                                <label class="form-label small fw-bold mb-0">โฟลเดอร์หลักของกลุ่ม (Shared Root Path) <span class="text-danger">*</span></label>
+                                <label class="form-label small fw-bold mb-0">@L["Groups.RootPathLabel"] <span class="text-danger">*</span></label>
                                 @if (!string.IsNullOrEmpty(SuggestedCreateGroupPath) && !string.Equals(_createRequest.RootPath, SuggestedCreateGroupPath, StringComparison.OrdinalIgnoreCase))
                                 {
-                                    <button type="button" class="auto-fill-chip" title="คลิกเพื่อเติม Path มาตรฐานของกลุ่มอัตโนมัติ" @onclick="ApplySuggestedCreateGroupPath">
+                                    <button type="button" class="auto-fill-chip" title="@L["Groups.AutoPathTooltip"]" @onclick="ApplySuggestedCreateGroupPath">
                                         <i class="bi bi-lightning-charge-fill"></i>
-                                        <span>เติมอัตโนมัติ: @SuggestedCreateGroupPath</span>
+                                        <span>@L.Get("Groups.AutoPathBtn", SuggestedCreateGroupPath)</span>
                                     </button>
                                 }
                             </div>
                             <div class="input-group input-group-sm">
-                                <input type="text" class="form-control font-monospace" placeholder="เช่น D:\SFTPShare\Marketing (หากยังไม่มี ระบบจะสร้างให้อัตโนมัติ)" @bind="_createRequest.RootPath" @bind:event="oninput" />
+                                <input type="text" class="form-control font-monospace" placeholder="@L["Groups.RootPathPlaceholder"]" @bind="_createRequest.RootPath" @bind:event="oninput" />
                                 <button class="btn btn-outline-secondary" type="button" @onclick="OpenFolderBrowserForCreate">
                                     <i class="bi bi-folder2-open"></i>
-                                    <span>เลือกโฟลเดอร์...</span>
+                                    <span>@L["Groups.BrowseFolderBtn"]</span>
                                 </button>
                             </div>
                         </div>
@@ -278,13 +280,13 @@
                     <div class="form-step-header">
                         <div class="form-step-title">
                             <span class="form-step-badge">2</span>
-                            <span>โหมดการเข้าถึงและระดับสิทธิ์ (Access Mode &amp; NTFS Permission)</span>
+                            <span>@L["Groups.Step2Title"]</span>
                         </div>
-                        <span class="badge bg-primary-subtle text-primary border border-primary-subtle" style="font-size: 0.72rem;">กรอบสีฟ้า = กำลังเลือกอยู่</span>
+                        <span class="badge bg-primary-subtle text-primary border border-primary-subtle" style="font-size: 0.72rem;">@L["Groups.SelectedBlueBadge"]</span>
                     </div>
 
                     <div class="mb-3">
-                        <label class="form-label small fw-bold mb-2">เลือกรูปแบบการมองเห็นโฟลเดอร์ (Access Mode)</label>
+                        <label class="form-label small fw-bold mb-2">@L["Groups.SelectAccessModeLabel"]</label>
                         <div class="row g-3">
                             <div class="col-md-6">
                                 <div class="selection-card @(_createRequest.AccessMode == SftpAccessMode.VirtualFolder ? "active" : "")"
@@ -296,16 +298,16 @@
                                             <span>Virtual Folder (NTFS Junction)</span>
                                         </div>
                                         <div class="text-muted small mt-1" style="font-size: 0.78rem;">
-                                            ปรากฏเป็นโฟลเดอร์ย่อยใน Home ของสมาชิก อยู่ได้หลายกลุ่มพร้อมกัน
+                                            @L["Groups.VirtualDesc"]
                                         </div>
                                     </div>
                                     @if (_createRequest.AccessMode == SftpAccessMode.VirtualFolder)
                                     {
-                                        <span class="badge bg-primary text-white flex-shrink-0"><i class="bi bi-check-lg"></i> เลือกอยู่</span>
+                                        <span class="badge bg-primary text-white flex-shrink-0"><i class="bi bi-check-lg"></i> @L["Groups.SelectedBadge"]</span>
                                     }
                                     else
                                     {
-                                        <span class="badge bg-light text-secondary border flex-shrink-0">คลิกเลือก</span>
+                                        <span class="badge bg-light text-secondary border flex-shrink-0">@L["Groups.ClickSelectBadge"]</span>
                                     }
                                 </div>
                             </div>
@@ -319,16 +321,16 @@
                                             <span>Direct Chroot</span>
                                         </div>
                                         <div class="text-muted small mt-1" style="font-size: 0.78rem;">
-                                            ใช้โฟลเดอร์กลุ่มเป็น Root หลักทันทีเมื่อสมาชิกเชื่อมต่อเข้ามา
+                                            @L["Groups.ChrootDesc"]
                                         </div>
                                     </div>
                                     @if (_createRequest.AccessMode == SftpAccessMode.DirectChroot)
                                     {
-                                        <span class="badge bg-primary text-white flex-shrink-0"><i class="bi bi-check-lg"></i> เลือกอยู่</span>
+                                        <span class="badge bg-primary text-white flex-shrink-0"><i class="bi bi-check-lg"></i> @L["Groups.SelectedBadge"]</span>
                                     }
                                     else
                                     {
-                                        <span class="badge bg-light text-secondary border flex-shrink-0">คลิกเลือก</span>
+                                        <span class="badge bg-light text-secondary border flex-shrink-0">@L["Groups.ClickSelectBadge"]</span>
                                     }
                                 </div>
                             </div>
@@ -336,7 +338,7 @@
                     </div>
 
                     <div class="mb-4">
-                        <label class="form-label small fw-bold mb-2">เลือกระดับสิทธิ์ของสมาชิก (Permission Level)</label>
+                        <label class="form-label small fw-bold mb-2">@L["Groups.SelectPermLabel"]</label>
                         <div class="row g-3">
                             <div class="col-md-6">
                                 <div class="selection-card @(_createRequest.PermissionType == SftpPermissionType.ReadWrite ? "active" : "")"
@@ -345,19 +347,19 @@
                                         <div class="fw-bold small d-flex align-items-center gap-2">
                                             <i class="bi @(_createRequest.PermissionType == SftpPermissionType.ReadWrite ? "bi-check-circle-fill text-primary" : "bi-circle text-muted") fs-6"></i>
                                             <i class="bi bi-pencil-square text-success"></i>
-                                            <span>Read &amp; Write (อ่านและเขียนไฟล์)</span>
+                                            <span>@L["Groups.RwTitle"]</span>
                                         </div>
                                         <div class="text-muted small mt-1" style="font-size: 0.78rem;">
-                                            อัปโหลด ดาวน์โหลด แก้ไข และลบไฟล์ในกลุ่มได้
+                                            @L["Groups.RwDesc"]
                                         </div>
                                     </div>
                                     @if (_createRequest.PermissionType == SftpPermissionType.ReadWrite)
                                     {
-                                        <span class="badge bg-primary text-white flex-shrink-0"><i class="bi bi-check-lg"></i> เลือกอยู่</span>
+                                        <span class="badge bg-primary text-white flex-shrink-0"><i class="bi bi-check-lg"></i> @L["Groups.SelectedBadge"]</span>
                                     }
                                     else
                                     {
-                                        <span class="badge bg-light text-secondary border flex-shrink-0">คลิกเลือก</span>
+                                        <span class="badge bg-light text-secondary border flex-shrink-0">@L["Groups.ClickSelectBadge"]</span>
                                     }
                                 </div>
                             </div>
@@ -368,19 +370,19 @@
                                         <div class="fw-bold small d-flex align-items-center gap-2">
                                             <i class="bi @(_createRequest.PermissionType == SftpPermissionType.ReadOnly ? "bi-check-circle-fill text-primary" : "bi-circle text-muted") fs-6"></i>
                                             <i class="bi bi-eye text-secondary"></i>
-                                            <span>Read-Only (อ่านอย่างเดียว)</span>
+                                            <span>@L["Groups.RoTitle"]</span>
                                         </div>
                                         <div class="text-muted small mt-1" style="font-size: 0.78rem;">
-                                            เปิดดูและดาวน์โหลดไฟล์ได้อย่างเดียว ห้ามแก้ไขหรือลบ
+                                            @L["Groups.RoDesc"]
                                         </div>
                                     </div>
                                     @if (_createRequest.PermissionType == SftpPermissionType.ReadOnly)
                                     {
-                                        <span class="badge bg-primary text-white flex-shrink-0"><i class="bi bi-check-lg"></i> เลือกอยู่</span>
+                                        <span class="badge bg-primary text-white flex-shrink-0"><i class="bi bi-check-lg"></i> @L["Groups.SelectedBadge"]</span>
                                     }
                                     else
                                     {
-                                        <span class="badge bg-light text-secondary border flex-shrink-0">คลิกเลือก</span>
+                                        <span class="badge bg-light text-secondary border flex-shrink-0">@L["Groups.ClickSelectBadge"]</span>
                                     }
                                 </div>
                             </div>
@@ -391,11 +393,11 @@
                     <div class="form-step-header">
                         <div class="form-step-title">
                             <span class="form-step-badge">3</span>
-                            <span>เลือกสมาชิกเริ่มต้น (Initial Members)</span>
+                            <span>@L["Groups.Step3Title"]</span>
                         </div>
                         <span class="badge bg-primary text-white px-2.5 py-1">
                             <i class="bi bi-people-fill"></i>
-                            <span>เลือกแล้ว @_createRequest.InitialMembers.Count คน</span>
+                            <span>@L.Get("Groups.SelectedMembersCount", _createRequest.InitialMembers.Count)</span>
                         </span>
                     </div>
 
@@ -404,19 +406,19 @@
                         <div class="d-flex justify-content-between align-items-center mb-2">
                             <span class="small fw-bold text-primary-emphasis d-inline-flex align-items-center gap-1.5">
                                 <i class="bi bi-check-circle-fill text-primary"></i>
-                                <span>รายชื่อสมาชิกที่เลือกอยู่ (@_createRequest.InitialMembers.Count คน):</span>
+                                <span>@L.Get("Groups.SelectedMembersList", _createRequest.InitialMembers.Count)</span>
                             </span>
                             @if (_createRequest.InitialMembers.Count > 0)
                             {
                                 <button type="button" class="btn btn-sm btn-outline-danger py-0 px-2" style="font-size: 0.75rem;" @onclick="() => _createRequest.InitialMembers.Clear()">
                                     <i class="bi bi-trash3"></i>
-                                    <span>ล้างทั้งหมด</span>
+                                    <span>@L["Groups.ClearAll"]</span>
                                 </button>
                             }
                         </div>
                         @if (_createRequest.InitialMembers.Count == 0)
                         {
-                            <div class="small text-secondary">ยังไม่ได้เลือกสมาชิก — พิมพ์ค้นหาและคลิกเลือกรายชื่อจาก Dropdown ด้านล่าง</div>
+                            <div class="small text-secondary">@L["Groups.NoMembersSelected"]</div>
                         }
                         else
                         {
@@ -431,7 +433,7 @@
                                         {
                                             <span class="fw-normal opacity-75">(@uInfo.DisplayName)</span>
                                         }
-                                        <button type="button" class="selected-item-remove" title="นำผู้ใช้นี้ออก" @onclick="() => ToggleMemberByClick(_createRequest.InitialMembers, uname)">
+                                        <button type="button" class="selected-item-remove" title="@L["Groups.RemoveMemberTooltip"]" @onclick="() => ToggleMemberByClick(_createRequest.InitialMembers, uname)">
                                             <i class="bi bi-x"></i>
                                         </button>
                                     </span>
@@ -445,7 +447,7 @@
                         <div class="p-2.5 bg-light border-bottom d-flex flex-wrap justify-content-between align-items-center gap-2">
                             <div class="input-group input-group-sm" style="max-width: 380px;">
                                 <span class="input-group-text bg-white text-primary border-primary"><i class="bi bi-search"></i></span>
-                                <input type="text" class="form-control border-primary" placeholder="พิมพ์ค้นหา Username หรือชื่อ-นามสกุลเพื่อกรองรายการ..."
+                                <input type="text" class="form-control border-primary" placeholder="@L["Groups.MemberSearchPlaceholder"]"
                                        @bind="_memberSearchTerm" @bind:event="oninput" @onfocus="() => _isMemberDropdownOpen = true" />
                                 @if (!string.IsNullOrWhiteSpace(_memberSearchTerm))
                                 {
@@ -457,11 +459,11 @@
                             <div class="d-flex align-items-center gap-1.5">
                                 <button type="button" class="btn btn-outline-primary btn-sm py-0.5 px-2" style="font-size: 0.75rem;" @onclick="() => SelectAllMembers(_createRequest.InitialMembers)">
                                     <i class="bi bi-check2-all"></i>
-                                    <span>เลือกทั้งหมดที่กรอง (@FilteredMemberCandidates.Count())</span>
+                                    <span>@L.Get("Groups.SelectAllFiltered", FilteredMemberCandidates.Count())</span>
                                 </button>
                                 <button type="button" class="btn btn-outline-secondary btn-sm py-0.5 px-2" style="font-size: 0.75rem;" @onclick="() => _isMemberDropdownOpen = !_isMemberDropdownOpen">
                                     <i class="bi @(_isMemberDropdownOpen ? "bi-chevron-up" : "bi-chevron-down")"></i>
-                                    <span>@(_isMemberDropdownOpen ? "พับรายการ" : "กางรายการ")</span>
+                                    <span>@(_isMemberDropdownOpen ? L["Groups.CollapseList"] : L["Groups.ExpandList"])</span>
                                 </button>
                             </div>
                         </div>
@@ -471,11 +473,11 @@
                             <div class="searchable-dropdown-list">
                                 @if (_allUsers.Count == 0)
                                 {
-                                    <div class="text-muted text-center py-3 small">ยังไม่มีผู้ใช้งานในระบบ (สามารถเพิ่มภายหลังได้)</div>
+                                    <div class="text-muted text-center py-3 small">@L["Groups.NoUsersYet"]</div>
                                 }
                                 else if (!FilteredMemberCandidates.Any())
                                 {
-                                    <div class="text-muted text-center py-3 small">ไม่พบรายชื่อผู้ใช้ที่ตรงกับคำค้นหา "@_memberSearchTerm"</div>
+                                    <div class="text-muted text-center py-3 small">@L.Get("Groups.NoUserMatches", _memberSearchTerm)</div>
                                 }
                                 else
                                 {
@@ -496,7 +498,7 @@
                                             </div>
                                             @if (isSelected)
                                             {
-                                                <span class="badge bg-primary text-white"><i class="bi bi-check-lg"></i> เลือกอยู่</span>
+                                                <span class="badge bg-primary text-white"><i class="bi bi-check-lg"></i> @L["Groups.SelectedBadge"]</span>
                                             }
                                             else
                                             {
@@ -514,21 +516,21 @@
                         <div class="small">
                             <div class="fw-bold d-flex align-items-center gap-1.5">
                                 <i class="bi bi-check2-circle"></i>
-                                <span>สรุปผลลัพธ์การเข้าถึงของกลุ่ม (Effective Group Access):</span>
+                                <span>@L["Groups.EffectiveAccessTitle"]</span>
                             </div>
                             <div class="font-monospace mt-0.5">
                                 @if (_createRequest.AccessMode == SftpAccessMode.VirtualFolder)
                                 {
-                                    <span>สมาชิกจะเห็นโฟลเดอร์ย่อย <strong>/@(string.IsNullOrWhiteSpace(_createRequest.Name) ? "{GroupName}" : _createRequest.Name.Trim())</strong> เชื่อมไปยัง <strong>@(string.IsNullOrWhiteSpace(_createRequest.RootPath) ? "{RootPath}" : _createRequest.RootPath.Trim())</strong></span>
+                                    <span>@L.Get("Groups.EffectiveVirtual", string.IsNullOrWhiteSpace(_createRequest.Name) ? "{GroupName}" : _createRequest.Name.Trim(), string.IsNullOrWhiteSpace(_createRequest.RootPath) ? "{RootPath}" : _createRequest.RootPath.Trim())</span>
                                 }
                                 else
                                 {
-                                    <span>สมาชิกจะเข้าสู่ Chroot หลักที่ <strong>@(string.IsNullOrWhiteSpace(_createRequest.RootPath) ? "{RootPath}" : _createRequest.RootPath.Trim())</strong> โดยตรง</span>
+                                    <span>@L.Get("Groups.EffectiveChroot", string.IsNullOrWhiteSpace(_createRequest.RootPath) ? "{RootPath}" : _createRequest.RootPath.Trim())</span>
                                 }
                             </div>
                         </div>
                         <span class="badge bg-white text-primary border border-primary-subtle">
-                            @(_createRequest.PermissionType == SftpPermissionType.ReadWrite ? "สิทธิ์ Read & Write" : "สิทธิ์ Read-Only")
+                            @(_createRequest.PermissionType == SftpPermissionType.ReadWrite ? L["Groups.PermRwBadge"] : L["Groups.PermRoBadge"])
                         </span>
                     </div>
                 </div>
@@ -538,29 +540,29 @@
                         {
                             <span class="text-success fw-semibold d-inline-flex align-items-center gap-1">
                                 <i class="bi bi-check-circle-fill"></i>
-                                <span>ข้อมูลครบถ้วน พร้อมสร้างกลุ่มทันที</span>
+                                <span>@L["Groups.CreateValidReady"]</span>
                             </span>
                         }
                         else
                         {
                             <span class="text-warning-emphasis d-inline-flex align-items-center gap-1">
                                 <i class="bi bi-info-circle-fill"></i>
-                                <span>กรุณาระบุชื่อกลุ่มและโฟลเดอร์หลัก (*) ให้ครบ</span>
+                                <span>@L["Groups.CreateMissingRequired"]</span>
                             </span>
                         }
                     </div>
                     <div class="d-flex gap-2">
-                        <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="CloseModals">ยกเลิก</button>
+                        <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="CloseModals">@L["Common.Cancel"]</button>
                         <button type="button" class="btn btn-primary btn-sm px-3" @onclick="SaveCreateGroup" disabled="@(_saving || !IsCreateGroupValid)">
                             @if (_saving)
                             {
                                 <span class="spinner-border spinner-border-sm"></span>
-                                <span>กำลังสร้าง...</span>
+                                <span>@L["Groups.Creating"]</span>
                             }
                             else
                             {
                                 <i class="bi bi-check-lg"></i>
-                                <span>@(IsCreateGroupValid ? $"บันทึกและสร้างกลุ่ม {_createRequest.Name.Trim()}" : "กรุณากรอกข้อมูลให้ครบ")</span>
+                                <span>@(IsCreateGroupValid ? L.Get("Groups.CreateSaveBtn", _createRequest.Name.Trim()) : L["WebAdmins.FillComplete"])</span>
                             }
                         </button>
                     </div>
@@ -579,7 +581,7 @@
                 <div class="modal-header bg-dark text-white">
                     <h5 class="modal-title d-flex align-items-center gap-2">
                         <i class="bi bi-pencil-square text-primary"></i>
-                        <span>แก้ไขกลุ่มผู้ใช้งาน: @_selectedGroup.Name</span>
+                        <span>@L.Get("Groups.EditModalTitle", _selectedGroup.Name)</span>
                     </h5>
                     <button type="button" class="btn-close btn-close-white" @onclick="CloseModals"></button>
                 </div>
@@ -596,7 +598,7 @@
                     <div class="form-step-header">
                         <div class="form-step-title">
                             <span class="form-step-badge">1</span>
-                            <span>ข้อมูลกลุ่มและโฟลเดอร์หลัก (Group Identity & Shared Path)</span>
+                            <span>@L["Groups.Step1Title"]</span>
                         </div>
                         <span class="badge bg-primary-subtle text-primary border border-primary-subtle font-monospace" style="font-size: 0.7rem;">
                             OS Group: SFTP-@_selectedGroup.Name
@@ -605,22 +607,22 @@
 
                     <div class="row g-3 mb-4">
                         <div class="col-md-6">
-                            <label class="form-label small fw-bold mb-1">ชื่อกลุ่ม (Group Name)</label>
+                            <label class="form-label small fw-bold mb-1">@L["Groups.GroupNameLabel"]</label>
                             <input type="text" class="form-control form-control-sm" value="@_selectedGroup.Name" disabled />
                         </div>
 
                         <div class="col-md-6">
-                            <label class="form-label small fw-bold mb-1">คำอธิบาย (Description)</label>
-                            <input type="text" class="form-control form-control-sm" placeholder="ระบุคำอธิบายเพิ่มเติมของกลุ่มนี้..." @bind="_editRequest.Description" />
+                            <label class="form-label small fw-bold mb-1">@L["Groups.DescLabel"]</label>
+                            <input type="text" class="form-control form-control-sm" placeholder="@L["Groups.EditDescPlaceholder"]" @bind="_editRequest.Description" />
                         </div>
 
                         <div class="col-12">
-                            <label class="form-label small fw-bold mb-1">โฟลเดอร์หลักของกลุ่ม (Shared Root Path) <span class="text-danger">*</span></label>
+                            <label class="form-label small fw-bold mb-1">@L["Groups.RootPathLabel"] <span class="text-danger">*</span></label>
                             <div class="input-group input-group-sm">
-                                <input type="text" class="form-control font-monospace" placeholder="เช่น D:\SFTPShare\Marketing" @bind="_editRequest.RootPath" @bind:event="oninput" />
+                                <input type="text" class="form-control font-monospace" placeholder="@L["FolderPicker.PathPlaceholder"]" @bind="_editRequest.RootPath" @bind:event="oninput" />
                                 <button class="btn btn-outline-secondary" type="button" @onclick="OpenFolderBrowserForEdit">
                                     <i class="bi bi-folder2-open"></i>
-                                    <span>เลือกโฟลเดอร์...</span>
+                                    <span>@L["Groups.BrowseFolderBtn"]</span>
                                 </button>
                             </div>
                         </div>
@@ -630,13 +632,13 @@
                     <div class="form-step-header">
                         <div class="form-step-title">
                             <span class="form-step-badge">2</span>
-                            <span>โหมดการเข้าถึงและระดับสิทธิ์ (Access Mode &amp; NTFS Permission)</span>
+                            <span>@L["Groups.Step2Title"]</span>
                         </div>
-                        <span class="badge bg-primary-subtle text-primary border border-primary-subtle" style="font-size: 0.72rem;">กรอบสีฟ้า = กำลังเลือกอยู่</span>
+                        <span class="badge bg-primary-subtle text-primary border border-primary-subtle" style="font-size: 0.72rem;">@L["Groups.SelectedBlueBadge"]</span>
                     </div>
 
                     <div class="mb-3">
-                        <label class="form-label small fw-bold mb-2">รูปแบบการมองเห็นโฟลเดอร์ (Access Mode)</label>
+                        <label class="form-label small fw-bold mb-2">@L["Groups.SelectAccessModeLabel"]</label>
                         <div class="row g-3">
                             <div class="col-md-6">
                                 <div class="selection-card @(_editRequest.AccessMode == SftpAccessMode.VirtualFolder ? "active" : "")"
@@ -648,16 +650,16 @@
                                             <span>Virtual Folder (NTFS Junction)</span>
                                         </div>
                                         <div class="text-muted small mt-1" style="font-size: 0.78rem;">
-                                            ปรากฏเป็นโฟลเดอร์ย่อยใน Home ของสมาชิก
+                                            @L["Groups.VirtualDesc"]
                                         </div>
                                     </div>
                                     @if (_editRequest.AccessMode == SftpAccessMode.VirtualFolder)
                                     {
-                                        <span class="badge bg-primary text-white flex-shrink-0"><i class="bi bi-check-lg"></i> เลือกอยู่</span>
+                                        <span class="badge bg-primary text-white flex-shrink-0"><i class="bi bi-check-lg"></i> @L["Groups.SelectedBadge"]</span>
                                     }
                                     else
                                     {
-                                        <span class="badge bg-light text-secondary border flex-shrink-0">คลิกเลือก</span>
+                                        <span class="badge bg-light text-secondary border flex-shrink-0">@L["Groups.ClickSelectBadge"]</span>
                                     }
                                 </div>
                             </div>
@@ -671,16 +673,16 @@
                                             <span>Direct Chroot</span>
                                         </div>
                                         <div class="text-muted small mt-1" style="font-size: 0.78rem;">
-                                            ใช้โฟลเดอร์กลุ่มเป็น Root หลักโดยตรง
+                                            @L["Groups.ChrootDesc"]
                                         </div>
                                     </div>
                                     @if (_editRequest.AccessMode == SftpAccessMode.DirectChroot)
                                     {
-                                        <span class="badge bg-primary text-white flex-shrink-0"><i class="bi bi-check-lg"></i> เลือกอยู่</span>
+                                        <span class="badge bg-primary text-white flex-shrink-0"><i class="bi bi-check-lg"></i> @L["Groups.SelectedBadge"]</span>
                                     }
                                     else
                                     {
-                                        <span class="badge bg-light text-secondary border flex-shrink-0">คลิกเลือก</span>
+                                        <span class="badge bg-light text-secondary border flex-shrink-0">@L["Groups.ClickSelectBadge"]</span>
                                     }
                                 </div>
                             </div>
@@ -688,7 +690,7 @@
                     </div>
 
                     <div class="mb-4">
-                        <label class="form-label small fw-bold mb-2">ระดับสิทธิ์ของสมาชิก (Permission Level)</label>
+                        <label class="form-label small fw-bold mb-2">@L["Groups.SelectPermLabel"]</label>
                         <div class="row g-3">
                             <div class="col-md-6">
                                 <div class="selection-card @(_editRequest.PermissionType == SftpPermissionType.ReadWrite ? "active" : "")"
@@ -697,19 +699,19 @@
                                         <div class="fw-bold small d-flex align-items-center gap-2">
                                             <i class="bi @(_editRequest.PermissionType == SftpPermissionType.ReadWrite ? "bi-check-circle-fill text-primary" : "bi-circle text-muted") fs-6"></i>
                                             <i class="bi bi-pencil-square text-success"></i>
-                                            <span>Read &amp; Write (อ่านและเขียนไฟล์)</span>
+                                            <span>@L["Groups.RwTitle"]</span>
                                         </div>
                                         <div class="text-muted small mt-1" style="font-size: 0.78rem;">
-                                            อัปโหลด ดาวน์โหลด แก้ไข และลบไฟล์ได้
+                                            @L["Groups.RwDesc"]
                                         </div>
                                     </div>
                                     @if (_editRequest.PermissionType == SftpPermissionType.ReadWrite)
                                     {
-                                        <span class="badge bg-primary text-white flex-shrink-0"><i class="bi bi-check-lg"></i> เลือกอยู่</span>
+                                        <span class="badge bg-primary text-white flex-shrink-0"><i class="bi bi-check-lg"></i> @L["Groups.SelectedBadge"]</span>
                                     }
                                     else
                                     {
-                                        <span class="badge bg-light text-secondary border flex-shrink-0">คลิกเลือก</span>
+                                        <span class="badge bg-light text-secondary border flex-shrink-0">@L["Groups.ClickSelectBadge"]</span>
                                     }
                                 </div>
                             </div>
@@ -720,19 +722,19 @@
                                         <div class="fw-bold small d-flex align-items-center gap-2">
                                             <i class="bi @(_editRequest.PermissionType == SftpPermissionType.ReadOnly ? "bi-check-circle-fill text-primary" : "bi-circle text-muted") fs-6"></i>
                                             <i class="bi bi-eye text-secondary"></i>
-                                            <span>Read-Only (อ่านอย่างเดียว)</span>
+                                            <span>@L["Groups.RoTitle"]</span>
                                         </div>
                                         <div class="text-muted small mt-1" style="font-size: 0.78rem;">
-                                            เปิดดูและดาวน์โหลดไฟล์ได้อย่างเดียว
+                                            @L["Groups.RoDesc"]
                                         </div>
                                     </div>
                                     @if (_editRequest.PermissionType == SftpPermissionType.ReadOnly)
                                     {
-                                        <span class="badge bg-primary text-white flex-shrink-0"><i class="bi bi-check-lg"></i> เลือกอยู่</span>
+                                        <span class="badge bg-primary text-white flex-shrink-0"><i class="bi bi-check-lg"></i> @L["Groups.SelectedBadge"]</span>
                                     }
                                     else
                                     {
-                                        <span class="badge bg-light text-secondary border flex-shrink-0">คลิกเลือก</span>
+                                        <span class="badge bg-light text-secondary border flex-shrink-0">@L["Groups.ClickSelectBadge"]</span>
                                     }
                                 </div>
                             </div>
@@ -743,11 +745,11 @@
                     <div class="form-step-header">
                         <div class="form-step-title">
                             <span class="form-step-badge">3</span>
-                            <span>สมาชิกในกลุ่ม (Group Members)</span>
+                            <span>@L["Groups.EditMembersTitle"]</span>
                         </div>
                         <span class="badge bg-primary text-white px-2.5 py-1">
                             <i class="bi bi-people-fill"></i>
-                            <span>เลือกแล้ว @_editRequest.Members.Count คน</span>
+                            <span>@L.Get("Groups.SelectedMembersCount", _editRequest.Members.Count)</span>
                         </span>
                     </div>
 
@@ -756,19 +758,19 @@
                         <div class="d-flex justify-content-between align-items-center mb-2">
                             <span class="small fw-bold text-primary-emphasis d-inline-flex align-items-center gap-1.5">
                                 <i class="bi bi-check-circle-fill text-primary"></i>
-                                <span>รายชื่อสมาชิกที่เลือกอยู่ (@_editRequest.Members.Count คน):</span>
+                                <span>@L.Get("Groups.SelectedMembersList", _editRequest.Members.Count)</span>
                             </span>
                             @if (_editRequest.Members.Count > 0)
                             {
                                 <button type="button" class="btn btn-sm btn-outline-danger py-0 px-2" style="font-size: 0.75rem;" @onclick="() => _editRequest.Members.Clear()">
                                     <i class="bi bi-trash3"></i>
-                                    <span>ล้างทั้งหมด</span>
+                                    <span>@L["Groups.ClearAll"]</span>
                                 </button>
                             }
                         </div>
                         @if (_editRequest.Members.Count == 0)
                         {
-                            <div class="small text-secondary">ยังไม่มีสมาชิกในกลุ่มนี้ — พิมพ์ค้นหาและคลิกเลือกรายชื่อจาก Dropdown ด้านล่าง</div>
+                            <div class="small text-secondary">@L["Groups.NoMembersSelected"]</div>
                         }
                         else
                         {
@@ -783,7 +785,7 @@
                                         {
                                             <span class="fw-normal opacity-75">(@uInfo.DisplayName)</span>
                                         }
-                                        <button type="button" class="selected-item-remove" title="นำผู้ใช้นี้ออก" @onclick="() => ToggleMemberByClick(_editRequest.Members, uname)">
+                                        <button type="button" class="selected-item-remove" title="@L["Groups.RemoveMemberTooltip"]" @onclick="() => ToggleMemberByClick(_editRequest.Members, uname)">
                                             <i class="bi bi-x"></i>
                                         </button>
                                     </span>
@@ -797,7 +799,7 @@
                         <div class="p-2.5 bg-light border-bottom d-flex flex-wrap justify-content-between align-items-center gap-2">
                             <div class="input-group input-group-sm" style="max-width: 380px;">
                                 <span class="input-group-text bg-white text-primary border-primary"><i class="bi bi-search"></i></span>
-                                <input type="text" class="form-control border-primary" placeholder="พิมพ์ค้นหา Username หรือชื่อ-นามสกุลเพื่อกรองรายการ..."
+                                <input type="text" class="form-control border-primary" placeholder="@L["Groups.MemberSearchPlaceholder"]"
                                        @bind="_memberSearchTerm" @bind:event="oninput" @onfocus="() => _isMemberDropdownOpen = true" />
                                 @if (!string.IsNullOrWhiteSpace(_memberSearchTerm))
                                 {
@@ -809,11 +811,11 @@
                             <div class="d-flex align-items-center gap-1.5">
                                 <button type="button" class="btn btn-outline-primary btn-sm py-0.5 px-2" style="font-size: 0.75rem;" @onclick="() => SelectAllMembers(_editRequest.Members)">
                                     <i class="bi bi-check2-all"></i>
-                                    <span>เลือกทั้งหมดที่กรอง (@FilteredMemberCandidates.Count())</span>
+                                    <span>@L.Get("Groups.SelectAllFiltered", FilteredMemberCandidates.Count())</span>
                                 </button>
                                 <button type="button" class="btn btn-outline-secondary btn-sm py-0.5 px-2" style="font-size: 0.75rem;" @onclick="() => _isMemberDropdownOpen = !_isMemberDropdownOpen">
                                     <i class="bi @(_isMemberDropdownOpen ? "bi-chevron-up" : "bi-chevron-down")"></i>
-                                    <span>@(_isMemberDropdownOpen ? "พับรายการ" : "กางรายการ")</span>
+                                    <span>@(_isMemberDropdownOpen ? L["Groups.CollapseList"] : L["Groups.ExpandList"])</span>
                                 </button>
                             </div>
                         </div>
@@ -823,7 +825,7 @@
                             <div class="searchable-dropdown-list">
                                 @if (!FilteredMemberCandidates.Any())
                                 {
-                                    <div class="text-muted text-center py-3 small">ไม่พบรายชื่อผู้ใช้ที่ตรงกับคำค้นหา "@_memberSearchTerm"</div>
+                                    <div class="text-muted text-center py-3 small">@L.Get("Groups.NoUserMatches", _memberSearchTerm)</div>
                                 }
                                 else
                                 {
@@ -844,7 +846,7 @@
                                             </div>
                                             @if (isSelected)
                                             {
-                                                <span class="badge bg-primary text-white"><i class="bi bi-check-lg"></i> เลือกอยู่</span>
+                                                <span class="badge bg-primary text-white"><i class="bi bi-check-lg"></i> @L["Groups.SelectedBadge"]</span>
                                             }
                                             else
                                             {
@@ -858,19 +860,19 @@
                     </div>
                 </div>
                 <div class="modal-footer bg-light d-flex justify-content-between align-items-center">
-                    <span class="small text-muted">การเปลี่ยนแปลงจะมีผลกับ NTFS ACL และ Junction ของสมาชิกทันที</span>
+                    <span class="small text-muted">@L["Groups.EditImmediateNote"]</span>
                     <div class="d-flex gap-2">
-                        <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="CloseModals">ยกเลิก</button>
+                        <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="CloseModals">@L["Common.Cancel"]</button>
                         <button type="button" class="btn btn-primary btn-sm px-3" @onclick="SaveEditGroup" disabled="@(_saving || string.IsNullOrWhiteSpace(_editRequest.RootPath))">
                             @if (_saving)
                             {
                                 <span class="spinner-border spinner-border-sm"></span>
-                                <span>กำลังบันทึก...</span>
+                                <span>@L["Common.Saving"]</span>
                             }
                             else
                             {
                                 <i class="bi bi-check-lg"></i>
-                                <span>บันทึกการแก้ไข</span>
+                                <span>@L["Groups.SaveChangesBtn"]</span>
                             }
                         </button>
                     </div>
@@ -889,14 +891,14 @@
                 <div class="modal-header bg-dark text-white">
                     <h5 class="modal-title d-flex align-items-center gap-2">
                         <i class="bi bi-people-fill text-primary"></i>
-                        <span>สมาชิกในกลุ่ม: @_selectedGroup.Name</span>
+                        <span>@L.Get("Groups.MembersModalTitle", _selectedGroup.Name)</span>
                     </h5>
                     <button type="button" class="btn-close btn-close-white" @onclick="CloseModals"></button>
                 </div>
                 <div class="modal-body p-0">
                     @if (_selectedGroup.Members.Count == 0)
                     {
-                        <div class="text-center py-4 text-muted small">ยังไม่มีสมาชิกสังกัดในกลุ่มนี้</div>
+                        <div class="text-center py-4 text-muted small">@L["Groups.MembersModalEmpty"]</div>
                     }
                     else
                     {
@@ -908,19 +910,19 @@
                                         <i class="bi bi-person-badge text-primary"></i>
                                         <span class="fw-bold">@member.Username</span>
                                     </div>
-                                    <span class="small text-muted font-monospace">เข้าร่วม: @member.JoinedAt.ToLocalTime().ToString("dd/MM/yyyy")</span>
+                                    <span class="small text-muted font-monospace">@L.Get("Groups.JoinedAt", member.JoinedAt.ToLocalTime().ToString("dd/MM/yyyy"))</span>
                                 </li>
                             }
                         </ul>
                     }
                 </div>
                 <div class="modal-footer bg-light py-2">
-                    <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="CloseModals">ปิด</button>
+                    <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="CloseModals">@L["Common.Close"]</button>
                     @if (SessionState.CanManageSftp)
                     {
                         <button type="button" class="btn btn-primary btn-sm" @onclick="() => { var g = _selectedGroup; CloseModals(); if (g != null) OpenEditModal(g); }">
                             <i class="bi bi-person-gear"></i>
-                            <span>จัดการสมาชิก</span>
+                            <span>@L["Groups.ManageMembersBtn"]</span>
                         </button>
                     }
                 </div>
@@ -938,31 +940,31 @@
                 <div class="modal-header bg-danger text-white">
                     <h5 class="modal-title d-flex align-items-center gap-2">
                         <i class="bi bi-exclamation-triangle-fill"></i>
-                        <span>ยืนยันการลบกลุ่ม: @_selectedGroup.Name</span>
+                        <span>@L.Get("Groups.DeleteModalTitle", _selectedGroup.Name)</span>
                     </h5>
                     <button type="button" class="btn-close btn-close-white" @onclick="CloseModals"></button>
                 </div>
                 <div class="modal-body p-4">
-                    <p class="mb-3">คุณแน่ใจหรือไม่ว่าต้องการลบกลุ่มผู้ใช้งาน <strong>@_selectedGroup.Name</strong>?</p>
+                    <p class="mb-3">@L.Get("Groups.DeleteModalQuestion", _selectedGroup.Name)</p>
                     <div class="alert alert-info py-2.5 small mb-0 d-flex align-items-start gap-2">
                         <i class="bi bi-shield-check fs-5 flex-shrink-0 mt-0.5"></i>
                         <div>
-                            <strong>การคุ้มครองข้อมูล (Data Protection):</strong> โฟลเดอร์แชร์ <code>@_selectedGroup.RootPath</code> และไฟล์ทั้งหมดภายในจะ<strong>ไม่ถูกลบ</strong> ระบบจะถอนเฉพาะสิทธิ์การเข้าถึงและ NTFS Junction เท่านั้น
+                            @L.Get("Groups.DataProtectionNote", _selectedGroup.RootPath)
                         </div>
                     </div>
                 </div>
                 <div class="modal-footer bg-light">
-                    <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="CloseModals">ยกเลิก</button>
+                    <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="CloseModals">@L["Common.Cancel"]</button>
                     <button type="button" class="btn btn-danger btn-sm" @onclick="ConfirmDeleteGroup" disabled="@_saving">
                         @if (_saving)
                         {
                             <span class="spinner-border spinner-border-sm"></span>
-                            <span>กำลังลบ...</span>
+                            <span>@L["Groups.Deleting"]</span>
                         }
                         else
                         {
                             <i class="bi bi-trash3"></i>
-                            <span>ยืนยันการลบกลุ่ม</span>
+                            <span>@L["Groups.ConfirmDeleteBtn"]</span>
                         }
                     </button>
                 </div>
@@ -1085,7 +1087,13 @@
 
     protected override async Task OnInitializedAsync()
     {
+        L.OnLanguageChanged += StateHasChanged;
         await LoadData();
+    }
+
+    public void Dispose()
+    {
+        L.OnLanguageChanged -= StateHasChanged;
     }
 
     private async Task LoadData()
@@ -1098,7 +1106,7 @@
         }
         catch (Exception ex)
         {
-            _statusMessage = $"เกิดข้อผิดพลาดในการโหลดข้อมูล: {ex.Message}";
+            _statusMessage = L.Get("Home.LoadError", ex.Message);
             _isSuccessStatus = false;
         }
         finally
@@ -1210,12 +1218,12 @@
         if (!SessionState.CanManageSftp) return;
         if (string.IsNullOrWhiteSpace(_createRequest.Name))
         {
-            _modalError = "กรุณาระบุชื่อกลุ่ม (Group Name)";
+            _modalError = L["Groups.ErrNameRequired"];
             return;
         }
         if (string.IsNullOrWhiteSpace(_createRequest.RootPath))
         {
-            _modalError = "กรุณาระบุโฟลเดอร์หลัก (Shared Root Path)";
+            _modalError = L["Groups.ErrPathRequired"];
             return;
         }
 
@@ -1251,7 +1259,7 @@
         if (!SessionState.CanManageSftp) return;
         if (string.IsNullOrWhiteSpace(_editRequest.RootPath))
         {
-            _modalError = "กรุณาระบุโฟลเดอร์หลัก (Shared Root Path)";
+            _modalError = L["Groups.ErrPathRequired"];
             return;
         }
 

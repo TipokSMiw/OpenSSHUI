@@ -2,6 +2,7 @@
 @rendermode InteractiveServer
 @inject IOpenSshLogService SshLogService
 @inject IJSRuntime JS
+@inject ILocalizationService L
 @implements IDisposable
 
 <PageTitle>OpenSSH Logs - OpensshUI</PageTitle>
@@ -12,24 +13,24 @@
         <div>
             <h3 class="page-title">
                 <i class="bi bi-terminal-split text-primary"></i>
-                <span>บันทึกเซิร์ฟเวอร์ (OpenSSH Logs)</span>
+                <span>@L["SshLogs.Title"]</span>
             </h3>
-            <p class="text-muted small mb-0">ตรวจสอบบันทึกการเชื่อมต่อและกิจกรรมระดับระบบของ OpenSSH (sshd) จาก Windows Event Log (OpenSSH/Operational)</p>
+            <p class="text-muted small mb-0">@L["SshLogs.Subtitle"]</p>
         </div>
         <div class="d-flex align-items-center gap-2">
             <!-- Demo Mode Toggle -->
-            <button class="btn @(isDemoMode ? "btn-warning text-dark fw-bold" : "btn-outline-secondary") btn-sm" @onclick="ToggleDemoMode" title="สลับระหว่างโหมดอ่าน Event Log จริง กับโหมดจำลองข้อมูลตัวอย่าง (เหมาะสำหรับเครื่อง Dev)">
+            <button class="btn @(isDemoMode ? "btn-warning text-dark fw-bold" : "btn-outline-secondary") btn-sm" @onclick="ToggleDemoMode" title="@L["SshLogs.DemoTooltip"]">
                 <i class="bi @(isDemoMode ? "bi-check-circle-fill" : "bi-cpu")"></i>
-                <span>@(isDemoMode ? "โหมดทดสอบ: ข้อมูลจำลอง (Demo)" : "จำลองข้อมูล (Demo Mode)")</span>
+                <span>@(isDemoMode ? L["SshLogs.DemoActive"] : L["SshLogs.DemoInactive"])</span>
             </button>
 
             <div class="d-flex align-items-center gap-1.5 border rounded-2 px-2 py-1 bg-white shadow-sm">
                 <i class="bi bi-clock-history text-muted small"></i>
                 <span class="small text-muted me-1">Auto-Refresh:</span>
                 <select class="form-select form-select-sm border-0 py-0 ps-1 pe-4 bg-transparent fw-semibold" style="width: auto; cursor: pointer;" @bind="autoRefreshSeconds" @bind:after="OnAutoRefreshChanged">
-                    <option value="0">ปิด</option>
-                    <option value="10">ทุก 10 วินาที</option>
-                    <option value="30">ทุก 30 วินาที</option>
+                    <option value="0">@L["SshLogs.AutoRefreshOff"]</option>
+                    <option value="10">@L["SshLogs.AutoRefresh10s"]</option>
+                    <option value="30">@L["SshLogs.AutoRefresh30s"]</option>
                 </select>
             </div>
 
@@ -37,18 +38,18 @@
                 @if (isLoading)
                 {
                     <span class="spinner-border spinner-border-sm"></span>
-                    <span>กำลังโหลด...</span>
+                    <span>@L["SshLogs.LoadingBtn"]</span>
                 }
                 else
                 {
                     <i class="bi bi-arrow-clockwise"></i>
-                    <span>รีเฟรชข้อมูล</span>
+                    <span>@L["Home.RefreshBtn"]</span>
                 }
             </button>
 
             <button class="btn btn-outline-primary btn-sm" @onclick="ExportCsv" disabled="@(isLoading || queryResult?.Entries.Count == 0)">
                 <i class="bi bi-download"></i>
-                <span>ส่งออก CSV</span>
+                <span>@L["SshLogs.ExportCsv"]</span>
             </button>
         </div>
     </div>
@@ -60,12 +61,12 @@
             <div class="d-flex align-items-center gap-2 small">
                 <i class="bi bi-info-circle-fill fs-5 text-warning-emphasis"></i>
                 <div>
-                    <strong>กำลังแสดงข้อมูลจำลอง (Demo Mode):</strong> จำลองเหตุการณ์ล็อกอิน, รหัสผ่านผิด, และการเชื่อมต่อ SFTP เพื่อให้คุณสามารถทดสอบ UI, ตัวกรอง และการส่งออก CSV บนเครื่องเขียนโค้ด (Dev Machine) ได้ทันที
+                    <strong>@L["SshLogs.DemoBannerTitle"]</strong> @L["SshLogs.DemoBannerDesc"]
                 </div>
             </div>
             <button class="btn btn-outline-dark btn-sm py-0.5 px-2 text-nowrap" @onclick="ToggleDemoMode">
                 <i class="bi bi-arrow-return-left"></i>
-                <span>กลับสู่โหมดอ่าน Event Log จริง</span>
+                <span>@L["SshLogs.BackToLive"]</span>
             </button>
         </div>
     }
@@ -78,28 +79,28 @@
                 <i class="bi @(queryResult.RequiresPermissionElevation ? "bi-shield-exclamation text-warning" : "bi-exclamation-triangle-fill text-danger") fs-3 flex-shrink-0"></i>
                 <div class="flex-grow-1">
                     <div class="d-flex justify-content-between align-items-start">
-                        <h6 class="fw-bold mb-1">@(queryResult.ErrorMessage ?? "ไม่สามารถดึงข้อมูล Event Log ได้")</h6>
+                        <h6 class="fw-bold mb-1">@(queryResult.ErrorMessage ?? L["SshLogs.FetchError"])</h6>
                         <button class="btn btn-sm btn-outline-dark" @onclick="ToggleDemoMode">
                             <i class="bi bi-cpu"></i>
-                            <span>สลับใช้โหมดจำลองข้อมูล (Demo) เพื่อทดสอบ UI</span>
+                            <span>@L["SshLogs.SwitchToDemo"]</span>
                         </button>
                     </div>
 
                     @if (queryResult.RequiresPermissionElevation)
                     {
                         <p class="small mb-2 text-muted">
-                            บัญชีผู้ใช้ของคุณหรือ IIS AppPool ไม่มีสิทธิ์อ่าน Windows Event Log Channel <code>OpenSSH/Operational</code> (บน Windows ต้องมีสิทธิ์ Administrator หรืออยู่ในกลุ่ม <code>Event Log Readers</code>)
+                            @L["SshLogs.PermissionDesc"]
                         </p>
                         @if (!string.IsNullOrEmpty(queryResult.RecommendedFixCommand))
                         {
-                            <p class="small mb-1 fw-bold text-dark">คำสั่ง PowerShell (Run as Administrator) เพื่อเปิดสิทธิ์:</p>
+                            <p class="small mb-1 fw-bold text-dark">@L["SshLogs.PsFixTitle"]</p>
                             <pre class="bg-dark text-warning p-2.5 rounded font-monospace small mb-2 user-select-all"><code>@queryResult.RecommendedFixCommand</code></pre>
-                            <small class="text-muted d-block">* หากเปิดสิทธิ์แล้ว ให้ Sign-out / Sign-in เข้า Windows ใหม่อีกครั้ง หรือรีสตาร์ต IIS เพื่อให้สิทธิ์กลุ่มมีผล</small>
+                            <small class="text-muted d-block">@L["SshLogs.PsFixNote"]</small>
                         }
                     }
                     else if (!string.IsNullOrEmpty(queryResult.RecommendedFixCommand))
                     {
-                        <p class="small mb-1 text-muted">คำสั่งเปิดใช้งาน Channel บน Windows (PowerShell Run as Administrator):</p>
+                        <p class="small mb-1 text-muted">@L["SshLogs.PsEnableTitle"]</p>
                         <pre class="bg-dark text-info p-2.5 rounded font-monospace small mb-0 user-select-all"><code>@queryResult.RecommendedFixCommand</code></pre>
                     }
                 </div>
@@ -112,49 +113,49 @@
         <div class="card-body py-2.5 px-3">
             <div class="row g-2 align-items-end">
                 <div class="col-md-2">
-                    <label class="form-label small fw-bold mb-1">ช่วงเวลา</label>
+                    <label class="form-label small fw-bold mb-1">@L["SshLogs.TimeRange"]</label>
                     <select class="form-select form-select-sm" @bind="filter.TimePreset" @bind:after="OnTimePresetChanged">
-                        <option value="@SshTimePreset.Last1Hour">1 ชั่วโมงล่าสุด</option>
-                        <option value="@SshTimePreset.Today">วันนี้ (Today)</option>
-                        <option value="@SshTimePreset.Last7Days">7 วันล่าสุด</option>
-                        <option value="@SshTimePreset.Custom">กำหนดช่วงวันเอง...</option>
+                        <option value="@SshTimePreset.Last1Hour">@L["SshLogs.Last1Hour"]</option>
+                        <option value="@SshTimePreset.Today">@L["SshLogs.Today"]</option>
+                        <option value="@SshTimePreset.Last7Days">@L["SshLogs.Last7Days"]</option>
+                        <option value="@SshTimePreset.Custom">@L["SshLogs.CustomRange"]</option>
                     </select>
                 </div>
 
                 @if (filter.TimePreset == SshTimePreset.Custom)
                 {
                     <div class="col-md-2">
-                        <label class="form-label small fw-bold mb-1">ตั้งแต่วันที่</label>
+                        <label class="form-label small fw-bold mb-1">@L["Audit.FromDate"]</label>
                         <input type="date" class="form-control form-control-sm" @bind="filter.FromDate" />
                     </div>
                     <div class="col-md-2">
-                        <label class="form-label small fw-bold mb-1">ถึงวันที่</label>
+                        <label class="form-label small fw-bold mb-1">@L["Audit.ToDate"]</label>
                         <input type="date" class="form-control form-control-sm" @bind="filter.ToDate" />
                     </div>
                 }
 
                 <div class="@(filter.TimePreset == SshTimePreset.Custom ? "col-md-2" : "col-md-3")">
-                    <label class="form-label small fw-bold mb-1">ประเภทเหตุการณ์</label>
+                    <label class="form-label small fw-bold mb-1">@L["SshLogs.EventType"]</label>
                     <select class="form-select form-select-sm" @bind="selectedCategoryString" @bind:after="OnCategoryChanged">
-                        <option value="">ทั้งหมด (All Events)</option>
-                        <option value="@SshEventType.AuthSuccess">เข้าสู่ระบบสำเร็จ (Auth Success)</option>
-                        <option value="@SshEventType.AuthFailed">ยืนยันตัวตนล้มเหลว (Auth Failed)</option>
-                        <option value="@SshEventType.ConnectionClosed">ตัดการเชื่อมต่อ (Closed/Disconnect)</option>
-                        <option value="@SshEventType.SftpActivity">เริ่มเซสชัน SFTP (SFTP Subsystem)</option>
-                        <option value="@SshEventType.SystemInfo">ข้อความระบบ (System Info)</option>
+                        <option value="">@L["SshLogs.AllEvents"]</option>
+                        <option value="@SshEventType.AuthSuccess">@L["SshLogs.EventAuthSuccess"]</option>
+                        <option value="@SshEventType.AuthFailed">@L["SshLogs.EventAuthFailed"]</option>
+                        <option value="@SshEventType.ConnectionClosed">@L["SshLogs.EventClosed"]</option>
+                        <option value="@SshEventType.SftpActivity">@L["SshLogs.EventSftp"]</option>
+                        <option value="@SshEventType.SystemInfo">@L["SshLogs.EventSystem"]</option>
                     </select>
                 </div>
 
                 <div class="@(filter.TimePreset == SshTimePreset.Custom ? "col-md-2" : "col-md-3")">
-                    <label class="form-label small fw-bold mb-1">ค้นหา Username / IP / ข้อความ</label>
+                    <label class="form-label small fw-bold mb-1">@L["SshLogs.SearchLabel"]</label>
                     <div class="input-group input-group-sm">
                         <span class="input-group-text bg-white border-end-0 text-muted"><i class="bi bi-search"></i></span>
-                        <input type="text" class="form-control border-start-0" placeholder="เช่น testuser, 192.168.1.1..." @bind="filter.Keyword" @bind:event="oninput" @onkeyup="HandleKeyUp" />
+                        <input type="text" class="form-control border-start-0" placeholder="@L["SshLogs.SearchPlaceholder"]" @bind="filter.Keyword" @bind:event="oninput" @onkeyup="HandleKeyUp" />
                     </div>
                 </div>
 
                 <div class="col-md-1">
-                    <label class="form-label small fw-bold mb-1">จำนวนแถว</label>
+                    <label class="form-label small fw-bold mb-1">@L["SshLogs.MaxRows"]</label>
                     <select class="form-select form-select-sm" @bind="filter.MaxRecords" @bind:after="LoadLogs">
                         <option value="50">50</option>
                         <option value="100">100</option>
@@ -166,13 +167,13 @@
                 <div class="@(filter.TimePreset == SshTimePreset.Custom ? "col-md-1" : "col-md-3") d-flex align-items-center justify-content-end gap-1.5">
                     @if (HasActiveFilter)
                     {
-                        <button class="btn btn-outline-secondary btn-sm" title="ล้างตัวกรอง" @onclick="ClearFilters">
+                        <button class="btn btn-outline-secondary btn-sm" title="@L["Audit.ClearFilters"]" @onclick="ClearFilters">
                             <i class="bi bi-x-circle"></i>
                         </button>
                     }
                     <button class="btn btn-primary btn-sm flex-grow-1 justify-content-center" @onclick="LoadLogs" disabled="@isLoading">
                         <i class="bi bi-funnel-fill"></i>
-                        <span>กรองข้อมูล</span>
+                        <span>@L["Audit.FilterBtn"]</span>
                     </button>
                 </div>
             </div>
@@ -183,10 +184,10 @@
     <div class="card border-0 shadow-sm rounded-3">
         <div class="card-header bg-white border-bottom py-2.5 px-3 d-flex justify-content-between align-items-center">
             <div class="small text-muted d-flex align-items-center gap-2">
-                <span>แสดงผล: <strong>@(queryResult?.Entries.Count ?? 0)</strong> รายการ</span>
+                <span>@L.Get("SshLogs.ShowingCount", queryResult?.Entries.Count ?? 0)</span>
                 @if (isDemoMode)
                 {
-                    <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle">โหมดทดสอบ (Demo Mode)</span>
+                    <span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle">@L["SshLogs.DemoBadge"]</span>
                 }
                 @if (autoRefreshSeconds > 0)
                 {
@@ -206,29 +207,29 @@
             {
                 <div class="text-center py-5">
                     <span class="spinner-border spinner-border-sm text-primary"></span>
-                    <p class="text-muted small mt-2 mb-0">กำลังอ่าน Windows Event Log (OpenSSH/Operational)...</p>
+                    <p class="text-muted small mt-2 mb-0">@L["SshLogs.ReadingLog"]</p>
                 </div>
             }
             else if (queryResult?.Entries == null || queryResult.Entries.Count == 0)
             {
                 <div class="text-center text-muted py-5 px-3">
                     <i class="bi bi-journal-x fs-1 d-block mb-2"></i>
-                    <h6 class="fw-semibold">ไม่พบบันทึกเหตุการณ์ตามเงื่อนไขที่ระบุ</h6>
+                    <h6 class="fw-semibold">@L["SshLogs.EmptyTitle"]</h6>
                     <p class="small text-muted mb-3">
                         @if (!isDemoMode)
                         {
-                            <span>หากเครื่องนี้เป็นเครื่องพัฒนา (Development) และยังไม่มี Client เชื่อมต่อ SSH เข้ามาจริง คุณสามารถกดปุ่มด้านล่างเพื่อทดสอบด้วยข้อมูลจำลองได้ครับ</span>
+                            <span>@L["SshLogs.EmptyDevHint"]</span>
                         }
                         else
                         {
-                            <span>ลองปรับเปลี่ยนเงื่อนไขตัวกรอง หรือกดปุ่ม "ล้างตัวกรอง" เพื่อแสดงข้อมูลทั้งหมด</span>
+                            <span>@L["SshLogs.EmptyDemoHint"]</span>
                         }
                     </p>
                     @if (!isDemoMode)
                     {
                         <button class="btn btn-warning btn-sm fw-bold text-dark" @onclick="ToggleDemoMode">
                             <i class="bi bi-cpu-fill"></i>
-                            <span>เปิดโหมดจำลองข้อมูลตัวอย่าง (Demo Data)</span>
+                            <span>@L["SshLogs.EnableDemoBtn"]</span>
                         </button>
                     }
                 </div>
@@ -239,12 +240,12 @@
                     <table class="table table-hover align-middle mb-0 small">
                         <thead class="table-light text-muted">
                             <tr>
-                                <th class="ps-3" style="width: 170px;">วัน-เวลา (LOCAL)</th>
-                                <th style="width: 150px;">ประเภทเหตุการณ์</th>
-                                <th style="width: 130px;">ผู้ใช้งาน (USER)</th>
+                                <th class="ps-3" style="width: 170px;">@L["Audit.ColTime"]</th>
+                                <th style="width: 150px;">@L["SshLogs.ColEventType"]</th>
+                                <th style="width: 130px;">@L["SshLogs.ColUser"]</th>
                                 <th style="width: 170px;">IP CLIENT</th>
-                                <th>ข้อความสรุป (SUMMARY)</th>
-                                <th class="text-end pe-3" style="width: 110px;">การจัดการ</th>
+                                <th>@L["SshLogs.ColSummary"]</th>
+                                <th class="text-end pe-3" style="width: 110px;">@L["Audit.ColManage"]</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -285,9 +286,9 @@
                                     </td>
                                     <td class="text-end pe-3">
                                         <div class="action-bar">
-                                            <button class="btn btn-outline-secondary btn-sm py-0.5 px-2" title="ดูรายละเอียด Log นี้" @onclick="() => selectedEntry = entry">
+                                            <button class="btn btn-outline-secondary btn-sm py-0.5 px-2" title="@L["Audit.ViewTooltip"]" @onclick="() => selectedEntry = entry">
                                                 <i class="bi bi-eye"></i>
-                                                <span>ดูข้อมูล</span>
+                                                <span>@L["Audit.ViewBtn"]</span>
                                             </button>
                                         </div>
                                     </td>
@@ -310,14 +311,14 @@
                 <div class="modal-header bg-dark text-white">
                     <h5 class="modal-title d-flex align-items-center gap-2">
                         <i class="bi bi-terminal-split text-primary"></i>
-                        <span>รายละเอียด OpenSSH Event Log #@(selectedEntry.RecordId ?? selectedEntry.EventId)</span>
+                        <span>@L.Get("SshLogs.ModalTitle", selectedEntry.RecordId ?? selectedEntry.EventId)</span>
                     </h5>
                     <button type="button" class="btn-close btn-close-white" @onclick="() => selectedEntry = null"></button>
                 </div>
                 <div class="modal-body p-4">
                     <div class="row g-3 mb-3">
                         <div class="col-sm-6">
-                            <span class="small text-muted d-block">วัน-เวลา (Local / UTC):</span>
+                            <span class="small text-muted d-block">@L["SshLogs.ModalTime"]</span>
                             <strong class="font-monospace">@selectedEntry.Timestamp.ToLocalTime().ToString("dd/MM/yyyy HH:mm:ss")</strong>
                             <span class="text-muted small font-monospace"> (@selectedEntry.Timestamp.ToString("u"))</span>
                         </div>
@@ -326,21 +327,21 @@
                             <span class="badge bg-light text-dark border font-monospace">ID: @selectedEntry.EventId @(selectedEntry.RecordId.HasValue ? $"({selectedEntry.RecordId})" : "")</span>
                         </div>
                         <div class="col-sm-3">
-                            <span class="small text-muted d-block">ระดับความรุนแรง:</span>
+                            <span class="small text-muted d-block">@L["SshLogs.ModalLevel"]</span>
                             <span class="badge bg-info-subtle text-info-emphasis border border-info-subtle">@selectedEntry.Level</span>
                         </div>
                     </div>
 
                     <div class="row g-3 mb-3">
                         <div class="col-sm-4">
-                            <span class="small text-muted d-block mb-1">ประเภทเหตุการณ์ (Event Type):</span>
+                            <span class="small text-muted d-block mb-1">@L["SshLogs.ModalEventType"]</span>
                             <span class="badge @GetBadgeClass(selectedEntry.EventType)">
                                 <i class="bi @GetBadgeIcon(selectedEntry.EventType)"></i>
                                 <span>@GetBadgeLabel(selectedEntry.EventType)</span>
                             </span>
                         </div>
                         <div class="col-sm-4">
-                            <span class="small text-muted d-block mb-1">สถานะการยืนยันตัวตน (Auth Status):</span>
+                            <span class="small text-muted d-block mb-1">@L["SshLogs.ModalAuthStatus"]</span>
                             <span class="badge bg-light text-dark border font-monospace">@selectedEntry.AuthStatus</span>
                             @if (!string.IsNullOrEmpty(selectedEntry.AuthMethod))
                             {
@@ -348,7 +349,7 @@
                             }
                         </div>
                         <div class="col-sm-4">
-                            <span class="small text-muted d-block mb-1">ผู้ใช้ & ปลายทาง (User / IP):</span>
+                            <span class="small text-muted d-block mb-1">@L["SshLogs.ModalUserIp"]</span>
                             <span class="fw-semibold">@(selectedEntry.Username ?? "N/A")</span>
                             @if (!string.IsNullOrEmpty(selectedEntry.ClientIp))
                             {
@@ -358,17 +359,17 @@
                     </div>
 
                     <div class="mb-3">
-                        <span class="small text-muted d-block mb-1">ข้อความสรุป (Summary):</span>
+                        <span class="small text-muted d-block mb-1">@L["SshLogs.ModalSummary"]</span>
                         <div class="p-2.5 bg-light border rounded text-dark small fw-medium">@selectedEntry.SummaryMessage</div>
                     </div>
 
                     <div>
-                        <span class="small text-muted d-block mb-1">ข้อความต้นฉบับ (Raw Event Description):</span>
+                        <span class="small text-muted d-block mb-1">@L["SshLogs.ModalRaw"]</span>
                         <pre class="bg-dark text-light p-3 rounded text-break small mb-0 font-monospace" style="max-height: 250px; overflow-y: auto;"><code>@selectedEntry.RawMessage</code></pre>
                     </div>
                 </div>
                 <div class="modal-footer bg-light">
-                    <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="() => selectedEntry = null">ปิดหน้าต่าง</button>
+                    <button type="button" class="btn btn-outline-secondary btn-sm" @onclick="() => selectedEntry = null">@L["Audit.CloseModal"]</button>
                 </div>
             </div>
         </div>
@@ -393,7 +394,20 @@
 
     protected override async Task OnInitializedAsync()
     {
+        L.OnLanguageChanged += OnLanguageChanged;
         await LoadLogs();
+    }
+
+    private async void OnLanguageChanged()
+    {
+        await InvokeAsync(async () =>
+        {
+            if (isDemoMode)
+            {
+                await LoadLogs();
+            }
+            StateHasChanged();
+        });
     }
 
     private void ToggleDemoMode()
@@ -514,15 +528,16 @@
 
     private string GetBadgeLabel(SshEventType type) => type switch
     {
-        SshEventType.AuthSuccess => "เข้าสู่ระบบสำเร็จ",
-        SshEventType.AuthFailed => "ยืนยันตัวตนไม่ผ่าน",
-        SshEventType.ConnectionClosed => "ตัดการเชื่อมต่อ",
+        SshEventType.AuthSuccess => L["SshLogs.BadgeAuthSuccess"],
+        SshEventType.AuthFailed => L["SshLogs.BadgeAuthFailed"],
+        SshEventType.ConnectionClosed => L["SshLogs.BadgeClosed"],
         SshEventType.SftpActivity => "SFTP Subsystem",
-        _ => "ข้อความระบบ"
+        _ => L["SshLogs.BadgeSystem"]
     };
 
     public void Dispose()
     {
+        L.OnLanguageChanged -= OnLanguageChanged;
         autoRefreshTimer?.Dispose();
         autoRefreshTimer = null;
     }

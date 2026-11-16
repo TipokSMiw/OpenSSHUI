@@ -4,6 +4,8 @@
 @inject ISshdConfigService ConfigService
 @inject IAuditService AuditService
 @inject UserSessionState SessionState
+@inject ILocalizationService L
+@implements IDisposable
 
 <PageTitle>OpenSSH Service Controller - OpensshUI</PageTitle>
 
@@ -13,14 +15,14 @@
         <div>
             <h3 class="page-title">
                 <i class="bi bi-hdd-network-fill text-primary"></i>
-                <span>บริการ OpenSSH (Service Controller)</span>
+                <span>@L["Service.Title"]</span>
             </h3>
-            <p class="text-muted small mb-0">ควบคุมและตรวจสอบสถานะ Windows OpenSSH (sshd) พร้อมระบบตรวจสอบไวยากรณ์ sshd.exe -t</p>
+            <p class="text-muted small mb-0">@L["Service.Subtitle"]</p>
         </div>
         <div class="d-flex align-items-center gap-2">
             <button class="btn btn-outline-secondary btn-sm" @onclick="RefreshStatus">
                 <i class="bi bi-arrow-clockwise"></i>
-                <span>รีเฟรชสถานะ</span>
+                <span>@L["Service.RefreshStatus"]</span>
             </button>
         </div>
     </div>
@@ -29,7 +31,7 @@
     {
         <div class="alert alert-info py-2 px-3 small d-flex align-items-center gap-2 mb-3" role="alert">
             <i class="bi bi-eye-fill text-primary flex-shrink-0"></i>
-            <div>โหมดอ่านอย่างเดียว (Read-Only): เฉพาะผู้ดูแลระบบระดับ <strong>SuperAdmin</strong> เท่านั้นที่สามารถสั่งควบคุมบริการ Windows Service หรือแก้ไขไฟล์ <code>sshd_config</code> ได้ (สิทธิ์ปัจจุบันของคุณ: <strong>@SessionState.Role</strong>)</div>
+            <div>@L.Get("Service.ReadOnlyNotice", SessionState.Role)</div>
         </div>
     }
 
@@ -49,7 +51,7 @@
                 <div class="card-header bg-white border-bottom pt-3 pb-2">
                     <h6 class="fw-bold mb-0 d-flex align-items-center gap-2">
                         <i class="bi bi-cpu-fill text-primary"></i>
-                        <span>สถานะ Windows Service (sshd)</span>
+                        <span>@L["Service.SshdStatusTitle"]</span>
                     </h6>
                 </div>
                 <div class="card-body">
@@ -102,7 +104,7 @@
                 <div class="card-header bg-white border-bottom pt-3 pb-2 d-flex justify-content-between align-items-center">
                     <h6 class="fw-bold mb-0 d-flex align-items-center gap-2">
                         <i class="bi bi-shield-check text-primary"></i>
-                        <span>ตรวจสอบไวยากรณ์ Config (sshd.exe -t)</span>
+                        <span>@L["Service.SyntaxTitle"]</span>
                     </h6>
                     @if (SessionState.CanManageSystem)
                     {
@@ -110,19 +112,19 @@
                             @if (isCheckingSyntax)
                             {
                                 <span class="spinner-border spinner-border-sm"></span>
-                                <span>กำลังตรวจสอบ...</span>
+                                <span>@L["Service.Checking"]</span>
                             }
                             else
                             {
                                 <i class="bi bi-check2-circle"></i>
-                                <span>ตรวจสอบเดี๋ยวนี้</span>
+                                <span>@L["Service.CheckNow"]</span>
                             }
                         </button>
                     }
                 </div>
                 <div class="card-body">
                     <p class="small text-muted mb-3">
-                        การใช้คำสั่ง <code>sshd.exe -t</code> จะตรวจสอบความถูกต้องของไฟล์ <code>sshd_config</code> โดยระบบจะรันการตรวจสอบนี้ทุกครั้งก่อนสั่ง Restart Service เสมอเพื่อป้องกันไม่ให้บริการล่ม
+                        @L["Service.SyntaxDesc"]
                     </p>
 
                     @if (lastValidationResult != null)
@@ -132,14 +134,14 @@
                             {
                                 <span class="badge bg-success-subtle text-success border border-success-subtle px-2.5 py-1">
                                     <i class="bi bi-check-circle-fill"></i>
-                                    <span>Syntax Valid (ไวยากรณ์ถูกต้อง ปลอดภัย)</span>
+                                    <span>@L["Service.SyntaxValid"]</span>
                                 </span>
                             }
                             else
                             {
                                 <span class="badge bg-danger-subtle text-danger border border-danger-subtle px-2.5 py-1">
                                     <i class="bi bi-x-circle-fill"></i>
-                                    <span>Syntax Error (พบข้อผิดพลาดในไฟล์ config)</span>
+                                    <span>@L["Service.SyntaxError"]</span>
                                 </span>
                             }
                         </div>
@@ -158,7 +160,7 @@
                     else
                     {
                         <div class="bg-light border text-muted p-4 rounded text-center small font-monospace">
-                            คลิกปุ่ม "ตรวจสอบเดี๋ยวนี้" เพื่อรันคำสั่ง sshd.exe -t
+                            @L["Service.SyntaxEmpty"]
                         </div>
                     }
                 </div>
@@ -171,7 +173,7 @@
                 <div class="card-header bg-white border-bottom pt-3 pb-2">
                     <h6 class="fw-bold mb-0 d-flex align-items-center gap-2">
                         <i class="bi bi-key-fill text-primary"></i>
-                        <span>สถานะ Windows Service (ssh-agent)</span>
+                        <span>@L["Service.AgentStatusTitle"]</span>
                     </h6>
                 </div>
                 <div class="card-body">
@@ -216,7 +218,7 @@
         <div class="card-header bg-white border-bottom pt-3 pb-2 d-flex justify-content-between align-items-center">
             <h6 class="fw-bold mb-0 d-flex align-items-center gap-2">
                 <i class="bi bi-speedometer text-primary"></i>
-                <span>การปรับแต่งประสิทธิภาพและการเชื่อมต่อ (Concurrency & Connection Limits)</span>
+                <span>@L["Service.ConcurrencyTitle"]</span>
             </h6>
             <span class="badge @(concurrencySettings.AppliedProfile == "HighTraffic" ? "bg-warning-subtle text-warning-emphasis border border-warning-subtle" : "bg-light text-muted border") px-2.5 py-1">
                 Profile: @concurrencySettings.AppliedProfile
@@ -224,25 +226,25 @@
         </div>
         <div class="card-body">
             <p class="small text-muted mb-3">
-                กำหนดค่าขีดจำกัดการเชื่อมต่อพร้อมกันใน <code>sshd_config</code> เพื่อรองรับกรณีผู้ใช้เชื่อมต่อหรือวางไฟล์พร้อมกันปริมาณมาก ป้องกันปัญหาการปฏิเสธการเชื่อมต่อ (Connection reset by peer)
+                @L["Service.ConcurrencyDesc"]
             </p>
 
             <!-- Quick Presets -->
             <div class="d-flex flex-wrap align-items-center gap-2 mb-4 p-2.5 bg-light rounded-2 border">
                 <span class="small fw-semibold text-muted me-1">
-                    <i class="bi bi-sliders"></i> พรีเซ็ตแนะนำ:
+                    <i class="bi bi-sliders"></i> @L["Service.PresetsLabel"]
                 </span>
                 <button class="btn btn-outline-secondary btn-sm" @onclick="ApplyStandardPreset" disabled="@(!SessionState.CanManageSystem || isProcessing)">
                     <i class="bi bi-check-circle"></i>
-                    <span>Standard (ไม่เกิน 50 ผู้ใช้)</span>
+                    <span>@L["Service.PresetStandard"]</span>
                 </button>
                 <button class="btn btn-outline-warning btn-sm text-dark fw-semibold" @onclick="ApplyHighTrafficPreset" disabled="@(!SessionState.CanManageSystem || isProcessing)">
                     <i class="bi bi-lightning-charge-fill"></i>
-                    <span>High Traffic (100-300 ผู้ใช้)</span>
+                    <span>@L["Service.PresetHighTraffic"]</span>
                 </button>
                 <button class="btn btn-outline-dark btn-sm" @onclick="ApplyDefaultPreset" disabled="@(!SessionState.CanManageSystem || isProcessing)">
                     <i class="bi bi-arrow-counterclockwise"></i>
-                    <span>ค่าเริ่มต้น OpenSSH (Default)</span>
+                    <span>@L["Service.PresetDefault"]</span>
                 </button>
             </div>
 
@@ -250,42 +252,42 @@
             <div class="row g-3">
                 <div class="col-md-4">
                     <label class="form-label small fw-semibold text-dark mb-1">
-                        MaxStartups (การเชื่อมต่อพร้อมกันช่วง Handshake)
+                        @L["Service.MaxStartupsLabel"]
                     </label>
-                    <input type="text" class="form-control form-control-sm font-monospace" @bind="concurrencySettings.MaxStartups" disabled="@(!SessionState.CanManageSystem || isProcessing)" placeholder="10:30:100 หรือ 100:30:300" />
-                    <div class="form-text small text-muted">เช่น <code>100:30:300</code> (เริ่มสุ่มดร็อปที่ 100 ดร็อป 100% ที่ 300)</div>
+                    <input type="text" class="form-control form-control-sm font-monospace" @bind="concurrencySettings.MaxStartups" disabled="@(!SessionState.CanManageSystem || isProcessing)" placeholder="@L["Service.MaxStartupsPlaceholder"]" />
+                    <div class="form-text small text-muted">@L["Service.MaxStartupsHelp"]</div>
                 </div>
 
                 <div class="col-md-4">
                     <label class="form-label small fw-semibold text-dark mb-1">
-                        MaxSessions (ช่องสัญญาณต่อการเชื่อมต่อ)
+                        @L["Service.MaxSessionsLabel"]
                     </label>
                     <input type="number" class="form-control form-control-sm" @bind="concurrencySettings.MaxSessions" min="1" max="500" disabled="@(!SessionState.CanManageSystem || isProcessing)" />
-                    <div class="form-text small text-muted">ค่าเริ่มต้น <code>10</code> (แนะนำ <code>20-50</code> หากเปิดหลายเธรด)</div>
+                    <div class="form-text small text-muted">@L["Service.MaxSessionsHelp"]</div>
                 </div>
 
                 <div class="col-md-4">
                     <label class="form-label small fw-semibold text-dark mb-1">
-                        ClientAliveInterval (วินาทีตรวจสอบการเชื่อมต่อ)
+                        @L["Service.ClientAliveIntervalLabel"]
                     </label>
                     <input type="number" class="form-control form-control-sm" @bind="concurrencySettings.ClientAliveInterval" min="0" max="3600" disabled="@(!SessionState.CanManageSystem || isProcessing)" />
-                    <div class="form-text small text-muted"><code>0</code> = ปิด, แนะนำ <code>30</code> หรือ <code>60</code> วินาทีเพื่อเคลียร์เซสชันผี</div>
+                    <div class="form-text small text-muted">@L["Service.ClientAliveIntervalHelp"]</div>
                 </div>
 
                 <div class="col-md-4">
                     <label class="form-label small fw-semibold text-dark mb-1">
-                        ClientAliveCountMax (จำนวนครั้งที่ไม่ตอบกลับ)
+                        @L["Service.ClientAliveCountMaxLabel"]
                     </label>
                     <input type="number" class="form-control form-control-sm" @bind="concurrencySettings.ClientAliveCountMax" min="1" max="20" disabled="@(!SessionState.CanManageSystem || isProcessing)" />
-                    <div class="form-text small text-muted">ค่าเริ่มต้น <code>3</code> ครั้งก่อนตัดการเชื่อมต่อ</div>
+                    <div class="form-text small text-muted">@L["Service.ClientAliveCountMaxHelp"]</div>
                 </div>
 
                 <div class="col-md-4">
                     <label class="form-label small fw-semibold text-dark mb-1">
-                        LoginGraceTime (เวลารอการยืนยันตัวตน วินาที)
+                        @L["Service.LoginGraceTimeLabel"]
                     </label>
                     <input type="number" class="form-control form-control-sm" @bind="concurrencySettings.LoginGraceTime" min="5" max="600" disabled="@(!SessionState.CanManageSystem || isProcessing)" />
-                    <div class="form-text small text-muted">ค่าเริ่มต้น <code>120</code> (แนะนำ <code>30-60</code> เมื่อทราฟฟิกสูง)</div>
+                    <div class="form-text small text-muted">@L["Service.LoginGraceTimeHelp"]</div>
                 </div>
             </div>
 
@@ -294,18 +296,18 @@
                 <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mt-4 pt-3 border-top">
                     <div class="small text-muted d-flex align-items-center gap-1">
                         <i class="bi bi-info-circle text-primary"></i>
-                        <span>การปรับค่าจะมีผลสมบูรณ์เมื่อสั่ง <strong>Restart Service (sshd)</strong> ด้านบน</span>
+                        <span>@L["Service.ApplyRestartNote"]</span>
                     </div>
                     <button class="btn btn-primary btn-sm fw-semibold" @onclick="SaveConcurrencySettings" disabled="@isProcessing">
                         @if (isProcessing)
                         {
                             <span class="spinner-border spinner-border-sm"></span>
-                            <span>กำลังตรวจสอบและบันทึก...</span>
+                            <span>@L["Service.ValidatingSaving"]</span>
                         }
                         else
                         {
                             <i class="bi bi-check2-circle"></i>
-                            <span>ตรวจสอบไวยากรณ์และบันทึกค่า (Apply & Validate)</span>
+                            <span>@L["Service.ApplyAndValidate"]</span>
                         }
                     </button>
                 </div>
@@ -318,26 +320,26 @@
         <div class="card-header bg-white border-bottom pt-3 pb-2 d-flex justify-content-between align-items-center">
             <h6 class="fw-bold mb-0 d-flex align-items-center gap-2">
                 <i class="bi bi-lightning-charge-fill text-primary"></i>
-                <span>โครงสร้าง Zero-Config Reload (Match Group SFTP-Users)</span>
+                <span>@L["Service.ZeroConfigTitle"]</span>
             </h6>
             @if (serviceInfo?.HasZeroConfigBlock == true)
             {
                 <span class="badge bg-success-subtle text-success border border-success-subtle px-2.5 py-1">
                     <i class="bi bi-check-circle-fill"></i>
-                    <span>ติดตั้งแล้ว</span>
+                    <span>@L["Service.ZeroConfigInstalled"]</span>
                 </span>
             }
             else if (SessionState.CanManageSystem)
             {
                 <button class="btn btn-warning btn-sm fw-bold text-dark" @onclick="InstallZeroConfig">
                     <i class="bi bi-plus-circle-fill"></i>
-                    <span>ติดตั้งลง sshd_config</span>
+                    <span>@L["Service.ZeroConfigInstallBtn"]</span>
                 </button>
             }
         </div>
         <div class="card-body">
             <p class="small text-muted mb-3">
-                ด้วยบล็อกการตั้งค่านี้ เมื่อผู้ใช้ใหม่อยู่ใน Windows Local Group <code>SFTP-Users</code> ระบบ OpenSSH จะบังคับ Chroot และอ่าน Public Key จากโฟลเดอร์กลาง <code>C:\ProgramData\ssh\keys\%u</code> โดยอัตโนมัติ ทำให้ไม่ต้องเปิดไฟล์ config แก้ไข หรือ Restart Service อีกเลย
+                @L["Service.ZeroConfigDesc"]
             </p>
 
             <pre class="bg-dark text-code-warning p-3 rounded font-monospace small mb-0"><code>@zeroConfigPreview</code></pre>
@@ -358,9 +360,15 @@
 
     protected override void OnInitialized()
     {
+        L.OnLanguageChanged += StateHasChanged;
         zeroConfigPreview = SshManager.GetZeroConfigBlockTemplate(SshManager.SftpRoot, SshManager.KeysPath);
         concurrencySettings = ConfigService.GetConcurrencySettings();
         RefreshStatus();
+    }
+
+    public void Dispose()
+    {
+        L.OnLanguageChanged -= StateHasChanged;
     }
 
     private void ApplyStandardPreset()

@@ -102,6 +102,21 @@ OpensshUI (Root Project - net8.0-windows)
    - ใช้ `.selection-card` แทน Radio/Select เมื่อต้องตัดสินใจเชิงโครงสร้าง, ใช้ `.auto-fill-chip` สำหรับปุ่มลัดเติมค่ามาตรฐาน และแสดงผลลัพธ์ปลายทางใน `.effective-preview-box` ก่อนกดยืนยัน
    - ข้อความแจ้งเตือนข้อผิดพลาดของฟอร์มต้องแสดงภายใน Modal เสมอ และปุ่ม Primary CTA ต้องบังคับทางอ้อม (Indirect Workflow) โดย Disable จนกว่าฟิลด์บังคับ (`*`) และการยืนยันรหัสผ่านจะถูกต้องครบถ้วน
 
+### Localization & Bilingual (TH/EN) Standards:
+1. **Scoped Circuit State (`ILocalizationService`):**
+   - ระบบ 2 ภาษา (`th` / `en`) ต้องจัดการผ่าน `ILocalizationService` ที่ลงทะเบียนแบบ **Scoped** ต่อ Blazor Server Circuit (เช่นเดียวกับ `UserSessionState`) พร้อม Event `OnLanguageChanged` เพื่อให้การสลับภาษามีผลทันทีเฉพาะผู้ใช้งานรายนั้นโดยไม่ต้อง Reload หน้าเว็บ
+   - ค่าเริ่มต้น (`DefaultLanguage`) คือ `"th"` เพื่อความเข้ากันได้กับมาตรฐาน UI และชุดทดสอบเดิมของระบบ
+2. **Static Immutable Dictionaries & 100% Key Parity:**
+   - คลังคำแปล (`AppStrings`) ต้องจัดเก็บใน Static Read-Only Dictionary (Compile-time fixed data, ไม่มีการขยายขนาดแบบ Unbounded ตามกฎ `[C7]`) และต้องมี Unit Test ตรวจสอบว่าทุก Key มีครบทั้ง `"th"` และ `"en"` โดยไม่มีค่าว่าง
+3. **Zero `eval()` Persistence & Lifecycle Cleanup:**
+   - การอ่าน/บันทึกค่าภาษาใน `localStorage` ต้องใช้ Named JS Function ใน `Components/App.razor` (`getAppLanguage`, `setAppLanguage`) เท่านั้น ห้ามใช้ `eval()` เด็ดขาด
+   - ทุก Razor Component ที่ Subscribe `L.OnLanguageChanged` ต้อง `@implements IDisposable` และถอด Event Handler ใน `Dispose()` เสมอเพื่อป้องกัน Circuit Memory Leak
+4. **Singleton/Static Service Compatibility & Canonical Audit Logs:**
+   - Singleton และ Static Services (`SftpSessionService`, `SshLogParser`, `SshEventLogService`, `SecurityValidator`) **ห้าม Inject Scoped `ILocalizationService`** ให้ใช้พารามิเตอร์ `string language = "th"` แบบ Optional หรือแปลข้อความผ่าน Key ที่ UI Layer แทน
+   - บันทึก **Web Audit Logs** ที่เก็บลง SQLite ให้คงรูปแบบ Canonical (English/Technical Standard) เสมอ เพื่อความสม่ำเสมอในการตรวจสอบย้อนหลัง
+5. **No Flag Emojis in Language Switcher:**
+   - ปุ่มสลับภาษา `TH / EN` ต้องใช้ Bootstrap Icons (`<i class="bi bi-translate"></i>`) เท่านั้น ห้ามใช้ Emoji ธงชาติ (สอดคล้องกับกฎ Zero Redundant Emojis)
+
 ---
 
 ## 3. Security & OS Guardrails (ข้อกำหนดด้านความปลอดภัยขั้นสูง)
@@ -184,6 +199,8 @@ AI Agent **ต้องปฏิบัติตามกฎเหล็กเห
 | **การอ่าน Process Streams** | `var stdoutTask = proc.StandardOutput.ReadToEndAsync();`<br/>`var stderrTask = proc.StandardError.ReadToEndAsync();`<br/>`var err = await stderrTask;`<br/>*(ไม่ await stdout)* | `var stdoutTask = proc.StandardOutput.ReadToEndAsync();`<br/>`var stderrTask = proc.StandardError.ReadToEndAsync();`<br/>`_ = await stdoutTask;`<br/>`var err = await stderrTask;`<br/>*(Drain ทั้งสอง Streams ป้องกัน OS Buffer Deadlock)* |
 | **การฉีด Dependency ใน Razor** | `@inject NavigationManager Navigation`<br/>*(ใส่ไว้แต่ในโค้ดไม่มีการเรียกใช้)* | ฉีดเฉพาะ Service ที่เรียกใช้จริงในหน้านั้นเท่านั้น หากไม่ได้ใช้ให้ลบออกทันทีเพื่อลด Circuit Overhead |
 | **Unused Using Statements** | ค้าง `using` ที่ไม่ได้ใช้งานไว้ในหัวไฟล์ | ลบออกเสมอ และเปิด `EnforceCodeStyleInBuild` ร่วมกับ `GenerateDocumentationFile` เพื่อให้ Roslyn จับ `IDE0005` |
+| **การจัดการภาษา (i18n) ใน Blazor** | เก็บ `CurrentLanguage` เป็น `static` หรือ `Singleton` ทำให้สลับภาษาแล้วเปลี่ยนพร้อมกันทุกแท็บ/ผู้ใช้ หรือไม่ Dispose event | ใช้ Scoped `ILocalizationService` ต่อ Circuit และ `@implements IDisposable` ถอด `OnLanguageChanged` ใน `Dispose()` เสมอ |
+| **การบันทึกค่าภาษาใน Browser** | `await JS.InvokeVoidAsync("eval", "localStorage.setItem('lang', 'en')");` | ใช้ Named JS Function ใน `Components/App.razor` (`await JS.InvokeVoidAsync("setAppLanguage", lang);`) เท่านั้น |
 
 ---
 
@@ -288,6 +305,7 @@ flowchart TD
 - [ ] **[Check 5] Zero Dead Code & Ghost Injections:** ไม่มีตัวแปรไม่ได้ใช้ (`CS0168`, `CS0219`, `IDE0059`), ไม่มีฟังก์ชันผี (`IDE0051`), ไม่มี Unused Using (`IDE0005`), Drain ครบทุก Process Streams และไม่มี `@inject` ค้างใน Razor ใช่หรือไม่?
 - [ ] **[Check 6] 100% Service Contract Test Coverage:** เมธอดทุกตัวใน Service Interfaces มี Caller จาก UI หรือมี Unit Test ครอบคลุมครบถ้วน (ไม่มี Orphan Service APIs ที่ไร้การทดสอบ) ใช่หรือไม่?
 - [ ] **[Check 7] Test Suite 100% Pass:** รัน `dotnet test OpensshUI.Tests\OpensshUI.Tests.csproj` และผลผ่านทั้งหมด (298+ tests, Failed: 0) ใช่หรือไม่?
+- [ ] **[Check 8] Bilingual Parity & Lifecycle:** คลังคำแปลมี Key ครบทั้ง `th` และ `en` (100% Parity), ไม่มี Emoji ธงชาติ, ใช้ Named JS Function (ไม่ใช้ `eval`), และ Razor Component ที่ Subscribe `OnLanguageChanged` มี `Dispose()` ครบถ้วนใช่หรือไม่?
 
 ---
 

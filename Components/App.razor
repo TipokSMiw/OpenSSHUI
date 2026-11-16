@@ -35,6 +35,14 @@
             }
             return false;
         };
+        window.getAppLanguage = () => {
+            try { return localStorage.getItem('opensshui_lang') || 'th'; }
+            catch { return 'th'; }
+        };
+        window.setAppLanguage = (lang) => {
+            try { localStorage.setItem('opensshui_lang', lang); }
+            catch { /* ignore storage errors */ }
+        };
     </script>
 </body>
 

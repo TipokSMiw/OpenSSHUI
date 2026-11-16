@@ -3,8 +3,10 @@
 @inject IWebAdminService AdminService
 @inject ILdapAuthService LdapAuth
 @inject UserSessionState SessionState
+@inject ILocalizationService L
+@implements IDisposable
 
-<PageTitle>ผู้ดูแลระบบ (Web Admins) - OpensshUI</PageTitle>
+<PageTitle>Web Admins - OpensshUI</PageTitle>
 
 <div class="container-fluid p-0">
     <!-- Standardized Page Header -->
@@ -12,20 +14,20 @@
         <div>
             <h3 class="page-title">
                 <i class="bi bi-person-badge-fill text-primary"></i>
-                <span>ผู้ดูแลระบบ (Web Admin Users)</span>
+                <span>@L["WebAdmins.Title"]</span>
             </h3>
-            <p class="text-muted small mb-0">จัดการบัญชีผู้มีสิทธิ์เข้าใช้งานหน้า Web UI, กำหนดบทบาทสิทธิ์ (RBAC) และเชื่อมโยงผู้ใช้จาก Active Directory</p>
+            <p class="text-muted small mb-0">@L["WebAdmins.Subtitle"]</p>
         </div>
         <div class="d-flex align-items-center gap-2">
             <button class="btn btn-outline-secondary btn-sm" @onclick="LoadAdmins">
                 <i class="bi bi-arrow-clockwise"></i>
-                <span>รีเฟรช</span>
+                <span>@L["Common.Refresh"]</span>
             </button>
             @if (SessionState.CanManageSystem)
             {
                 <button class="btn btn-primary btn-sm" @onclick="OpenCreateModal">
                     <i class="bi bi-person-plus-fill"></i>
-                    <span>เพิ่มผู้ดูแลระบบใหม่</span>
+                    <span>@L["WebAdmins.AddBtn"]</span>
                 </button>
             }
         </div>
@@ -36,8 +38,8 @@
         <div class="alert alert-danger shadow-sm d-flex align-items-center gap-3 py-3 mb-4" role="alert">
             <i class="bi bi-shield-x text-danger fs-3 flex-shrink-0"></i>
             <div>
-                <strong class="d-block mb-1">ปฏิเสธการเข้าถึง (Access Denied)</strong>
-                <span class="small text-muted">เฉพาะผู้ดูแลระบบระดับ <strong>Super Administrator</strong> เท่านั้นที่มีสิทธิ์ดูและจัดการบัญชี Web Admins</span>
+                <strong class="d-block mb-1">@L["Settings.AccessDeniedTitle"]</strong>
+                <span class="small text-muted">@L["WebAdmins.AccessDeniedDesc"]</span>
             </div>
         </div>
     }
@@ -57,8 +59,8 @@
             <div class="d-flex align-items-center gap-2">
                 <i class="bi bi-shield-check text-primary fs-5"></i>
                 <span>
-                    <strong>การตรวจสอบย้อนหลัง (Audit Accountability):</strong>
-                    การเพิ่มบัญชีผู้ดูแลส่วนบุคคล ช่วยให้ประวัติกิจกรรมในหน้า <strong>Audit Logs</strong> บันทึกชื่อผู้ดำเนินการแยกรายบุคคลได้อย่างชัดเจน
+                    <strong>@L["WebAdmins.AuditNoticeTitle"]</strong>
+                    @L["WebAdmins.AuditNoticeDesc"]
                 </span>
             </div>
             <span class="badge bg-primary-subtle text-primary border border-primary-subtle font-monospace" style="font-size: 0.7rem;">RBAC Enabled</span>
@@ -73,8 +75,8 @@
                             <i class="bi bi-people-fill"></i>
                         </div>
                         <div>
-                            <small class="text-muted d-block" style="font-size: 0.75rem;">ผู้ดูแลระบบทั้งหมด</small>
-                            <h5 class="fw-bold mb-0">@(admins?.Count ?? 0) ท่าน</h5>
+                            <small class="text-muted d-block" style="font-size: 0.75rem;">@L["WebAdmins.TotalAdmins"]</small>
+                            <h5 class="fw-bold mb-0">@L.Get("WebAdmins.PeopleUnit", admins?.Count ?? 0)</h5>
                         </div>
                     </div>
                 </div>
@@ -87,7 +89,7 @@
                         </div>
                         <div>
                             <small class="text-muted d-block" style="font-size: 0.75rem;">Super Admin</small>
-                            <h5 class="fw-bold mb-0 text-success">@(admins?.Count(a => a.Role == WebAdminRole.SuperAdmin && a.IsActive) ?? 0) บัญชี</h5>
+                            <h5 class="fw-bold mb-0 text-success">@L.Get("WebAdmins.AccountsUnit", admins?.Count(a => a.Role == WebAdminRole.SuperAdmin && a.IsActive) ?? 0)</h5>
                         </div>
                     </div>
                 </div>
@@ -100,7 +102,7 @@
                         </div>
                         <div>
                             <small class="text-muted d-block" style="font-size: 0.75rem;">Active Directory</small>
-                            <h5 class="fw-bold mb-0 text-info-emphasis">@(admins?.Count(a => a.AccountType == WebAdminType.ActiveDirectory) ?? 0) บัญชี</h5>
+                            <h5 class="fw-bold mb-0 text-info-emphasis">@L.Get("WebAdmins.AccountsUnit", admins?.Count(a => a.AccountType == WebAdminType.ActiveDirectory) ?? 0)</h5>
                         </div>
                     </div>
                 </div>
@@ -112,8 +114,8 @@
                             <i class="bi bi-lock-fill"></i>
                         </div>
                         <div>
-                            <small class="text-muted d-block" style="font-size: 0.75rem;">ระงับการใช้งาน</small>
-                            <h5 class="fw-bold mb-0 text-secondary">@(admins?.Count(a => !a.IsActive) ?? 0) บัญชี</h5>
+                            <small class="text-muted d-block" style="font-size: 0.75rem;">@L["WebAdmins.Suspended"]</small>
+                            <h5 class="fw-bold mb-0 text-secondary">@L.Get("WebAdmins.AccountsUnit", admins?.Count(a => !a.IsActive) ?? 0)</h5>
                         </div>
                     </div>
                 </div>
@@ -127,7 +129,7 @@
                     <div class="col-md-5">
                         <div class="input-group input-group-sm">
                             <span class="input-group-text bg-white border-end-0 text-muted"><i class="bi bi-search"></i></span>
-                            <input type="text" class="form-control border-start-0" placeholder="ค้นหาชื่อผู้ใช้, ชื่อ-นามสกุล หรืออีเมล..." @bind="searchTerm" @bind:event="oninput" />
+                            <input type="text" class="form-control border-start-0" placeholder="@L["WebAdmins.SearchPlaceholder"]" @bind="searchTerm" @bind:event="oninput" />
                             @if (!string.IsNullOrEmpty(searchTerm))
                             {
                                 <button class="btn btn-outline-secondary border-start-0 border-end-0" type="button" @onclick="() => searchTerm = string.Empty">
@@ -138,7 +140,7 @@
                     </div>
                     <div class="col-md-7 d-flex justify-content-md-end gap-1.5 flex-wrap">
                         <button class="btn btn-sm @(selectedFilter == "all" ? "btn-primary" : "btn-outline-secondary")" @onclick='() => selectedFilter = "all"'>
-                            ทั้งหมด (@(admins?.Count ?? 0))
+                            @L.Get("WebAdmins.FilterAll", admins?.Count ?? 0)
                         </button>
                         <button class="btn btn-sm @(selectedFilter == "local" ? "btn-primary" : "btn-outline-secondary")" @onclick='() => selectedFilter = "local"'>
                             Local (@(admins?.Count(a => a.AccountType == WebAdminType.Local) ?? 0))
@@ -147,7 +149,7 @@
                             Active Directory (@(admins?.Count(a => a.AccountType == WebAdminType.ActiveDirectory) ?? 0))
                         </button>
                         <button class="btn btn-sm @(selectedFilter == "inactive" ? "btn-warning" : "btn-outline-secondary")" @onclick='() => selectedFilter = "inactive"'>
-                            ระงับการใช้งาน (@(admins?.Count(a => !a.IsActive) ?? 0))
+                            @L.Get("WebAdmins.FilterSuspended", admins?.Count(a => !a.IsActive) ?? 0)
                         </button>
                     </div>
                 </div>
@@ -161,14 +163,14 @@
                 {
                     <div class="text-center py-5">
                         <span class="spinner-border spinner-border-sm text-primary"></span>
-                        <p class="text-muted small mt-2 mb-0">กำลังโหลดรายชื่อผู้ดูแลระบบ...</p>
+                        <p class="text-muted small mt-2 mb-0">@L["WebAdmins.Loading"]</p>
                     </div>
                 }
                 else if (FilteredAdmins.Count == 0)
                 {
                     <div class="text-center py-5">
                         <i class="bi bi-person-x text-muted fs-1 mb-2 d-block"></i>
-                        <p class="text-muted small mb-0">ไม่พบรายชื่อผู้ดูแลระบบตามเงื่อนไขที่เลือก</p>
+                        <p class="text-muted small mb-0">@L["WebAdmins.Empty"]</p>
                     </div>
                 }
                 else
@@ -177,12 +179,12 @@
                         <table class="table table-hover align-middle mb-0">
                             <thead class="bg-light border-bottom text-muted small">
                                 <tr>
-                                    <th class="ps-3 py-2.5">ผู้ดูแลระบบ (Identity)</th>
-                                    <th class="py-2.5">ประเภทบัญชี (Source)</th>
-                                    <th class="py-2.5">บทบาทและสิทธิ์ (Role)</th>
-                                    <th class="py-2.5">เข้าสู่ระบบล่าสุด (Last Login)</th>
-                                    <th class="py-2.5 text-center">สถานะ</th>
-                                    <th class="pe-3 py-2.5 text-end">การจัดการ (Actions)</th>
+                                    <th class="ps-3 py-2.5">@L["WebAdmins.ColIdentity"]</th>
+                                    <th class="py-2.5">@L["WebAdmins.ColSource"]</th>
+                                    <th class="py-2.5">@L["WebAdmins.ColRole"]</th>
+                                    <th class="py-2.5">@L["WebAdmins.ColLastLogin"]</th>
+                                    <th class="py-2.5 text-center">@L["Common.Status"]</th>
+                                    <th class="pe-3 py-2.5 text-end">@L["Sessions.ColActions"]</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -200,7 +202,7 @@
                                                         <span class="fw-bold small text-dark font-monospace">@admin.Username</span>
                                                         @if (string.Equals(admin.Username, SessionState.CurrentUsername, StringComparison.OrdinalIgnoreCase))
                                                         {
-                                                            <span class="badge bg-primary-subtle text-primary border border-primary-subtle" style="font-size: 0.65rem;">คุณ (You)</span>
+                                                            <span class="badge bg-primary-subtle text-primary border border-primary-subtle" style="font-size: 0.65rem;">@L["WebAdmins.YouBadge"]</span>
                                                         }
                                                     </div>
                                                     <div class="text-muted" style="font-size: 0.75rem;">
@@ -248,7 +250,7 @@
                                             {
                                                 <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle d-inline-flex align-items-center gap-1">
                                                     <i class="bi bi-eye"></i>
-                                                    <span>Auditor (อ่านอย่างเดียว)</span>
+                                                    <span>@L["WebAdmins.AuditorBadge"]</span>
                                                 </span>
                                             }
                                         </td>
@@ -259,53 +261,53 @@
                                             }
                                             else
                                             {
-                                                <span class="text-muted fst-italic">ยังไม่เคยเข้าสู่ระบบ</span>
+                                                <span class="text-muted fst-italic">@L["WebAdmins.NeverLoggedIn"]</span>
                                             }
                                         </td>
                                         <td class="py-2.5 text-center">
                                             @if (admin.IsActive)
                                             {
                                                 <span class="badge bg-success-subtle text-success border border-success-subtle">
-                                                    <i class="bi bi-check-circle-fill"></i> ปกติ
+                                                    <i class="bi bi-check-circle-fill"></i> @L["WebAdmins.StatusActive"]
                                                 </span>
                                             }
                                             else
                                             {
                                                 <span class="badge bg-danger-subtle text-danger border border-danger-subtle">
-                                                    <i class="bi bi-x-circle-fill"></i> ระงับการใช้งาน
+                                                    <i class="bi bi-x-circle-fill"></i> @L["WebAdmins.Suspended"]
                                                 </span>
                                             }
                                         </td>
                                         <td class="pe-3 py-2.5 text-end">
                                             <div class="action-bar d-inline-flex align-items-center">
-                                                <button class="btn btn-outline-secondary btn-sm" title="แก้ไขระดับสิทธิ์" @onclick="() => OpenEditRoleModal(admin)">
+                                                <button class="btn btn-outline-secondary btn-sm" title="@L["WebAdmins.EditRoleTooltip"]" @onclick="() => OpenEditRoleModal(admin)">
                                                     <i class="bi bi-pencil-square"></i>
-                                                    <span class="d-none d-lg-inline">สิทธิ์</span>
+                                                    <span class="d-none d-lg-inline">@L["WebAdmins.RoleBtn"]</span>
                                                 </button>
 
                                                 @if (admin.AccountType == WebAdminType.Local)
                                                 {
-                                                    <button class="btn btn-outline-secondary btn-sm" title="เปลี่ยนรหัสผ่าน" @onclick="() => OpenResetPasswordModal(admin)">
+                                                    <button class="btn btn-outline-secondary btn-sm" title="@L["WebAdmins.ChangePwdTooltip"]" @onclick="() => OpenResetPasswordModal(admin)">
                                                         <i class="bi bi-key-fill"></i>
-                                                        <span class="d-none d-lg-inline">รหัสผ่าน</span>
+                                                        <span class="d-none d-lg-inline">@L["WebAdmins.PwdBtn"]</span>
                                                     </button>
                                                 }
 
                                                 <button class="btn btn-outline-secondary btn-sm @(admin.IsActive ? "" : "text-success border-success")"
-                                                        title="@(admin.IsActive ? "ระงับการใช้งาน" : "เปิดใช้งาน")"
+                                                        title="@(admin.IsActive ? L["WebAdmins.SuspendTooltip"] : L["WebAdmins.ActivateTooltip"])"
                                                         @onclick="() => ToggleAdminStatus(admin)">
                                                     <i class="bi @(admin.IsActive ? "bi-lock" : "bi-unlock")"></i>
-                                                    <span class="d-none d-lg-inline">@(admin.IsActive ? "ระงับ" : "ปลดล็อก")</span>
+                                                    <span class="d-none d-lg-inline">@(admin.IsActive ? L["WebAdmins.SuspendBtn"] : L["WebAdmins.UnlockBtn"])</span>
                                                 </button>
 
                                                 <span class="action-divider"></span>
 
                                                 <button class="btn btn-outline-danger btn-sm"
-                                                        title="ลบหรือถอนสิทธิ์ผู้ดูแล"
+                                                        title="@L["WebAdmins.DeleteTooltip"]"
                                                         disabled="@(string.Equals(admin.Username, SessionState.CurrentUsername, StringComparison.OrdinalIgnoreCase))"
                                                         @onclick="() => ConfirmDeleteAdmin(admin)">
                                                     <i class="bi bi-trash"></i>
-                                                    <span class="d-none d-lg-inline">ลบ</span>
+                                                    <span class="d-none d-lg-inline">@L["Common.Delete"]</span>
                                                 </button>
                                             </div>
                                         </td>
@@ -334,8 +336,8 @@
                             <i class="bi bi-person-plus-fill"></i>
                         </div>
                         <div>
-                            <h6 class="modal-title fw-bold mb-0">เพิ่มผู้ดูแลระบบใหม่ (Add Web Admin)</h6>
-                            <small class="text-muted" style="font-size: 0.75rem;">กำหนดผู้มีสิทธิ์บริหารจัดการระบบ Web UI และขอบเขตบทบาท</small>
+                            <h6 class="modal-title fw-bold mb-0">@L["WebAdmins.ModalAddTitle"]</h6>
+                            <small class="text-muted" style="font-size: 0.75rem;">@L["WebAdmins.ModalAddSubtitle"]</small>
                         </div>
                     </div>
                     <button type="button" class="btn-close" @onclick="CloseCreateModal"></button>
@@ -354,7 +356,7 @@
                     <div class="form-step-header mb-2.5">
                         <div class="form-step-title">
                             <span class="form-step-badge">1</span>
-                            <span>เลือกประเภทแหล่งที่มาของบัญชี (Account Source)</span>
+                            <span>@L["WebAdmins.Step1Title"]</span>
                         </div>
                     </div>
 
@@ -365,9 +367,9 @@
                                 <div class="d-flex align-items-start gap-2.5">
                                     <i class="bi bi-windows fs-3 text-purple" style="color: #6f42c1;"></i>
                                     <div>
-                                        <div class="fw-bold text-dark small">Active Directory (แนะนำ)</div>
+                                        <div class="fw-bold text-dark small">@L["WebAdmins.AdRecommended"]</div>
                                         <div class="text-muted mt-1" style="font-size: 0.75rem;">
-                                            ค้นหาและเชื่อมโยงบัญชีจากโดเมนโดยตรง ใช้รหัสผ่านเดิมของ AD ปลอดภัยและสะดวก
+                                            @L["WebAdmins.AdSourceDesc"]
                                         </div>
                                     </div>
                                 </div>
@@ -382,7 +384,7 @@
                                     <div>
                                         <div class="fw-bold text-dark small">Local Web Admin</div>
                                         <div class="text-muted mt-1" style="font-size: 0.75rem;">
-                                            สร้างบัญชีผู้ดูแลเฉพาะกิจในฐานข้อมูล SQLite พร้อมรหัสผ่าน PBKDF2 แยกรายคน
+                                            @L["WebAdmins.LocalSourceDesc"]
                                         </div>
                                     </div>
                                 </div>
@@ -395,12 +397,12 @@
                     {
                         <div class="p-3 bg-light rounded-3 border mb-4">
                             <label class="form-label small fw-bold mb-1">
-                                <span>ค้นหาบัญชีผู้ใช้ใน Active Directory</span>
+                                <span>@L["WebAdmins.AdSearchLabel"]</span>
                                 <span class="text-danger">*</span>
                             </label>
                             <div class="input-group input-group-sm mb-2">
                                 <span class="input-group-text bg-white"><i class="bi bi-search"></i></span>
-                                <input type="text" class="form-control" placeholder="พิมพ์ชื่อผู้ใช้, ชื่อ หรือนามสกุล..."
+                                <input type="text" class="form-control" placeholder="@L["WebAdmins.AdSearchPlaceholder"]"
                                        @bind="adSearchQuery" @bind:event="oninput" @onkeyup="HandleAdSearchKeyUp" />
                                 <button class="btn btn-outline-primary" type="button" @onclick="SearchAdUsers" disabled="@isSearchingAd">
                                     @if (isSearchingAd)
@@ -409,7 +411,7 @@
                                     }
                                     else
                                     {
-                                        <span>ค้นหา AD</span>
+                                        <span>@L["WebAdmins.AdSearchBtn"]</span>
                                     }
                                 </button>
                             </div>
@@ -446,7 +448,7 @@
                                         </div>
                                     </div>
                                     <button type="button" class="btn btn-sm btn-outline-danger py-0.5 px-2" @onclick="ClearSelectedAdUser">
-                                        เปลี่ยน
+                                        @L["WebAdmins.ChangeBtn"]
                                     </button>
                                 </div>
                             }
@@ -459,42 +461,42 @@
                             <div class="row g-2 mb-2">
                                 <div class="col-md-6">
                                     <label class="form-label small fw-bold mb-1">Username <span class="text-danger">*</span></label>
-                                    <input type="text" class="form-control form-control-sm font-monospace" placeholder="เช่น net_admin"
+                                    <input type="text" class="form-control form-control-sm font-monospace" placeholder="@L["WebAdmins.LocalUsernamePlaceholder"]"
                                            @bind="localUsername" @bind:event="oninput" />
                                 </div>
                                 <div class="col-md-6">
-                                    <label class="form-label small fw-bold mb-1">ชื่อ-นามสกุล (Display Name) <span class="text-danger">*</span></label>
-                                    <input type="text" class="form-control form-control-sm" placeholder="เช่น Somkid P."
+                                    <label class="form-label small fw-bold mb-1">@L["WebAdmins.DisplayNameLabel"] <span class="text-danger">*</span></label>
+                                    <input type="text" class="form-control form-control-sm" placeholder="@L["WebAdmins.DisplayNamePlaceholder"]"
                                            @bind="localDisplayName" @bind:event="oninput" />
                                 </div>
                             </div>
                             <div class="mb-2">
-                                <label class="form-label small fw-bold mb-1">อีเมล (ไม่บังคับ)</label>
-                                <input type="email" class="form-control form-control-sm" placeholder="เช่น admin@corp.local"
+                                <label class="form-label small fw-bold mb-1">@L["WebAdmins.EmailOptional"]</label>
+                                <input type="email" class="form-control form-control-sm" placeholder="@L["WebAdmins.EmailPlaceholder"]"
                                        @bind="localEmail" @bind:event="oninput" />
                             </div>
                             <div class="row g-2">
                                 <div class="col-md-6">
-                                    <label class="form-label small fw-bold mb-1">รหัสผ่าน <span class="text-danger">*</span></label>
-                                    <input type="password" class="form-control form-control-sm" placeholder="อย่างน้อย 8 ตัวอักษร"
+                                    <label class="form-label small fw-bold mb-1">@L["Layout.Password"] <span class="text-danger">*</span></label>
+                                    <input type="password" class="form-control form-control-sm" placeholder="@L["WebAdmins.Min8Chars"]"
                                            @bind="localPassword" @bind:event="oninput" />
                                 </div>
                                 <div class="col-md-6">
                                     <div class="d-flex justify-content-between align-items-center mb-1">
-                                        <label class="form-label small fw-bold mb-0">ยืนยันรหัสผ่าน <span class="text-danger">*</span></label>
+                                        <label class="form-label small fw-bold mb-0">@L["Settings.ConfirmPwdLabel"] <span class="text-danger">*</span></label>
                                         @if (!string.IsNullOrEmpty(localPassword) || !string.IsNullOrEmpty(localConfirmPassword))
                                         {
                                             @if (localPassword == localConfirmPassword && localPassword.Length >= 8)
                                             {
-                                                <span class="text-success small fw-bold" style="font-size: 0.7rem;"><i class="bi bi-check-circle-fill"></i> ตรงกัน</span>
+                                                <span class="text-success small fw-bold" style="font-size: 0.7rem;"><i class="bi bi-check-circle-fill"></i> @L["WebAdmins.MatchBadge"]</span>
                                             }
                                             else
                                             {
-                                                <span class="text-danger small fw-bold" style="font-size: 0.7rem;"><i class="bi bi-x-circle-fill"></i> ไม่ตรงกัน/สั้นเกินไป</span>
+                                                <span class="text-danger small fw-bold" style="font-size: 0.7rem;"><i class="bi bi-x-circle-fill"></i> @L["WebAdmins.MismatchShortBadge"]</span>
                                             }
                                         }
                                     </div>
-                                    <input type="password" class="form-control form-control-sm" placeholder="พิมพ์รหัสผ่านอีกครั้ง"
+                                    <input type="password" class="form-control form-control-sm" placeholder="@L["WebAdmins.RetypePwd"]"
                                            @bind="localConfirmPassword" @bind:event="oninput" />
                                 </div>
                             </div>
@@ -505,7 +507,7 @@
                     <div class="form-step-header mb-2.5">
                         <div class="form-step-title">
                             <span class="form-step-badge">2</span>
-                            <span>กำหนดระดับบทบาทและสิทธิ์ (Role & Permissions)</span>
+                            <span>@L["WebAdmins.Step2Title"]</span>
                         </div>
                     </div>
 
@@ -518,7 +520,7 @@
                                     <span>Super Admin</span>
                                 </div>
                                 <p class="text-muted mb-0" style="font-size: 0.72rem; line-height: 1.3;">
-                                    เข้าถึงได้ทุกส่วน รวมถึงการตั้งค่าระบบ, ควบคุม Service sshd, และจัดการผู้ดูแล
+                                    @L["WebAdmins.RoleSuperDesc"]
                                 </p>
                             </div>
                         </div>
@@ -531,7 +533,7 @@
                                     <span>Operator</span>
                                 </div>
                                 <p class="text-muted mb-0" style="font-size: 0.72rem; line-height: 1.3;">
-                                    จัดการ SFTP Users, Groups, และ File Browser ได้ (แก้ไขระบบไม่ได้)
+                                    @L["WebAdmins.RoleOpDesc"]
                                 </p>
                             </div>
                         </div>
@@ -544,7 +546,7 @@
                                     <span>Auditor</span>
                                 </div>
                                 <p class="text-muted mb-0" style="font-size: 0.72rem; line-height: 1.3;">
-                                    อ่านอย่างเดียว (Read-Only) ดูได้เฉพาะ Dashboard, Event Logs และ Audit Logs
+                                    @L["WebAdmins.RoleAudDesc"]
                                 </p>
                             </div>
                         </div>
@@ -554,20 +556,20 @@
                     <div class="form-step-header mb-1.5">
                         <div class="form-step-title">
                             <span class="form-step-badge">3</span>
-                            <span>ตรวจสอบสรุปสิทธิ์ (Effective Summary)</span>
+                            <span>@L["WebAdmins.Step3Title"]</span>
                         </div>
                     </div>
                     <div class="p-2.5 bg-light rounded border text-muted small" style="font-size: 0.75rem;">
                         <div class="d-flex justify-content-between mb-1">
-                            <span>บัญชีผู้ใช้ที่จะได้รับสิทธิ์:</span>
+                            <span>@L["WebAdmins.SummaryAccount"]</span>
                             <strong class="font-monospace text-dark">
                                 @(newAccountType == WebAdminType.ActiveDirectory
-                                    ? (!string.IsNullOrEmpty(selectedAdUsername) ? $"{selectedAdUsername} ({selectedAdDisplayName})" : "ยังไม่ได้เลือก")
-                                    : (!string.IsNullOrEmpty(localUsername) ? $"{localUsername} ({localDisplayName})" : "ยังไม่ได้ระบุ"))
+                                    ? (!string.IsNullOrEmpty(selectedAdUsername) ? $"{selectedAdUsername} ({selectedAdDisplayName})" : L["WebAdmins.NotSelected"])
+                                    : (!string.IsNullOrEmpty(localUsername) ? $"{localUsername} ({localDisplayName})" : L["WebAdmins.NotSpecified"]))
                             </strong>
                         </div>
                         <div class="d-flex justify-content-between">
-                            <span>ระดับสิทธิ์ที่ได้รับ:</span>
+                            <span>@L["WebAdmins.SummaryRole"]</span>
                             <span class="fw-bold text-primary">@selectedNewRole</span>
                         </div>
                     </div>
@@ -578,25 +580,25 @@
                     <span class="small text-muted" style="font-size: 0.75rem;">
                         @if (!IsCreateFormValid)
                         {
-                            <span class="text-warning-emphasis"><i class="bi bi-info-circle me-1"></i>กรุณากรอกข้อมูลให้ครบถ้วน</span>
+                            <span class="text-warning-emphasis"><i class="bi bi-info-circle me-1"></i>@L["WebAdmins.FillComplete"]</span>
                         }
                         else
                         {
-                            <span class="text-success"><i class="bi bi-check-circle-fill me-1"></i>ข้อมูลครบถ้วน พร้อมบันทึก</span>
+                            <span class="text-success"><i class="bi bi-check-circle-fill me-1"></i>@L["WebAdmins.ReadyToSave"]</span>
                         }
                     </span>
                     <div class="d-flex gap-2">
-                        <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="CloseCreateModal">ยกเลิก</button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="CloseCreateModal">@L["Common.Cancel"]</button>
                         <button type="button" class="btn btn-sm btn-primary px-3" disabled="@(!IsCreateFormValid || isSaving)" @onclick="SaveNewAdmin">
                             @if (isSaving)
                             {
                                 <span class="spinner-border spinner-border-sm me-1"></span>
-                                <span>กำลังบันทึก...</span>
+                                <span>@L["Common.Saving"]</span>
                             }
                             else
                             {
                                 <i class="bi bi-check-lg me-1"></i>
-                                <span>ยืนยันเพิ่มผู้ดูแลระบบ</span>
+                                <span>@L["WebAdmins.ConfirmAddBtn"]</span>
                             }
                         </button>
                     </div>
@@ -617,38 +619,38 @@
                 <div class="modal-header bg-light border-bottom py-3">
                     <h6 class="modal-title fw-bold mb-0 d-flex align-items-center gap-2">
                         <i class="bi bi-shield-lock-fill text-primary"></i>
-                        <span>ปรับระดับสิทธิ์ของ '@editingAdmin.Username'</span>
+                        <span>@L.Get("WebAdmins.EditRoleTitle", editingAdmin.Username)</span>
                     </h6>
                     <button type="button" class="btn-close" @onclick="() => showEditRoleModal = false"></button>
                 </div>
                 <div class="modal-body p-4">
-                    <p class="small text-muted mb-3">เลือกระดับสิทธิ์ใหม่สำหรับผู้ดูแลระบบนี้:</p>
+                    <p class="small text-muted mb-3">@L["WebAdmins.EditRolePrompt"]</p>
                     <div class="d-flex flex-column gap-2">
                         <div class="selection-card p-2.5 @(targetEditRole == WebAdminRole.SuperAdmin ? "active" : "")"
                              @onclick="() => targetEditRole = WebAdminRole.SuperAdmin">
                             <strong class="text-primary small d-block mb-1">Super Admin</strong>
-                            <small class="text-muted">เข้าถึงได้ทุกส่วน รวมถึง Service, LDAP, และ Web Admins</small>
+                            <small class="text-muted">@L["WebAdmins.RoleSuperDesc"]</small>
                         </div>
                         <div class="selection-card p-2.5 @(targetEditRole == WebAdminRole.Operator ? "active" : "")"
                              @onclick="() => targetEditRole = WebAdminRole.Operator">
                             <strong class="text-warning-emphasis small d-block mb-1">Operator</strong>
-                            <small class="text-muted">จัดการ SFTP Users, Groups, และ Files (แก้ไขระบบไม่ได้)</small>
+                            <small class="text-muted">@L["WebAdmins.RoleOpDesc"]</small>
                         </div>
                         <div class="selection-card p-2.5 @(targetEditRole == WebAdminRole.Auditor ? "active" : "")"
                              @onclick="() => targetEditRole = WebAdminRole.Auditor">
                             <strong class="text-secondary small d-block mb-1">Auditor</strong>
-                            <small class="text-muted">อ่านอย่างเดียว (Read-Only) สำหรับผู้ตรวจสอบ</small>
+                            <small class="text-muted">@L["WebAdmins.RoleAudDesc"]</small>
                         </div>
                     </div>
                 </div>
                 <div class="modal-footer bg-light border-top py-2.5">
-                    <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="() => showEditRoleModal = false">ยกเลิก</button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="() => showEditRoleModal = false">@L["Common.Cancel"]</button>
                     <button type="button" class="btn btn-sm btn-primary px-3" @onclick="SaveEditRole" disabled="@isSaving">
                         @if (isSaving)
                         {
                             <span class="spinner-border spinner-border-sm me-1"></span>
                         }
-                        <span>บันทึกระดับสิทธิ์</span>
+                        <span>@L["WebAdmins.SaveRoleBtn"]</span>
                     </button>
                 </div>
             </div>
@@ -667,37 +669,37 @@
                 <div class="modal-header bg-light border-bottom py-3">
                     <h6 class="modal-title fw-bold mb-0 d-flex align-items-center gap-2">
                         <i class="bi bi-key-fill text-primary"></i>
-                        <span>ตั้งรหัสผ่านใหม่สำหรับ '@editingAdmin.Username'</span>
+                        <span>@L.Get("WebAdmins.ResetPwdTitle", editingAdmin.Username)</span>
                     </h6>
                     <button type="button" class="btn-close" @onclick="() => showResetPassModal = false"></button>
                 </div>
                 <div class="modal-body p-4">
                     <div class="mb-3">
-                        <label class="form-label small fw-bold mb-1">รหัสผ่านใหม่ <span class="text-danger">*</span></label>
-                        <input type="password" class="form-control form-control-sm" placeholder="อย่างน้อย 8 ตัวอักษร"
+                        <label class="form-label small fw-bold mb-1">@L["WebAdmins.NewPwdField"] <span class="text-danger">*</span></label>
+                        <input type="password" class="form-control form-control-sm" placeholder="@L["WebAdmins.Min8Chars"]"
                                @bind="resetNewPassword" @bind:event="oninput" />
                     </div>
                     <div class="mb-3">
                         <div class="d-flex justify-content-between align-items-center mb-1">
-                            <label class="form-label small fw-bold mb-0">ยืนยันรหัสผ่านใหม่ <span class="text-danger">*</span></label>
+                            <label class="form-label small fw-bold mb-0">@L["WebAdmins.ConfirmNewPwdField"] <span class="text-danger">*</span></label>
                             @if (!string.IsNullOrEmpty(resetNewPassword) || !string.IsNullOrEmpty(resetConfirmPassword))
                             {
                                 @if (resetNewPassword == resetConfirmPassword && resetNewPassword.Length >= 8)
                                 {
-                                    <span class="text-success small fw-bold" style="font-size: 0.7rem;"><i class="bi bi-check-circle-fill"></i> ตรงกัน</span>
+                                    <span class="text-success small fw-bold" style="font-size: 0.7rem;"><i class="bi bi-check-circle-fill"></i> @L["WebAdmins.MatchBadge"]</span>
                                 }
                                 else
                                 {
-                                    <span class="text-danger small fw-bold" style="font-size: 0.7rem;"><i class="bi bi-x-circle-fill"></i> ไม่ตรงกัน/สั้นเกินไป</span>
+                                    <span class="text-danger small fw-bold" style="font-size: 0.7rem;"><i class="bi bi-x-circle-fill"></i> @L["WebAdmins.MismatchShortBadge"]</span>
                                 }
                             }
                         </div>
-                        <input type="password" class="form-control form-control-sm" placeholder="พิมพ์รหัสผ่านอีกครั้ง"
+                        <input type="password" class="form-control form-control-sm" placeholder="@L["WebAdmins.RetypePwd"]"
                                @bind="resetConfirmPassword" @bind:event="oninput" />
                     </div>
                 </div>
                 <div class="modal-footer bg-light border-top py-2.5">
-                    <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="() => showResetPassModal = false">ยกเลิก</button>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="() => showResetPassModal = false">@L["Common.Cancel"]</button>
                     <button type="button" class="btn btn-sm btn-primary px-3"
                             disabled="@(string.IsNullOrWhiteSpace(resetNewPassword) || resetNewPassword.Length < 8 || resetNewPassword != resetConfirmPassword || isSaving)"
                             @onclick="SaveResetPassword">
@@ -705,7 +707,7 @@
                         {
                             <span class="spinner-border spinner-border-sm me-1"></span>
                         }
-                        <span>บันทึกรหัสผ่านใหม่</span>
+                        <span>@L["WebAdmins.SaveNewPwdBtn"]</span>
                     </button>
                 </div>
             </div>
@@ -803,7 +805,13 @@
 
     protected override async Task OnInitializedAsync()
     {
+        L.OnLanguageChanged += StateHasChanged;
         await LoadAdmins();
+    }
+
+    public void Dispose()
+    {
+        L.OnLanguageChanged -= StateHasChanged;
     }
 
     private async Task LoadAdmins()
@@ -816,7 +824,7 @@
         }
         catch (Exception ex)
         {
-            SetAlert($"ไม่สามารถโหลดรายชื่อผู้ดูแลระบบได้: {ex.Message}", false);
+            SetAlert(L.Get("WebAdmins.LoadError", ex.Message), false);
         }
         finally
         {
@@ -879,7 +887,7 @@
                 adSearchResults = res.Users;
                 if (adSearchResults.Count == 0)
                 {
-                    modalErrorMessage = "ไม่พบบัญชีผู้ใช้ใน Active Directory ที่ตรงกับคำค้นหา";
+                    modalErrorMessage = L["WebAdmins.AdNoResults"];
                 }
             }
             else
@@ -889,7 +897,7 @@
         }
         catch (Exception ex)
         {
-            modalErrorMessage = $"ค้นหา AD ผิดพลาด: {ex.Message}";
+            modalErrorMessage = L.Get("WebAdmins.AdSearchError", ex.Message);
         }
         finally
         {

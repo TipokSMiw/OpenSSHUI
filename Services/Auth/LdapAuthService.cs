@@ -4,6 +4,7 @@ using System.Net;
 using Microsoft.EntityFrameworkCore;
 using OpensshUI.Data;
 using OpensshUI.Models;
+using OpensshUI.Services.Localization;
 using OpensshUI.Services.Security;
 
 namespace OpensshUI.Services.Auth;
@@ -18,15 +19,20 @@ public class LdapAuthService : ILdapAuthService
     private readonly IDbContextFactory<AppDbContext> _dbFactory;
     private readonly IProtectionService _protectionService;
     private readonly ILogger<LdapAuthService> _logger;
+    private readonly ILocalizationService? _localizer;
+
+    private string Lang => _localizer?.CurrentLanguage ?? AppStrings.DefaultLanguage;
 
     public LdapAuthService(
         IDbContextFactory<AppDbContext> dbFactory,
         IProtectionService protectionService,
-        ILogger<LdapAuthService> logger)
+        ILogger<LdapAuthService> logger,
+        ILocalizationService? localizer = null)
     {
         _dbFactory = dbFactory;
         _protectionService = protectionService;
         _logger = logger;
+        _localizer = localizer;
     }
 
     private static string NormalizeRateLimitKey(string username)
@@ -282,7 +288,7 @@ public class LdapAuthService : ILdapAuthService
                     return new AuthResult
                     {
                         IsSuccess = false,
-                        ErrorMessage = "บัญชีผู้ดูแลระบบนี้ถูกระงับการใช้งาน กรุณาติดต่อ Super Administrator"
+                        ErrorMessage = AppStrings.Get("Svc.Ldap.AccountDisabled", Lang)
                     };
                 }
 
@@ -668,7 +674,7 @@ public class LdapAuthService : ILdapAuthService
             return new AdSearchResult
             {
                 Success = false,
-                Message = "Active Directory (LDAP) ยังไม่ได้เปิดใช้งานในระบบ กรุณาเปิดใช้งานและตั้งค่าการเชื่อมต่อที่เมนู 'ตั้งค่าระบบ'"
+                Message = AppStrings.Get("Svc.Ldap.NotEnabled", Lang)
             };
         }
 
@@ -677,7 +683,7 @@ public class LdapAuthService : ILdapAuthService
             return new AdSearchResult
             {
                 Success = false,
-                Message = "ยังไม่ได้ระบุ Server / Domain Controller ในการตั้งค่า LDAP"
+                Message = AppStrings.Get("Svc.Ldap.NoServer", Lang)
             };
         }
 

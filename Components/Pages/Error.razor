@@ -1,5 +1,7 @@
 @page "/Error"
 @using System.Diagnostics
+@inject ILocalizationService L
+@implements IDisposable
 
 <PageTitle>Error - OpensshUI</PageTitle>
 
@@ -7,10 +9,10 @@
     <div class="card border-danger shadow-sm rounded-3">
         <div class="card-header bg-danger text-white d-flex align-items-center gap-2">
             <i class="bi bi-exclamation-octagon-fill fs-5"></i>
-            <h3 class="h5 fw-bold mb-0">เกิดข้อผิดพลาดในระบบ (System Error)</h3>
+            <h3 class="h5 fw-bold mb-0">@L["Error.Title"]</h3>
         </div>
         <div class="card-body">
-            <p class="text-danger fw-semibold mb-3">ไม่สามารถประมวลผลคำขอของคุณได้ในขณะนี้ (An error occurred while processing your request.)</p>
+            <p class="text-danger fw-semibold mb-3">@L["Error.Subtitle"]</p>
 
             @if (ShowRequestId)
             {
@@ -20,8 +22,8 @@
             }
 
             <div class="alert alert-light border small mb-0">
-                <strong class="d-block mb-1">คำแนะนำสำหรับผู้ดูแลระบบ (Development Mode):</strong>
-                การสลับไปใช้โหมด <strong>Development</strong> จะแสดงรายละเอียดของข้อผิดพลาดที่ชัดเจนยิ่งขึ้นสำหรับการตรวจสอบปัญหา ทั้งนี้ไม่ควรเปิดโหมด Development ทิ้งไว้บนเซิร์ฟเวอร์ใช้งานจริง (Production)
+                <strong class="d-block mb-1">@L["Error.DevAdviceTitle"]</strong>
+                @L["Error.DevAdviceBody"]
             </div>
         </div>
     </div>
@@ -34,6 +36,14 @@
     private string? RequestId { get; set; }
     private bool ShowRequestId => !string.IsNullOrEmpty(RequestId);
 
-    protected override void OnInitialized() =>
+    protected override void OnInitialized()
+    {
+        L.OnLanguageChanged += StateHasChanged;
         RequestId = Activity.Current?.Id ?? HttpContext?.TraceIdentifier;
+    }
+
+    public void Dispose()
+    {
+        L.OnLanguageChanged -= StateHasChanged;
+    }
 }

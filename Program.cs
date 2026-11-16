@@ -6,6 +6,7 @@ using OpensshUI.Services.Audit;
 using OpensshUI.Services.Auth;
 using OpensshUI.Services.Files;
 using OpensshUI.Services.Groups;
+using OpensshUI.Services.Localization;
 using OpensshUI.Services.OpenSsh;
 using OpensshUI.Services.Security;
 using OpensshUI.Services.Users;
@@ -50,6 +51,7 @@ builder.Services.AddScoped<IAuditService, AuditService>();
 builder.Services.AddScoped<ILdapAuthService, LdapAuthService>();
 builder.Services.AddScoped<IWebAdminService, WebAdminService>();
 builder.Services.AddScoped<UserSessionState>();
+builder.Services.AddScoped<ILocalizationService, LocalizationService>();
 
 // OpenSSH & Windows Host Services
 builder.Services.AddSingleton<ISshdConfigService, SshdConfigService>();

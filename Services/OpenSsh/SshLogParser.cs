@@ -1,5 +1,6 @@
 using System.Text.RegularExpressions;
 using OpensshUI.Models;
+using OpensshUI.Services.Localization;
 
 namespace OpensshUI.Services.OpenSsh;
 
@@ -29,7 +30,7 @@ public static class SshLogParser
         @"Starting\s+session:\s+.*?\s+for\s+(?<user>[^\s]+)\s+from\s+(?<ip>[^\s]+)\s+port\s+(?<port>\d+)",
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
-    public static OpenSshLogEntry Parse(string? rawMessage, DateTime timestamp, int eventId = 0, string level = "Information", long? recordId = null)
+    public static OpenSshLogEntry Parse(string? rawMessage, DateTime timestamp, int eventId = 0, string level = "Information", long? recordId = null, string language = AppStrings.DefaultLanguage)
     {
         var entry = new OpenSshLogEntry
         {
@@ -57,7 +58,7 @@ public static class SshLogParser
             entry.Username = matchAccepted.Groups["user"].Value;
             entry.ClientIp = CleanIp(matchAccepted.Groups["ip"].Value);
             if (int.TryParse(matchAccepted.Groups["port"].Value, out var port)) entry.Port = port;
-            entry.SummaryMessage = $"เข้าสู่ระบบสำเร็จ ({method}) - ผู้ใช้: {entry.Username}";
+            entry.SummaryMessage = AppStrings.Format("Svc.Log.AcceptedAuth", language, method, entry.Username);
             return entry;
         }
 
@@ -71,7 +72,7 @@ public static class SshLogParser
             entry.Username = matchSession.Groups["user"].Value;
             entry.ClientIp = CleanIp(matchSession.Groups["ip"].Value);
             if (int.TryParse(matchSession.Groups["port"].Value, out var port)) entry.Port = port;
-            entry.SummaryMessage = $"เริ่มเซสชัน SFTP - ผู้ใช้: {entry.Username} ({entry.ClientIp}:{entry.Port})";
+            entry.SummaryMessage = AppStrings.Format("Svc.Log.SessionStarted", language, entry.Username, entry.ClientIp, entry.Port?.ToString() ?? "");
             return entry;
         }
 
@@ -90,17 +91,17 @@ public static class SshLogParser
             if (isInvalid)
             {
                 entry.AuthStatus = SshAuthStatus.InvalidUser;
-                entry.SummaryMessage = $"ยืนยันตัวตนล้มเหลว (ผู้ใช้ไม่มีในระบบ: {entry.Username}) จาก {entry.ClientIp}";
+                entry.SummaryMessage = AppStrings.Format("Svc.Log.FailedInvalidUser", language, entry.Username, entry.ClientIp);
             }
             else if (method == "publickey")
             {
                 entry.AuthStatus = SshAuthStatus.FailedKey;
-                entry.SummaryMessage = $"ยืนยันตัวตนล้มเหลว (Public Key ไม่ถูกต้อง) - ผู้ใช้: {entry.Username}";
+                entry.SummaryMessage = AppStrings.Format("Svc.Log.FailedKey", language, entry.Username);
             }
             else
             {
                 entry.AuthStatus = SshAuthStatus.FailedPassword;
-                entry.SummaryMessage = $"ยืนยันตัวตนล้มเหลว ({method}) - ผู้ใช้: {entry.Username}";
+                entry.SummaryMessage = AppStrings.Format("Svc.Log.FailedMethod", language, method, entry.Username);
             }
             return entry;
         }
@@ -114,7 +115,7 @@ public static class SshLogParser
             entry.Username = matchDirectInvalid.Groups["user"].Value;
             entry.ClientIp = CleanIp(matchDirectInvalid.Groups["ip"].Value);
             if (int.TryParse(matchDirectInvalid.Groups["port"].Value, out var port)) entry.Port = port;
-            entry.SummaryMessage = $"ตรวจพบบัญชีผู้ใช้ไม่ถูกต้อง (Invalid User): {entry.Username} จาก {entry.ClientIp}";
+            entry.SummaryMessage = AppStrings.Format("Svc.Log.DirectInvalidUser", language, entry.Username, entry.ClientIp);
             return entry;
         }
 
@@ -128,8 +129,8 @@ public static class SshLogParser
             entry.ClientIp = CleanIp(matchClosed.Groups["ip"].Value);
             if (int.TryParse(matchClosed.Groups["port"].Value, out var port)) entry.Port = port;
             entry.SummaryMessage = string.IsNullOrEmpty(entry.Username)
-                ? $"ตัดการเชื่อมต่อ - IP: {entry.ClientIp}:{entry.Port}"
-                : $"ตัดการเชื่อมต่อ - ผู้ใช้: {entry.Username} ({entry.ClientIp}:{entry.Port})";
+                ? AppStrings.Format("Svc.Log.ClosedIpOnly", language, entry.ClientIp, entry.Port?.ToString() ?? "")
+                : AppStrings.Format("Svc.Log.ClosedUser", language, entry.Username, entry.ClientIp, entry.Port?.ToString() ?? "");
             return entry;
         }
 
@@ -139,7 +140,9 @@ public static class SshLogParser
         {
             entry.EventType = SshEventType.SftpActivity;
             if (matchSftp.Groups["user"].Success) entry.Username = matchSftp.Groups["user"].Value;
-            entry.SummaryMessage = "เริ่มเซสชัน SFTP Subsystem" + (!string.IsNullOrEmpty(entry.Username) ? $" โดย {entry.Username}" : "");
+            entry.SummaryMessage = string.IsNullOrEmpty(entry.Username)
+                ? AppStrings.Get("Svc.Log.SftpSubsystem", language)
+                : AppStrings.Format("Svc.Log.SftpSubsystemByUser", language, entry.Username);
             return entry;
         }
 
