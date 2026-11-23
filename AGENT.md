@@ -200,7 +200,11 @@ AI Agent **ต้องปฏิบัติตามกฎเหล็กเห
 | **การฉีด Dependency ใน Razor** | `@inject NavigationManager Navigation`<br/>*(ใส่ไว้แต่ในโค้ดไม่มีการเรียกใช้)* | ฉีดเฉพาะ Service ที่เรียกใช้จริงในหน้านั้นเท่านั้น หากไม่ได้ใช้ให้ลบออกทันทีเพื่อลด Circuit Overhead |
 | **Unused Using Statements** | ค้าง `using` ที่ไม่ได้ใช้งานไว้ในหัวไฟล์ | ลบออกเสมอ และเปิด `EnforceCodeStyleInBuild` ร่วมกับ `GenerateDocumentationFile` เพื่อให้ Roslyn จับ `IDE0005` |
 | **การจัดการภาษา (i18n) ใน Blazor** | เก็บ `CurrentLanguage` เป็น `static` หรือ `Singleton` ทำให้สลับภาษาแล้วเปลี่ยนพร้อมกันทุกแท็บ/ผู้ใช้ หรือไม่ Dispose event | ใช้ Scoped `ILocalizationService` ต่อ Circuit และ `@implements IDisposable` ถอด `OnLanguageChanged` ใน `Dispose()` เสมอ |
-| **การบันทึกค่าภาษาใน Browser** | `await JS.InvokeVoidAsync("eval", "localStorage.setItem('lang', 'en')");` | ใช้ Named JS Function ใน `Components/App.razor` (`await JS.InvokeVoidAsync("setAppLanguage", lang);`) เท่านั้น |
+| **การบันทึกค่าภาษาและสคริปต์ฝั่ง Browser** | `await JS.InvokeVoidAsync("eval", "localStorage.setItem('lang', 'en')");` หรือวาง Inline `<script>` / `onclick=` / `javascript:void(0)` ใน Razor จนต้องเปิด `script-src 'unsafe-inline'` | ใช้ Named JS Function จากไฟล์ภายนอก `wwwroot/app.js` (`await JS.InvokeVoidAsync("setAppLanguage", lang);`) และ Blazor `@bind`/`@onclick` เพื่อบังคับ `script-src 'self'` |
+| **ConcurrentDictionary Eviction & Sorting** | เรียก `.OrderBy(...)` บน `ConcurrentDictionary` โดยตรงระหว่างที่มีการเพิ่ม/ลบข้อมูลพร้อมกัน | ใช้ Lock ครอบและถ่ายสแนปช็อต `.ToArray()` ก่อนจัดเรียงหรือทำ Eviction เสมอ |
+| **Non-Descending ReparsePoint Tree Walk** | ใช้ `EnumerateDirectories(..., RecurseSubdirectories = true)` บนโฟลเดอร์ที่อาจมี Junction/Symlink | ใช้ `Stack<DirectoryInfo>` ร่วมกับ `RecurseSubdirectories = false, AttributesToSkip = 0` และห้าม Push โฟลเดอร์ที่มี `FileAttributes.ReparsePoint` ลง Stack (`[C6]`) |
+| **UI Demo State Scope** | เก็บสถานะ UI Demo Mode (เช่น `SessionManagement`) บน Singleton Service ร่วมกันทุกผู้ดูแล | แยกสถานะ `isDemoMode` เป็นระดับ Per-Circuit ภายใน Razor Page (`GetActiveSessionsAsync(forceMock: isDemoMode)`) |
+| **LDAPS & app_data Secret Protection** | ตั้งค่าเริ่มต้น `TrustSslCertificates = true` หรือปล่อย `app_data` รับ Inherited Read Permissions จากโฟลเดอร์แม่ | ตั้ง `TrustSslCertificates = false` เป็นค่าเริ่มต้น และเรียก `SecureAppDataDirectory` ตัดสืบทอดสิทธิ์ ACL ให้เหลือเฉพาะ `SYSTEM` / `Administrators` |
 
 ---
 
@@ -339,10 +343,11 @@ flowchart TD
   - `X-Frame-Options: DENY`
   - `Referrer-Policy: strict-origin-when-cross-origin`
   - `Permissions-Policy: camera=(), microphone=(), geolocation=()`
-  - `Content-Security-Policy: default-src 'self'; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; font-src 'self' https://cdn.jsdelivr.net data:; img-src 'self' https://cdn.jsdelivr.net data:; script-src 'self' 'unsafe-inline'; connect-src 'self' ws: wss:; frame-ancestors 'none';`
+  - `Content-Security-Policy: default-src 'self'; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; font-src 'self' https://cdn.jsdelivr.net data:; img-src 'self' https://cdn.jsdelivr.net data:; script-src 'self'; connect-src 'self' ws: wss:; frame-ancestors 'none';`
+  - ต้องป้องกัน Inline Script ทั้งหมด (`script-src 'self'` ปราศจาก `'unsafe-inline'`) โดยย้ายสคริปต์ออกไปยัง `wwwroot/app.js` และห้ามใช้ `javascript:void(0)` หรือ Inline DOM `onclick=` ใน Razor Components
 
 ### A06 & A08: Vulnerable Components & Software/Data Integrity
-- ทรัพยากรภายนอกที่โหลดผ่าน CDN (เช่น Bootstrap Icons ใน `Components/App.razor`) ต้องระบุแอตทริบิวต์ `crossorigin="anonymous"` และ `referrerpolicy="no-referrer"` เสมอ
+- ทรัพยากรภายนอกที่โหลดผ่าน CDN (เช่น Bootstrap Icons ใน `Components/App.razor`) ต้องระบุแอตทริบิวต์ Subresource Integrity (`integrity="sha384-..."`) ร่วมกับ `crossorigin="anonymous"` และ `referrerpolicy="no-referrer"` เสมอ
 
 ### A07: Identification and Authentication Failures & Session Timeout
 - `UserSessionState` ต้องมีกลไกตรวจสอบอายุเซสชัน (`SessionTimeout` ค่าเริ่มต้น 8 ชั่วโมง และ `IsSessionExpired`) หากหมดเวลาต้องตัดสิทธิ์ `IsAuthenticated` ให้กลายเป็น `false` ทันที

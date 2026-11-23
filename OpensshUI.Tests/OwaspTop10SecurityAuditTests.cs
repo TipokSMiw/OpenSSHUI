@@ -1,15 +1,21 @@
 using System.IO;
 using System.Reflection;
+using System.Text.RegularExpressions;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
 using OpensshUI.Data;
 using OpensshUI.Models;
 using OpensshUI.Services.Audit;
 using OpensshUI.Services.Auth;
+using OpensshUI.Services.Files;
+using OpensshUI.Services.Groups;
+using OpensshUI.Services.Localization;
 using OpensshUI.Services.OpenSsh;
 using OpensshUI.Services.Security;
+using OpensshUI.Services.Users;
 using Xunit;
 
 namespace OpensshUI.Tests;
@@ -484,5 +490,119 @@ public class OwaspTop10SecurityAuditTests
         {
             Assert.Contains($"API{i}:2023", agentMdText);
         }
+    }
+
+    [Fact]
+    public void TC21_CSP_SRI_NoInlineScripts_And_PerCircuitDemo_ShouldMeetHardenedBaseline()
+    {
+        var root = FindProjectRoot();
+
+        // 1. Program.cs CSP strict script-src 'self' without 'unsafe-inline' & startup ACL hardening
+        var programText = File.ReadAllText(Path.Combine(root, "Program.cs"));
+        var cspMatch = Regex.Match(programText, @"script-src\s+[^;""]+");
+        Assert.True(cspMatch.Success, "Program.cs must configure script-src in Content-Security-Policy.");
+        Assert.Contains("'self'", cspMatch.Value);
+        Assert.DoesNotContain("'unsafe-inline'", cspMatch.Value);
+        Assert.Contains("SecureAppDataDirectory(dbDir)", programText);
+
+        // 2. App.razor external app.js & SRI integrity on Bootstrap Icons CSS, no inline <script>
+        var appRazorText = File.ReadAllText(Path.Combine(root, "Components", "App.razor"));
+        Assert.Contains("integrity=\"sha384-", appRazorText);
+        Assert.Contains("crossorigin=\"anonymous\"", appRazorText);
+        Assert.Contains("referrerpolicy=\"no-referrer\"", appRazorText);
+        Assert.Contains("src=\"app.js", appRazorText);
+        Assert.False(Regex.IsMatch(appRazorText, @"<script(?![^>]*\bsrc=)[^>]*>", RegexOptions.IgnoreCase),
+            "App.razor must not contain inline <script> blocks.");
+
+        // 3. wwwroot/app.js must define required named interop functions
+        var appJsText = File.ReadAllText(Path.Combine(root, "wwwroot", "app.js"));
+        Assert.Contains("window.downloadFileFromStream", appJsText);
+        Assert.Contains("window.copyTextToClipboard", appJsText);
+        Assert.Contains("window.getAppLanguage", appJsText);
+        Assert.Contains("window.setAppLanguage", appJsText);
+
+        // 4. Zero javascript:void(0) and zero inline HTML onclick= across Razor Components
+        var razorFiles = Directory.GetFiles(Path.Combine(root, "Components"), "*.razor", SearchOption.AllDirectories);
+        foreach (var file in razorFiles)
+        {
+            var text = File.ReadAllText(file);
+            var rel = Path.GetRelativePath(root, file);
+            Assert.False(text.Contains("javascript:void(0)", StringComparison.OrdinalIgnoreCase), $"{rel} still contains javascript:void(0).");
+            Assert.False(Regex.IsMatch(text, @"(?<!@)\bonclick\s*=", RegexOptions.IgnoreCase), $"{rel} still contains inline HTML onclick attribute.");
+        }
+
+        // 5. SessionManagement.razor must keep Demo Mode strictly per-circuit (not singleton)
+        var sessionPageText = File.ReadAllText(Path.Combine(root, "Components", "Pages", "Sessions", "SessionManagement.razor"));
+        Assert.Contains("isDemoMode", sessionPageText);
+        Assert.DoesNotContain("SessionService.IsDemoMode", sessionPageText);
+        Assert.DoesNotContain("SessionService.ToggleDemoMode", sessionPageText);
+
+        // 6. MainLayout.razor must subscribe & unsubscribe global revocation event
+        var layoutText = File.ReadAllText(Path.Combine(root, "Components", "Layout", "MainLayout.razor"));
+        Assert.Contains("UserSessionState.OnGlobalUserStatusChanged +=", layoutText);
+        Assert.Contains("UserSessionState.OnGlobalUserStatusChanged -=", layoutText);
+
+        // 7. Secure model defaults
+        Assert.False(new LdapConfig().TrustSslCertificates);
+        Assert.Equal(WebAdminRole.Auditor, new WebAdminUser().Role);
+        Assert.Equal(WebAdminRole.Auditor, new AuthResult().Role);
+    }
+
+    [Fact]
+    public void TC22_DIContainer_ShouldPassValidateScopesAndShareSingletonInstances()
+    {
+        using var connection = new SqliteConnection("DataSource=:memory:");
+        connection.Open();
+
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddDataProtection();
+        services.AddDbContextFactory<AppDbContext>(opt => opt.UseSqlite(connection));
+
+        services.AddSingleton<IProtectionService, ProtectionService>();
+        services.AddSingleton<IAuditService, AuditService>();
+        services.AddScoped<ILdapAuthService, LdapAuthService>();
+        services.AddScoped<IWebAdminService, WebAdminService>();
+        services.AddScoped<UserSessionState>();
+        services.AddScoped<ILocalizationService, LocalizationService>();
+        services.AddSingleton<ISshdConfigService, SshdConfigService>();
+        services.AddSingleton<NtfsAclService>();
+        services.AddSingleton<INtfsAclService>(sp => sp.GetRequiredService<NtfsAclService>());
+        services.AddSingleton<INativeAclProvisioner>(sp => sp.GetRequiredService<NtfsAclService>());
+        services.AddSingleton<IWindowsUserManager, WindowsUserManager>();
+        services.AddSingleton<IOpenSshServiceManager, OpenSshServiceManager>();
+        services.AddSingleton<SshEventLogService>();
+        services.AddSingleton<ISshEventLogService>(sp => sp.GetRequiredService<SshEventLogService>());
+        services.AddSingleton<IOpenSshLogService>(sp => sp.GetRequiredService<SshEventLogService>());
+        services.AddSingleton<ISftpSessionService, SftpSessionService>();
+        services.AddSingleton<ISshKeyGenerator, SshKeyGenerator>();
+        services.AddSingleton<ISecureFileBrowserService>(sp =>
+            new SecureFileBrowserService(
+                sp.GetRequiredService<Microsoft.Extensions.Logging.ILogger<SecureFileBrowserService>>(),
+                @"C:\SFTPRoot",
+                sp.GetRequiredService<IDbContextFactory<AppDbContext>>(),
+                sp.GetRequiredService<IOpenSshServiceManager>()));
+        services.AddScoped<ISftpGroupService, SftpGroupService>();
+        services.AddScoped<ISftpUserService, SftpUserService>();
+
+        using var provider = services.BuildServiceProvider(new ServiceProviderOptions
+        {
+            ValidateScopes = true,
+            ValidateOnBuild = true
+        });
+
+        using var scope1 = provider.CreateScope();
+        using var scope2 = provider.CreateScope();
+
+        Assert.Same(scope1.ServiceProvider.GetRequiredService<IAuditService>(),
+            scope2.ServiceProvider.GetRequiredService<IAuditService>());
+        Assert.Same(provider.GetRequiredService<INtfsAclService>(),
+            provider.GetRequiredService<INativeAclProvisioner>());
+        Assert.Same(provider.GetRequiredService<ISshEventLogService>(),
+            provider.GetRequiredService<IOpenSshLogService>());
+
+        Assert.NotNull(scope1.ServiceProvider.GetRequiredService<ISftpUserService>());
+        Assert.NotNull(scope1.ServiceProvider.GetRequiredService<ILdapAuthService>());
+        Assert.NotNull(scope1.ServiceProvider.GetRequiredService<IWebAdminService>());
     }
 }

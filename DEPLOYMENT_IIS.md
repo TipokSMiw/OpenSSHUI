@@ -219,6 +219,11 @@ dotnet publish OpensshUI.csproj -c Release -o D:\publish\OpensshUI
    New-NetFirewallRule -Name 'OpensshUI-HTTP' -DisplayName 'OpensshUI Web Console' -Enabled True -Direction Inbound -Protocol TCP -Action Allow -LocalPort 8080
    ```
 
+> [!IMPORTANT]
+> **คำแนะนำด้านความปลอดภัยระดับ Production (HTTPS & Host Header):**
+> - แนะนำให้ใช้ Binding แบบ **HTTPS (Port 443)** พร้อม TLS Certificate ที่เชื่อถือได้เสมอ เพื่อป้องกันการดักฟังข้อมูลรับรองผู้ดูแลและ Token ของ SignalR Circuit
+> - หากติดตั้งแบบ Terminate TLS บน Kestrel/IIS โดยตรง ให้ตั้งค่า `"SecuritySettings": { "RequireHttps": true }` และจำกัด `"AllowedHosts"` ให้ตรงกับโดเมน/Host Header จริงใน `appsettings.json` (หลีกเลี่ยงการเปิดทิ้งเป็น `*` เมื่อไม่ได้อยู่หลัง Reverse Proxy ที่ตรวจสอบ Host Header แล้ว)
+
 ---
 
 ## ขั้นตอนที่ 6: กำหนดสิทธิ์ NTFS Permissions บน Drive D:
@@ -228,6 +233,9 @@ dotnet publish OpensshUI.csproj -c Release -o D:\publish\OpensshUI
 ```powershell
 # ให้สิทธิ์ Full Control แก่ SYSTEM และ Administrators บนโฟลเดอร์แอปพลิเคชันใน Drive D:
 icacls "D:\inetpub\OpensshUI" /grant "SYSTEM:(OI)(CI)F" /grant "Administrators:(OI)(CI)F" /T
+
+# ตัดการสืบทอดสิทธิ์ (Break Inheritance) บน app_data/ เพื่อแยกฐานข้อมูล SQLite (sftp_admin.db) และคีย์ DPAPI (dp_keys/) ออกจากบัญชี Users / IIS_IUSRS
+icacls "D:\inetpub\OpensshUI\app_data" /inheritance:r /grant:r "SYSTEM:(OI)(CI)F" /grant:r "Administrators:(OI)(CI)F" /T
 
 # ให้สิทธิ์ Full Control บนโฟลเดอร์ SFTP Root ใน Drive D:
 icacls "D:\SFTPRoot" /grant "SYSTEM:(OI)(CI)F" /grant "Administrators:(OI)(CI)F" /T

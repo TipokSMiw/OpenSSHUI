@@ -1031,6 +1031,7 @@
 
     private async Task LoadData()
     {
+        if (!SessionState.EnsureAuthenticated()) return;
         _loading = true;
         try
         {
@@ -1132,18 +1133,6 @@
             _editRequest.RootPath = path;
         }
         _showFolderBrowser = false;
-    }
-
-    private void ToggleMemberSelection(List<string> memberList, string username, object? isChecked)
-    {
-        if (isChecked is bool b && b)
-        {
-            if (!memberList.Contains(username)) memberList.Add(username);
-        }
-        else
-        {
-            memberList.Remove(username);
-        }
     }
 
     private async Task SaveCreateGroup()

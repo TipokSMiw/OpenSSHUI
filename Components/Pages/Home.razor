@@ -211,16 +211,19 @@
                         <i class="bi bi-chevron-right text-muted"></i>
                     </button>
 
-                    <button class="quick-action-card text-start" @onclick='() => Navigation.NavigateTo("settings")'>
-                        <div class="d-flex align-items-center gap-2.5">
-                            <i class="bi bi-gear-fill text-primary fs-5"></i>
-                            <div>
-                                <div class="fw-bold small">@L["Home.QuickSettingsTitle"]</div>
-                                <small class="text-muted d-block" style="font-size: 0.75rem;">@L["Home.QuickSettingsDesc"]</small>
+                    @if (SessionState.CanManageSystem)
+                    {
+                        <button class="quick-action-card text-start" @onclick='() => Navigation.NavigateTo("settings")'>
+                            <div class="d-flex align-items-center gap-2.5">
+                                <i class="bi bi-gear-fill text-primary fs-5"></i>
+                                <div>
+                                    <div class="fw-bold small">@L["Home.QuickSettingsTitle"]</div>
+                                    <small class="text-muted d-block" style="font-size: 0.75rem;">@L["Home.QuickSettingsDesc"]</small>
+                                </div>
                             </div>
-                        </div>
-                        <i class="bi bi-chevron-right text-muted"></i>
-                    </button>
+                            <i class="bi bi-chevron-right text-muted"></i>
+                        </button>
+                    }
                 </div>
             </div>
         </div>
@@ -313,6 +316,7 @@
 
     private async Task LoadDashboardData()
     {
+        if (!SessionState.EnsureAuthenticated()) return;
         try
         {
             var users = await UserService.GetAllUsersAsync();

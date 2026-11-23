@@ -202,10 +202,22 @@ else
     protected override void OnInitialized()
     {
         SessionState.OnChange += StateHasChanged;
+        UserSessionState.OnGlobalUserStatusChanged += HandleGlobalUserStatusChanged;
         L.OnLanguageChanged += StateHasChanged;
         if (SessionState.IsAuthenticated)
         {
             RefreshServiceStatus();
+        }
+    }
+
+    private void HandleGlobalUserStatusChanged(string affectedCanonicalUser)
+    {
+        if (string.IsNullOrEmpty(SessionState.CurrentUsername)) return;
+
+        var currentCanonical = OpensshUI.Services.Security.SecurityValidator.ExtractCanonicalUsername(SessionState.CurrentUsername);
+        if (string.Equals(currentCanonical, affectedCanonicalUser, StringComparison.OrdinalIgnoreCase))
+        {
+            _ = InvokeAsync(StateHasChanged);
         }
     }
 
@@ -230,14 +242,6 @@ else
         catch
         {
             serviceInfo = new ServiceStatusInfo { Status = "Unknown" };
-        }
-    }
-
-    private async Task HandleLoginKeyUp(KeyboardEventArgs e)
-    {
-        if (e.Key == "Enter")
-        {
-            await PerformLogin();
         }
     }
 
@@ -296,6 +300,7 @@ else
     public void Dispose()
     {
         SessionState.OnChange -= StateHasChanged;
+        UserSessionState.OnGlobalUserStatusChanged -= HandleGlobalUserStatusChanged;
         L.OnLanguageChanged -= StateHasChanged;
     }
 }

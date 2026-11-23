@@ -1,6 +1,7 @@
 @page "/audit"
 @rendermode InteractiveServer
 @inject IAuditService AuditService
+@inject UserSessionState SessionState
 @inject ILocalizationService L
 @implements IDisposable
 
@@ -237,6 +238,7 @@
 
     private async Task LoadLogs()
     {
+        if (!SessionState.EnsureAuthenticated()) return;
         logs = await AuditService.QueryLogsAsync(
             action: string.IsNullOrWhiteSpace(filterAction) ? null : filterAction.Trim(),
             op: string.IsNullOrWhiteSpace(filterOperator) ? null : filterOperator.Trim(),

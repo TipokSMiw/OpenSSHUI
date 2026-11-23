@@ -37,6 +37,14 @@ public class OpenSshServiceManager : IOpenSshServiceManager
 {
     private const string DefaultSshdServiceName = "sshd";
     private const string DefaultAgentServiceName = "ssh-agent";
+    private static readonly HashSet<string> AllowedServiceNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        DefaultSshdServiceName,
+        DefaultAgentServiceName
+    };
+
+    private static bool IsAllowedServiceName(string? serviceName) =>
+        !string.IsNullOrWhiteSpace(serviceName) && AllowedServiceNames.Contains(serviceName.Trim());
 
     private readonly IConfiguration? _configuration;
     private readonly string _defaultConfigPath;
@@ -88,6 +96,13 @@ public class OpenSshServiceManager : IOpenSshServiceManager
             ConfigPath = ConfigPath,
             SshdExecutablePath = FindSshdExecutable()
         };
+
+        if (!IsAllowedServiceName(serviceName))
+        {
+            info.IsInstalled = false;
+            info.Status = "Blocked";
+            return info;
+        }
 
         try
         {
@@ -162,10 +177,15 @@ public class OpenSshServiceManager : IOpenSshServiceManager
 
             foreach (var rule in rules.Where(r => !r.IsGroup && !string.IsNullOrWhiteSpace(r.RootPath)))
             {
-                var cleanId = SecurityValidator.SanitizeSingleLine(rule.Identifier)
-                    .Replace(" ", "").Replace("\t", "").Replace("\"", "")
-                    .Replace("*", "").Replace("?", "").Replace("!", "").Replace(",", "");
+                var cleanId = SanitizeMatchIdentifier(rule.Identifier);
                 if (string.IsNullOrWhiteSpace(cleanId)) continue;
+
+                var (isSafePath, pathErr) = SecurityValidator.ValidateSafeCustomPath(rule.RootPath, root);
+                if (!isSafePath)
+                {
+                    _logger.LogWarning("Skipping unsafe DirectChroot user rule for '{User}' in managed block: {Error}", cleanId, pathErr);
+                    continue;
+                }
 
                 var normPath = FormatConfigPath(rule.RootPath.Replace("/", "\\"));
                 sb.AppendLine($"Match User {cleanId}");
@@ -173,15 +193,23 @@ public class OpenSshServiceManager : IOpenSshServiceManager
                 sb.AppendLine("    ForceCommand internal-sftp");
                 sb.AppendLine("    AllowTcpForwarding no");
                 sb.AppendLine("    X11Forwarding no");
+                sb.AppendLine("    PermitTunnel no");
+                sb.AppendLine("    AllowAgentForwarding no");
+                sb.AppendLine("    PermitTTY no");
                 sb.AppendLine($"    AuthorizedKeysFile {normalizedKeys}");
             }
 
             foreach (var rule in rules.Where(r => r.IsGroup && !string.IsNullOrWhiteSpace(r.RootPath)))
             {
-                var cleanId = SecurityValidator.SanitizeSingleLine(rule.Identifier)
-                    .Replace(" ", "").Replace("\t", "").Replace("\"", "")
-                    .Replace("*", "").Replace("?", "").Replace("!", "").Replace(",", "");
+                var cleanId = SanitizeMatchIdentifier(rule.Identifier);
                 if (string.IsNullOrWhiteSpace(cleanId)) continue;
+
+                var (isSafePath, pathErr) = SecurityValidator.ValidateSafeCustomPath(rule.RootPath, root);
+                if (!isSafePath)
+                {
+                    _logger.LogWarning("Skipping unsafe DirectChroot group rule for '{Group}' in managed block: {Error}", cleanId, pathErr);
+                    continue;
+                }
 
                 var normPath = FormatConfigPath(rule.RootPath.Replace("/", "\\"));
                 sb.AppendLine($"Match Group {cleanId}");
@@ -189,6 +217,9 @@ public class OpenSshServiceManager : IOpenSshServiceManager
                 sb.AppendLine("    ForceCommand internal-sftp");
                 sb.AppendLine("    AllowTcpForwarding no");
                 sb.AppendLine("    X11Forwarding no");
+                sb.AppendLine("    PermitTunnel no");
+                sb.AppendLine("    AllowAgentForwarding no");
+                sb.AppendLine("    PermitTTY no");
                 sb.AppendLine($"    AuthorizedKeysFile {normalizedKeys}");
             }
         }
@@ -198,6 +229,9 @@ public class OpenSshServiceManager : IOpenSshServiceManager
         sb.AppendLine("    ForceCommand internal-sftp");
         sb.AppendLine("    AllowTcpForwarding no");
         sb.AppendLine("    X11Forwarding no");
+        sb.AppendLine("    PermitTunnel no");
+        sb.AppendLine("    AllowAgentForwarding no");
+        sb.AppendLine("    PermitTTY no");
         sb.AppendLine($"    AuthorizedKeysFile {normalizedKeys}");
 
         sb.AppendLine(BlockFooter);
@@ -238,6 +272,12 @@ public class OpenSshServiceManager : IOpenSshServiceManager
 
     public async Task<(bool Success, string Message)> RestartServiceAsync(string serviceName = DefaultSshdServiceName)
     {
+        if (!IsAllowedServiceName(serviceName))
+        {
+            var safeName = SecurityValidator.SanitizeSingleLine(serviceName);
+            return (false, $"Service '{safeName}' is not permitted. Only 'sshd' and 'ssh-agent' may be managed.");
+        }
+
         await _serviceLock.WaitAsync();
         try
         {
@@ -300,6 +340,12 @@ public class OpenSshServiceManager : IOpenSshServiceManager
 
     public async Task<(bool Success, string Message)> StartServiceAsync(string serviceName = DefaultSshdServiceName)
     {
+        if (!IsAllowedServiceName(serviceName))
+        {
+            var safeName = SecurityValidator.SanitizeSingleLine(serviceName);
+            return (false, $"Service '{safeName}' is not permitted. Only 'sshd' and 'ssh-agent' may be managed.");
+        }
+
         await _serviceLock.WaitAsync();
         try
         {
@@ -354,6 +400,12 @@ public class OpenSshServiceManager : IOpenSshServiceManager
 
     public async Task<(bool Success, string Message)> StopServiceAsync(string serviceName = DefaultSshdServiceName)
     {
+        if (!IsAllowedServiceName(serviceName))
+        {
+            var safeName = SecurityValidator.SanitizeSingleLine(serviceName);
+            return (false, $"Service '{safeName}' is not permitted. Only 'sshd' and 'ssh-agent' may be managed.");
+        }
+
         await _serviceLock.WaitAsync();
         try
         {
@@ -395,6 +447,20 @@ public class OpenSshServiceManager : IOpenSshServiceManager
         {
             _serviceLock.Release();
         }
+    }
+
+    private static string SanitizeMatchIdentifier(string? rawIdentifier)
+    {
+        if (string.IsNullOrWhiteSpace(rawIdentifier)) return string.Empty;
+
+        var clean = SecurityValidator.SanitizeSingleLine(rawIdentifier);
+        char[] forbiddenMatchChars = { ' ', '\t', '"', '*', '?', '!', ',', ';', '#', '|' };
+        foreach (var ch in forbiddenMatchChars)
+        {
+            clean = clean.Replace(ch.ToString(), "");
+        }
+
+        return clean.Trim();
     }
 
     private static string FormatConfigPath(string rawPath)

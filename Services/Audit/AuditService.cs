@@ -22,6 +22,7 @@ public class AuditService : IAuditService
         {
             var safeAction = SecurityValidator.SanitizeSingleLine(action ?? string.Empty);
             var safeOp = SecurityValidator.SanitizeSingleLine(op ?? "system");
+            var safeClientIp = string.IsNullOrWhiteSpace(clientIp) ? null : SecurityValidator.SanitizeSingleLine(clientIp);
             var safeDetails = (details ?? string.Empty).Replace("\r", " ").Replace("\n", " ");
 
             await using var db = await _dbFactory.CreateDbContextAsync();
@@ -30,7 +31,7 @@ public class AuditService : IAuditService
                 Timestamp = DateTime.UtcNow,
                 Action = safeAction,
                 Operator = safeOp,
-                ClientIp = clientIp,
+                ClientIp = safeClientIp,
                 Details = safeDetails,
                 IsSuccess = isSuccess
             };

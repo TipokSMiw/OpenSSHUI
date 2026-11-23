@@ -1654,6 +1654,7 @@ $Batch | & sftp.exe -i $KeyPath -b - "@(selectedUser.Username)@@localhost"</pre>
 
     private async Task LoadData()
     {
+        if (!SessionState.EnsureAuthenticated()) return;
         users = await UserService.GetAllUsersAsync();
         availableGroups = await GroupService.GetAllGroupsAsync();
 
@@ -1886,18 +1887,6 @@ $Batch | & sftp.exe -i $KeyPath -b - "@(selectedUser.Username)@@localhost"</pre>
             {
                 groupList.Add(g.Id);
             }
-        }
-    }
-
-    private void ToggleGroupSelection(List<string> groupList, string groupId, object? isChecked)
-    {
-        if (isChecked is bool b && b)
-        {
-            if (!groupList.Contains(groupId)) groupList.Add(groupId);
-        }
-        else
-        {
-            groupList.Remove(groupId);
         }
     }
 
@@ -2154,6 +2143,7 @@ $Batch | & sftp.exe -i $KeyPath -b - "@(selectedUser.Username)@@localhost"</pre>
 
     private async Task DownloadPrivateKeyPem()
     {
+        if (!SessionState.CanManageSftp) return;
         if (generatedResult == null || selectedUser == null) return;
 
         var comment = string.IsNullOrWhiteSpace(generatedResult.Comment) ? "automation" : generatedResult.Comment;
@@ -2169,6 +2159,7 @@ $Batch | & sftp.exe -i $KeyPath -b - "@(selectedUser.Username)@@localhost"</pre>
 
     private async Task CopyPrivateKeyToClipboard()
     {
+        if (!SessionState.CanManageSftp) return;
         if (generatedResult == null) return;
         await JSRuntime.InvokeVoidAsync("copyTextToClipboard", generatedResult.PrivateKeyPem);
         copyKeyBtnText = L["Users.CopiedPrivateKey"];

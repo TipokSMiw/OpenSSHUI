@@ -19,7 +19,9 @@ public class SftpUserService : ISftpUserService
     private readonly ISftpGroupService _groupService;
     private readonly IAuditService _auditService;
     private readonly ISshKeyGenerator _sshKeyGenerator;
+    private readonly ISftpSessionService? _sessionService;
     private readonly ILogger<SftpUserService> _logger;
+    private static readonly SemaphoreSlim _userKeysSyncLock = new(1, 1);
 
     public SftpUserService(
         IDbContextFactory<AppDbContext> dbFactory,
@@ -29,7 +31,8 @@ public class SftpUserService : ISftpUserService
         ISftpGroupService groupService,
         IAuditService auditService,
         ISshKeyGenerator sshKeyGenerator,
-        ILogger<SftpUserService> logger)
+        ILogger<SftpUserService> logger,
+        ISftpSessionService? sessionService = null)
     {
         _dbFactory = dbFactory;
         _aclProvisioner = aclProvisioner;
@@ -39,6 +42,7 @@ public class SftpUserService : ISftpUserService
         _auditService = auditService;
         _sshKeyGenerator = sshKeyGenerator;
         _logger = logger;
+        _sessionService = sessionService;
     }
 
     public async Task<List<SftpUser>> GetAllUsersAsync()
@@ -83,6 +87,23 @@ public class SftpUserService : ISftpUserService
             }
         }
 
+        // Validate optional initial SSH public key upfront before modifying Windows or filesystem state
+        SshKeyParseResult? parsedInitialKey = null;
+        if (!string.IsNullOrWhiteSpace(request.SshPublicKey))
+        {
+            parsedInitialKey = SshKeyConverter.ParseAndNormalizeKey(request.SshPublicKey);
+            if (!parsedInitialKey.IsSuccess)
+            {
+                return (false, parsedInitialKey.ErrorMessage ?? "Invalid SSH public key format.");
+            }
+        }
+
+        if (_windowsUserManager.IsPrivilegedLocalAccount(cleanUsername))
+        {
+            await _auditService.LogAsync("USER_CREATE_FAIL", $"Refused to manage privileged or built-in Windows account '{cleanUsername}'", false, op);
+            return (false, $"Refusing to manage privileged or built-in Windows account '{cleanUsername}'.");
+        }
+
         await using var db = await _dbFactory.CreateDbContextAsync();
         if (await db.SftpUsers.AnyAsync(u => u.Username == cleanUsername))
         {
@@ -94,6 +115,12 @@ public class SftpUserService : ISftpUserService
             // 1. If LocalWindows user, create local Windows user and add to SFTP-Users group
             if (request.AccountType == SftpAccountType.LocalWindows)
             {
+                if (_windowsUserManager.LocalUserExists(cleanUsername))
+                {
+                    await _auditService.LogAsync("USER_CREATE_FAIL", $"Refused to hijack existing local Windows account '{cleanUsername}'", false, op);
+                    return (false, $"A local Windows account named '{cleanUsername}' already exists outside SFTP management.");
+                }
+
                 var (okPass, passErr) = SecurityValidator.ValidateWindowsPassword(request.Password);
                 if (!okPass)
                 {
@@ -161,25 +188,28 @@ public class SftpUserService : ISftpUserService
                 }
             }
 
-            // 5. Optional Initial Public Key
-            if (!string.IsNullOrWhiteSpace(request.SshPublicKey))
+            // 5. Optional Initial Public Key (already validated upfront)
+            if (parsedInitialKey != null && parsedInitialKey.IsSuccess)
             {
-                var parse = SshKeyConverter.ParseAndNormalizeKey(request.SshPublicKey);
-                if (parse.IsSuccess)
+                var key = new SshPublicKey
                 {
-                    var key = new SshPublicKey
-                    {
-                        Username = cleanUsername,
-                        KeyType = parse.KeyType,
-                        FingerprintSha256 = parse.FingerprintSha256,
-                        RawPublicKey = parse.RawPublicKey,
-                        Comment = parse.Comment,
-                        AddedAt = DateTime.UtcNow
-                    };
-                    user.PublicKeys.Add(key);
+                    Username = cleanUsername,
+                    KeyType = parsedInitialKey.KeyType,
+                    FingerprintSha256 = parsedInitialKey.FingerprintSha256,
+                    RawPublicKey = parsedInitialKey.RawPublicKey,
+                    Comment = parsedInitialKey.Comment,
+                    AddedAt = DateTime.UtcNow
+                };
+                user.PublicKeys.Add(key);
 
-                    // Write key file
-                    _aclProvisioner.WriteUserKeysFile(_sshServiceManager.KeysPath, cleanUsername, new[] { parse.RawPublicKey });
+                await _userKeysSyncLock.WaitAsync();
+                try
+                {
+                    _aclProvisioner.WriteUserKeysFile(_sshServiceManager.KeysPath, cleanUsername, new[] { parsedInitialKey.RawPublicKey });
+                }
+                finally
+                {
+                    _userKeysSyncLock.Release();
                 }
             }
 
@@ -285,8 +315,11 @@ public class SftpUserService : ISftpUserService
                     GroupId = grp.Id,
                     JoinedAt = DateTime.UtcNow
                 });
-                var osGrp = WindowsUserManager.ToOsGroupName(grp.Name);
-                _windowsUserManager.AddUserToLocalGroup(osGrp, user.Username);
+                if (user.IsActive || user.AccountType != SftpAccountType.ActiveDirectory)
+                {
+                    var osGrp = WindowsUserManager.ToOsGroupName(grp.Name);
+                    _windowsUserManager.AddUserToLocalGroup(osGrp, user.Username);
+                }
             }
 
             await db.SaveChangesAsync();
@@ -315,8 +348,18 @@ public class SftpUserService : ISftpUserService
         var (okUser, userErr) = SecurityValidator.ValidateUsername(username);
         if (!okUser) return (false, userErr!);
 
+        var cleanUsername = username.Trim();
+        if (_windowsUserManager.IsPrivilegedLocalAccount(cleanUsername))
+        {
+            return (false, $"Refusing to modify privileged or built-in Windows account '{cleanUsername}'.");
+        }
+
         await using var db = await _dbFactory.CreateDbContextAsync();
-        var user = await db.SftpUsers.FirstOrDefaultAsync(u => u.Username == username);
+        var user = await db.SftpUsers
+            .Include(u => u.PublicKeys)
+            .Include(u => u.UserGroups)
+                .ThenInclude(ug => ug.Group)
+            .FirstOrDefaultAsync(u => u.Username == cleanUsername);
         if (user == null) return (false, "User not found.");
 
         user.IsActive = isActive;
@@ -324,15 +367,70 @@ public class SftpUserService : ISftpUserService
 
         if (user.AccountType == SftpAccountType.LocalWindows)
         {
-            bool osUpdated = _windowsUserManager.CreateOrUpdateLocalUser(username, "", isActive);
+            bool osUpdated = _windowsUserManager.CreateOrUpdateLocalUser(cleanUsername, "", isActive);
             if (!osUpdated)
             {
-                _logger.LogWarning("OS user status update returned false for {Username} (IsActive={IsActive})", username, isActive);
+                _logger.LogWarning("OS user status update returned false for {Username} (IsActive={IsActive})", cleanUsername, isActive);
+            }
+        }
+        else if (user.AccountType == SftpAccountType.ActiveDirectory)
+        {
+            if (isActive)
+            {
+                _windowsUserManager.AddUserToLocalGroup("SFTP-Users", cleanUsername);
+                foreach (var ug in user.UserGroups)
+                {
+                    if (ug.Group != null)
+                    {
+                        _windowsUserManager.AddUserToLocalGroup(WindowsUserManager.ToOsGroupName(ug.Group.Name), cleanUsername);
+                    }
+                }
+            }
+            else
+            {
+                _windowsUserManager.RemoveUserFromLocalGroup("SFTP-Users", cleanUsername);
+                foreach (var ug in user.UserGroups)
+                {
+                    if (ug.Group != null)
+                    {
+                        _windowsUserManager.RemoveUserFromLocalGroup(WindowsUserManager.ToOsGroupName(ug.Group.Name), cleanUsername);
+                    }
+                }
             }
         }
 
-        await _auditService.LogAsync("USER_STATUS_CHANGE", $"User '{username}' status changed to {(isActive ? "Active" : "Disabled")}", true, op);
-        return (true, $"User '{username}' updated.");
+        // Synchronize on-disk authorized keys so disabled accounts cannot authenticate via keypair
+        await _userKeysSyncLock.WaitAsync();
+        try
+        {
+            if (isActive)
+            {
+                var allKeys = user.PublicKeys.Select(k => k.RawPublicKey).ToList();
+                _aclProvisioner.WriteUserKeysFile(_sshServiceManager.KeysPath, cleanUsername, allKeys);
+            }
+            else
+            {
+                _aclProvisioner.WriteUserKeysFile(_sshServiceManager.KeysPath, cleanUsername, Array.Empty<string>());
+            }
+        }
+        finally
+        {
+            _userKeysSyncLock.Release();
+        }
+
+        if (user.AccessMode == SftpAccessMode.DirectChroot ||
+            user.UserGroups.Any(ug => ug.Group?.AccessMode == SftpAccessMode.DirectChroot))
+        {
+            await _groupService.SyncAllDirectChrootConfigsAsync();
+        }
+
+        if (!isActive && _sessionService != null)
+        {
+            await _sessionService.TerminateUserSessionsAsync(cleanUsername, op);
+        }
+
+        await _auditService.LogAsync("USER_STATUS_CHANGE", $"User '{cleanUsername}' status changed to {(isActive ? "Active" : "Disabled")}", true, op);
+        return (true, $"User '{cleanUsername}' updated.");
     }
 
     public async Task<(bool Success, string Message)> ResetPasswordAsync(string username, string newPassword, string op = "admin")
@@ -343,8 +441,15 @@ public class SftpUserService : ISftpUserService
         var (okPass, passErr) = SecurityValidator.ValidateWindowsPassword(newPassword);
         if (!okPass) return (false, passErr!);
 
+        var cleanUsername = username.Trim();
+        if (_windowsUserManager.IsPrivilegedLocalAccount(cleanUsername))
+        {
+            await _auditService.LogAsync("USER_PASSWORD_RESET_FAIL", $"Refused password reset for privileged Windows account '{cleanUsername}'", false, op);
+            return (false, $"Refusing to reset password of privileged or built-in Windows account '{cleanUsername}'.");
+        }
+
         await using var db = await _dbFactory.CreateDbContextAsync();
-        var user = await db.SftpUsers.FirstOrDefaultAsync(u => u.Username == username);
+        var user = await db.SftpUsers.FirstOrDefaultAsync(u => u.Username == cleanUsername);
         if (user == null) return (false, "User not found.");
 
         if (user.AccountType != SftpAccountType.LocalWindows)
@@ -352,14 +457,14 @@ public class SftpUserService : ISftpUserService
             return (false, "Cannot change password of Active Directory account directly from here.");
         }
 
-        bool ok = _windowsUserManager.CreateOrUpdateLocalUser(username, newPassword, user.IsActive);
+        bool ok = _windowsUserManager.CreateOrUpdateLocalUser(cleanUsername, newPassword, user.IsActive);
         if (!ok)
         {
-            await _auditService.LogAsync("USER_PASSWORD_RESET_FAIL", $"Failed to reset password for '{username}'", false, op);
+            await _auditService.LogAsync("USER_PASSWORD_RESET_FAIL", $"Failed to reset password for '{cleanUsername}'", false, op);
             return (false, "Failed to reset Windows password.");
         }
 
-        await _auditService.LogAsync("USER_PASSWORD_RESET", $"Password reset for '{username}'", true, op);
+        await _auditService.LogAsync("USER_PASSWORD_RESET", $"Password reset for '{cleanUsername}'", true, op);
         return (true, "Password updated successfully.");
     }
 
@@ -369,6 +474,12 @@ public class SftpUserService : ISftpUserService
         if (!okUser) return (false, userErr!);
 
         var cleanUsername = username.Trim();
+        if (_windowsUserManager.IsPrivilegedLocalAccount(cleanUsername))
+        {
+            await _auditService.LogAsync("USER_DELETE_FAIL", $"Refused deletion of privileged Windows account '{cleanUsername}'", false, op);
+            return (false, $"Refusing to delete privileged or built-in Windows account '{cleanUsername}'.");
+        }
+
         await using var db = await _dbFactory.CreateDbContextAsync();
         var user = await db.SftpUsers
             .Include(u => u.PublicKeys)
@@ -377,6 +488,11 @@ public class SftpUserService : ISftpUserService
             .FirstOrDefaultAsync(u => u.Username == cleanUsername);
 
         if (user == null) return (false, "User not found.");
+
+        if (_sessionService != null)
+        {
+            await _sessionService.TerminateUserSessionsAsync(cleanUsername, op);
+        }
 
         var userDir = !string.IsNullOrWhiteSpace(user.HomeDirectory)
             ? Path.GetFullPath(user.HomeDirectory.Trim())
@@ -402,27 +518,50 @@ public class SftpUserService : ISftpUserService
             }
         }
 
-        // Detach any remaining reparse points (junctions) inside user's directory tree before recursive delete
+        // Detach any remaining reparse points (junctions) inside user's directory tree without descending into reparse points ([C6])
         if (Directory.Exists(userDir))
         {
             try
             {
+                var dirStack = new Stack<DirectoryInfo>();
+                dirStack.Push(new DirectoryInfo(userDir));
                 var enumOptions = new EnumerationOptions
                 {
                     IgnoreInaccessible = true,
-                    RecurseSubdirectories = true,
-                    AttributesToSkip = 0 // Do NOT skip reparse points when searching for junctions to detach
+                    RecurseSubdirectories = false,
+                    AttributesToSkip = 0
                 };
 
-                foreach (var sub in new DirectoryInfo(userDir).EnumerateDirectories("*", enumOptions))
+                while (dirStack.Count > 0)
                 {
-                    if (sub.Attributes.HasFlag(FileAttributes.ReparsePoint))
+                    var current = dirStack.Pop();
+                    if (!current.Exists) continue;
+
+                    if (current.Attributes.HasFlag(FileAttributes.ReparsePoint))
                     {
-                        bool detached = _aclProvisioner.RemoveDirectoryJunction(sub.FullName);
-                        if (!detached && Directory.Exists(sub.FullName))
+                        bool detached = _aclProvisioner.RemoveDirectoryJunction(current.FullName);
+                        if (!detached && Directory.Exists(current.FullName))
                         {
                             allJunctionsDetachedSafely = false;
-                            _logger.LogWarning("Failed to detach reparse point {Junction} before deleting user {User}; aborting recursive file deletion.", sub.FullName, cleanUsername);
+                            _logger.LogWarning("Failed to detach reparse point {Junction} before deleting user {User}; aborting recursive file deletion.", current.FullName, cleanUsername);
+                        }
+                        continue;
+                    }
+
+                    foreach (var sub in current.EnumerateDirectories("*", enumOptions))
+                    {
+                        if (sub.Attributes.HasFlag(FileAttributes.ReparsePoint))
+                        {
+                            bool detached = _aclProvisioner.RemoveDirectoryJunction(sub.FullName);
+                            if (!detached && Directory.Exists(sub.FullName))
+                            {
+                                allJunctionsDetachedSafely = false;
+                                _logger.LogWarning("Failed to detach reparse point {Junction} before deleting user {User}; aborting recursive file deletion.", sub.FullName, cleanUsername);
+                            }
+                        }
+                        else
+                        {
+                            dirStack.Push(sub);
                         }
                     }
                 }
@@ -448,9 +587,16 @@ public class SftpUserService : ISftpUserService
             _windowsUserManager.RemoveUserFromLocalGroup("SFTP-Users", cleanUsername);
         }
 
-        // Delete keys file
-        var keyFile = Path.Combine(_sshServiceManager.KeysPath, cleanUsername);
-        if (File.Exists(keyFile)) File.Delete(keyFile);
+        // Remove keys file safely through ACL provisioner lock
+        await _userKeysSyncLock.WaitAsync();
+        try
+        {
+            _aclProvisioner.WriteUserKeysFile(_sshServiceManager.KeysPath, cleanUsername, Array.Empty<string>());
+        }
+        finally
+        {
+            _userKeysSyncLock.Release();
+        }
 
         // Delete files folder if requested and all junctions were safely detached
         if (deleteFiles && allJunctionsDetachedSafely)
@@ -480,59 +626,84 @@ public class SftpUserService : ISftpUserService
         {
             return (false, userErr!, null);
         }
+
+        var cleanUsername = username.Trim();
         var parse = SshKeyConverter.ParseAndNormalizeKey(rawKey);
         if (!parse.IsSuccess)
         {
             return (false, parse.ErrorMessage ?? "Invalid SSH Key format.", null);
         }
 
-        await using var db = await _dbFactory.CreateDbContextAsync();
-        var user = await db.SftpUsers.Include(u => u.PublicKeys).FirstOrDefaultAsync(u => u.Username == username);
-        if (user == null) return (false, "User not found.", null);
-
-        if (user.PublicKeys.Any(k => string.Equals(k.FingerprintSha256, parse.FingerprintSha256, StringComparison.OrdinalIgnoreCase)))
-        {
-            return (false, $"SSH Key with fingerprint '{parse.FingerprintSha256}' already exists for this user.", null);
-        }
-
         var safeCustomComment = string.IsNullOrWhiteSpace(comment)
             ? null
             : SecurityValidator.SanitizeSingleLine(comment);
 
-        var key = new SshPublicKey
+        SshPublicKey key;
+        await _userKeysSyncLock.WaitAsync();
+        try
         {
-            Username = username,
-            KeyType = parse.KeyType,
-            FingerprintSha256 = parse.FingerprintSha256,
-            RawPublicKey = parse.RawPublicKey,
-            Comment = safeCustomComment ?? parse.Comment,
-            AddedAt = DateTime.UtcNow
-        };
+            await using var db = await _dbFactory.CreateDbContextAsync();
+            var user = await db.SftpUsers.Include(u => u.PublicKeys).FirstOrDefaultAsync(u => u.Username == cleanUsername);
+            if (user == null) return (false, "User not found.", null);
 
-        user.PublicKeys.Add(key);
-        await db.SaveChangesAsync();
+            if (user.PublicKeys.Any(k => string.Equals(k.FingerprintSha256, parse.FingerprintSha256, StringComparison.OrdinalIgnoreCase)))
+            {
+                return (false, $"SSH Key with fingerprint '{parse.FingerprintSha256}' already exists for this user.", null);
+            }
 
-        // Refresh user's key file
-        var allKeys = user.PublicKeys.Select(k => k.RawPublicKey).ToList();
-        _aclProvisioner.WriteUserKeysFile(_sshServiceManager.KeysPath, username, allKeys);
+            key = new SshPublicKey
+            {
+                Username = cleanUsername,
+                KeyType = parse.KeyType,
+                FingerprintSha256 = parse.FingerprintSha256,
+                RawPublicKey = parse.RawPublicKey,
+                Comment = safeCustomComment ?? parse.Comment,
+                AddedAt = DateTime.UtcNow
+            };
 
-        await _auditService.LogAsync("KEY_ADD", $"Added SSH Key ({parse.KeyType}, {parse.FingerprintSha256}) for user '{username}'", true, op);
+            user.PublicKeys.Add(key);
+            await db.SaveChangesAsync();
+
+            if (user.IsActive)
+            {
+                var allKeys = user.PublicKeys.Select(k => k.RawPublicKey).ToList();
+                _aclProvisioner.WriteUserKeysFile(_sshServiceManager.KeysPath, cleanUsername, allKeys);
+            }
+        }
+        finally
+        {
+            _userKeysSyncLock.Release();
+        }
+
+        await _auditService.LogAsync("KEY_ADD", $"Added SSH Key ({parse.KeyType}, {parse.FingerprintSha256}) for user '{cleanUsername}'", true, op);
         return (true, "SSH Key added successfully.", key);
     }
 
     public async Task<(bool Success, string Message)> DeletePublicKeyAsync(int keyId, string op = "admin")
     {
-        await using var db = await _dbFactory.CreateDbContextAsync();
-        var key = await db.SshPublicKeys.FirstOrDefaultAsync(k => k.Id == keyId);
-        if (key == null) return (false, "Key not found.");
+        string username;
+        await _userKeysSyncLock.WaitAsync();
+        try
+        {
+            await using var db = await _dbFactory.CreateDbContextAsync();
+            var key = await db.SshPublicKeys.FirstOrDefaultAsync(k => k.Id == keyId);
+            if (key == null) return (false, "Key not found.");
 
-        var username = key.Username;
-        db.SshPublicKeys.Remove(key);
-        await db.SaveChangesAsync();
+            username = key.Username;
+            db.SshPublicKeys.Remove(key);
+            await db.SaveChangesAsync();
 
-        // Refresh user's key file
-        var remainingKeys = await db.SshPublicKeys.Where(k => k.Username == username).Select(k => k.RawPublicKey).ToListAsync();
-        _aclProvisioner.WriteUserKeysFile(_sshServiceManager.KeysPath, username, remainingKeys);
+            var owner = await db.SftpUsers.AsNoTracking().FirstOrDefaultAsync(u => u.Username == username);
+            if (owner == null || owner.IsActive)
+            {
+                var remainingKeys = await db.SshPublicKeys.Where(k => k.Username == username).Select(k => k.RawPublicKey).ToListAsync();
+                _aclProvisioner.WriteUserKeysFile(_sshServiceManager.KeysPath, username, remainingKeys);
+            }
+        }
+        finally
+        {
+            _userKeysSyncLock.Release();
+        }
 
         await _auditService.LogAsync("KEY_DELETE", $"Deleted SSH Key #{keyId} for user '{username}'", true, op);
         return (true, "SSH Key removed.");
@@ -549,14 +720,12 @@ public class SftpUserService : ISftpUserService
         }
 
         var cleanUsername = request.Username.Trim();
-        await using var db = await _dbFactory.CreateDbContextAsync();
-        var user = await db.SftpUsers
-            .Include(u => u.PublicKeys)
-            .FirstOrDefaultAsync(u => u.Username == cleanUsername);
-
-        if (user == null)
+        await using (var checkDb = await _dbFactory.CreateDbContextAsync())
         {
-            return (false, $"User '{cleanUsername}' not found.", null);
+            if (!await checkDb.SftpUsers.AsNoTracking().AnyAsync(u => u.Username == cleanUsername))
+            {
+                return (false, $"User '{cleanUsername}' not found.", null);
+            }
         }
 
         var defaultComment = $"automation-{cleanUsername}-{DateTime.UtcNow:yyyyMMdd}";
@@ -569,27 +738,47 @@ public class SftpUserService : ISftpUserService
             return (false, genResult.ErrorMessage ?? "Failed to generate SSH key.", null);
         }
 
-        if (user.PublicKeys.Any(k => string.Equals(k.FingerprintSha256, genResult.FingerprintSha256, StringComparison.OrdinalIgnoreCase)))
+        await _userKeysSyncLock.WaitAsync();
+        try
         {
-            return (false, $"SSH Key with fingerprint '{genResult.FingerprintSha256}' already exists for this user.", null);
+            await using var db = await _dbFactory.CreateDbContextAsync();
+            var user = await db.SftpUsers
+                .Include(u => u.PublicKeys)
+                .FirstOrDefaultAsync(u => u.Username == cleanUsername);
+
+            if (user == null)
+            {
+                return (false, $"User '{cleanUsername}' not found.", null);
+            }
+
+            if (user.PublicKeys.Any(k => string.Equals(k.FingerprintSha256, genResult.FingerprintSha256, StringComparison.OrdinalIgnoreCase)))
+            {
+                return (false, $"SSH Key with fingerprint '{genResult.FingerprintSha256}' already exists for this user.", null);
+            }
+
+            var key = new SshPublicKey
+            {
+                Username = cleanUsername,
+                KeyType = genResult.KeyType,
+                FingerprintSha256 = genResult.FingerprintSha256,
+                RawPublicKey = genResult.PublicKeyOpenSsh,
+                Comment = genResult.Comment,
+                AddedAt = DateTime.UtcNow
+            };
+
+            user.PublicKeys.Add(key);
+            await db.SaveChangesAsync();
+
+            if (user.IsActive)
+            {
+                var allKeys = user.PublicKeys.Select(k => k.RawPublicKey).ToList();
+                _aclProvisioner.WriteUserKeysFile(_sshServiceManager.KeysPath, cleanUsername, allKeys);
+            }
         }
-
-        var key = new SshPublicKey
+        finally
         {
-            Username = cleanUsername,
-            KeyType = genResult.KeyType,
-            FingerprintSha256 = genResult.FingerprintSha256,
-            RawPublicKey = genResult.PublicKeyOpenSsh,
-            Comment = genResult.Comment,
-            AddedAt = DateTime.UtcNow
-        };
-
-        user.PublicKeys.Add(key);
-        await db.SaveChangesAsync();
-
-        // Refresh user's key file on disk
-        var allKeys = user.PublicKeys.Select(k => k.RawPublicKey).ToList();
-        _aclProvisioner.WriteUserKeysFile(_sshServiceManager.KeysPath, cleanUsername, allKeys);
+            _userKeysSyncLock.Release();
+        }
 
         await _auditService.LogAsync("KEY_GENERATE", $"Generated SSH Key ({genResult.KeyType}, {genResult.FingerprintSha256}, Comment: {genResult.Comment}) for user '{cleanUsername}'", true, op);
 

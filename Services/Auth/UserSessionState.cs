@@ -9,7 +9,10 @@ public class UserSessionState
     private const int MaxTrackedStateEntries = 1000;
     private static readonly TimeSpan OverrideRetention = TimeSpan.FromHours(12);
     private static readonly ConcurrentDictionary<string, (long Sequence, DateTime UpdatedAtUtc, bool IsActive, WebAdminRole Role)> AccountStateOverrides = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly object _overridePruneLock = new();
     private static long _globalSequence;
+
+    public static event Action<string>? OnGlobalUserStatusChanged;
 
     private bool _isAuthenticated;
     private long _loginSequence;
@@ -62,6 +65,17 @@ public class UserSessionState
     public bool CanManageSftp => IsAuthenticated && IsAdmin && (Role == WebAdminRole.SuperAdmin || Role == WebAdminRole.Operator);
     public bool IsReadOnly => IsAuthenticated && IsAdmin && Role == WebAdminRole.Auditor;
 
+    public bool EnsureAuthenticated()
+    {
+        if (IsAuthenticated && IsAdmin)
+        {
+            return true;
+        }
+
+        NotifyStateChanged();
+        return false;
+    }
+
     public event Action? OnChange;
 
     public static void NotifyUserStatusChanged(string username, bool isActive, WebAdminRole role)
@@ -69,14 +83,33 @@ public class UserSessionState
         if (string.IsNullOrWhiteSpace(username)) return;
 
         var nowUtc = DateTime.UtcNow;
-        if (AccountStateOverrides.Count >= MaxTrackedStateEntries)
+        lock (_overridePruneLock)
         {
-            PruneStaleOverrides(nowUtc);
+            if (AccountStateOverrides.Count >= MaxTrackedStateEntries)
+            {
+                PruneStaleOverrides(nowUtc);
+            }
         }
 
         var key = NormalizeKey(username);
         var seq = Interlocked.Increment(ref _globalSequence);
         AccountStateOverrides[key] = (seq, nowUtc, isActive, role);
+
+        var handlers = OnGlobalUserStatusChanged;
+        if (handlers != null)
+        {
+            foreach (var handler in handlers.GetInvocationList().Cast<Action<string>>())
+            {
+                try
+                {
+                    handler(key);
+                }
+                catch
+                {
+                    // Ignore disposed/faulted circuit callbacks so admin actions never fail
+                }
+            }
+        }
     }
 
     public static int GetTrackedOverrideCount() => AccountStateOverrides.Count;
@@ -92,7 +125,8 @@ public class UserSessionState
     private static void PruneStaleOverrides(DateTime nowUtc)
     {
         var cutoff = nowUtc - OverrideRetention;
-        foreach (var kvp in AccountStateOverrides)
+        var snapshot = AccountStateOverrides.ToArray();
+        foreach (var kvp in snapshot)
         {
             if (kvp.Value.UpdatedAtUtc <= cutoff)
             {
@@ -102,7 +136,7 @@ public class UserSessionState
 
         if (AccountStateOverrides.Count >= MaxTrackedStateEntries)
         {
-            var oldestKeys = AccountStateOverrides
+            var oldestKeys = AccountStateOverrides.ToArray()
                 .OrderBy(kvp => kvp.Value.Sequence)
                 .Take(MaxTrackedStateEntries / 4)
                 .Select(kvp => kvp.Key)

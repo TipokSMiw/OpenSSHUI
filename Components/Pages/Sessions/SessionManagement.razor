@@ -22,9 +22,9 @@
             <!-- Demo Mode Toggle -->
             @if (SessionState.CanManageSftp)
             {
-                <button class="btn @(SessionService.IsDemoMode ? "btn-warning text-dark fw-bold" : "btn-outline-secondary") btn-sm" @onclick="ToggleDemoMode" title="@L["Sessions.DemoTooltip"]">
-                    <i class="bi @(SessionService.IsDemoMode ? "bi-check-circle-fill" : "bi-cpu")"></i>
-                    <span>@(SessionService.IsDemoMode ? L["SshLogs.DemoActive"] : L["SshLogs.DemoInactive"])</span>
+                <button class="btn @(isDemoMode ? "btn-warning text-dark fw-bold" : "btn-outline-secondary") btn-sm" @onclick="ToggleDemoMode" title="@L["Sessions.DemoTooltip"]">
+                    <i class="bi @(isDemoMode ? "bi-check-circle-fill" : "bi-cpu")"></i>
+                    <span>@(isDemoMode ? L["SshLogs.DemoActive"] : L["SshLogs.DemoInactive"])</span>
                 </button>
             }
 
@@ -56,7 +56,7 @@
     </div>
 
     <!-- Demo Mode Notice Banner -->
-    @if (SessionService.IsDemoMode)
+    @if (isDemoMode)
     {
         <div class="alert alert-warning border-0 shadow-sm rounded-3 py-2 px-3 mb-3 d-flex align-items-center justify-content-between" role="alert">
             <div class="d-flex align-items-center gap-2 small">
@@ -66,7 +66,10 @@
                     <span> @L["Sessions.DemoBannerDesc"]</span>
                 </div>
             </div>
-            <button class="btn btn-sm btn-outline-dark" @onclick="ToggleDemoMode">@L["Sessions.BackToReal"]</button>
+            @if (SessionState.CanManageSftp)
+            {
+                <button class="btn btn-sm btn-outline-dark" @onclick="ToggleDemoMode">@L["Sessions.BackToReal"]</button>
+            }
         </div>
     }
 
@@ -401,6 +404,7 @@
     private SftpSessionOverview? overview;
     private bool isLoading;
     private bool isTerminating;
+    private bool isDemoMode;
     private string? alertMessage;
     private bool isAlertSuccess;
     private string searchQuery = string.Empty;
@@ -436,10 +440,11 @@
 
     private async Task LoadSessions()
     {
+        if (!SessionState.EnsureAuthenticated()) return;
         isLoading = true;
         try
         {
-            overview = await SessionService.GetActiveSessionsAsync();
+            overview = await SessionService.GetActiveSessionsAsync(forceMock: isDemoMode);
         }
         catch (Exception ex)
         {
@@ -454,7 +459,7 @@
     private async Task ToggleDemoMode()
     {
         if (!SessionState.CanManageSftp) return;
-        SessionService.ToggleDemoMode();
+        isDemoMode = !isDemoMode;
         await LoadSessions();
     }
 
@@ -469,9 +474,17 @@
             {
                 await InvokeAsync(async () =>
                 {
+                    if (!SessionState.EnsureAuthenticated())
+                    {
+                        autoRefreshTimer?.Dispose();
+                        autoRefreshTimer = null;
+                        StateHasChanged();
+                        return;
+                    }
+
                     try
                     {
-                        overview = await SessionService.GetActiveSessionsAsync();
+                        overview = await SessionService.GetActiveSessionsAsync(forceMock: isDemoMode);
                         StateHasChanged();
                     }
                     catch { }
@@ -500,11 +513,30 @@
 
         isTerminating = true;
         var op = string.IsNullOrEmpty(SessionState.CurrentUsername) ? "admin" : SessionState.CurrentUsername;
-        var (ok, msg) = await SessionService.TerminateSessionAsync(confirmSessionTarget, op);
-        isTerminating = false;
+        var target = confirmSessionTarget;
         confirmSessionTarget = null;
 
-        SetAlert(msg, ok);
+        if (isDemoMode)
+        {
+            if (overview != null)
+            {
+                overview.Sessions.RemoveAll(s =>
+                    string.Equals(s.SessionId, target.SessionId, StringComparison.Ordinal) ||
+                    (target.ProcessId > 0 && s.ProcessId == target.ProcessId && string.Equals(s.Username, target.Username, StringComparison.OrdinalIgnoreCase)));
+                RecalculateDemoOverviewTotals();
+            }
+
+            var msg = $"[Demo] Terminated SFTP session '{target.SessionId}' for '{target.Username}' ({target.RemoteIp}:{target.RemotePort}).";
+            await AuditService.LogAsync("SESSION_TERMINATE", msg, true, op);
+            isTerminating = false;
+            SetAlert(msg, true);
+            return;
+        }
+
+        var (ok, liveMsg) = await SessionService.TerminateSessionAsync(target, op);
+        isTerminating = false;
+
+        SetAlert(liveMsg, ok);
         await LoadSessions();
     }
 
@@ -515,12 +547,41 @@
 
         isTerminating = true;
         var op = string.IsNullOrEmpty(SessionState.CurrentUsername) ? "admin" : SessionState.CurrentUsername;
-        var (ok, msg) = await SessionService.TerminateUserSessionsAsync(confirmUserTarget, op);
-        isTerminating = false;
+        var targetUser = confirmUserTarget;
         confirmUserTarget = null;
 
-        SetAlert(msg, ok);
+        if (isDemoMode)
+        {
+            int removed = 0;
+            if (overview != null)
+            {
+                removed = overview.Sessions.RemoveAll(s => string.Equals(s.Username, targetUser, StringComparison.OrdinalIgnoreCase));
+                RecalculateDemoOverviewTotals();
+            }
+
+            var msg = $"[Demo] Terminated {removed} SFTP session(s) for user '{targetUser}'.";
+            await AuditService.LogAsync("SESSION_TERMINATE_USER", msg, true, op);
+            isTerminating = false;
+            SetAlert(msg, true);
+            return;
+        }
+
+        var (ok, liveMsg) = await SessionService.TerminateUserSessionsAsync(targetUser, op);
+        isTerminating = false;
+
+        SetAlert(liveMsg, ok);
         await LoadSessions();
+    }
+
+    private void RecalculateDemoOverviewTotals()
+    {
+        if (overview == null) return;
+        overview.TotalActiveSessions = overview.Sessions.Count;
+        overview.UniqueUsersCount = overview.Sessions
+            .Where(s => !string.Equals(s.Username, "Unknown", StringComparison.OrdinalIgnoreCase))
+            .Select(s => s.Username)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Count();
     }
 
     private void SetAlert(string message, bool isSuccess)

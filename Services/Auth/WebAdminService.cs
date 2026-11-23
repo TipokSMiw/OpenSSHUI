@@ -1,4 +1,3 @@
-using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using OpensshUI.Data;
 using OpensshUI.Models;
@@ -10,7 +9,6 @@ namespace OpensshUI.Services.Auth;
 
 public class WebAdminService : IWebAdminService
 {
-    private static readonly Regex SafeAdminUsernameRegex = new(@"^[a-zA-Z0-9_\-\.]+$", RegexOptions.Compiled);
     private readonly IDbContextFactory<AppDbContext> _dbFactory;
     private readonly IAuditService _auditService;
     private readonly ILogger<WebAdminService> _logger;
@@ -82,7 +80,7 @@ public class WebAdminService : IWebAdminService
         if (cleanUsername.Length < 3 || cleanUsername.Length > 50)
             return WebAdminOperationResult.Fail(AppStrings.Get("Svc.WebAdmin.InvalidUsernameLen", Lang));
 
-        if (!SafeAdminUsernameRegex.IsMatch(cleanUsername))
+        if (!SecurityValidator.IsValidAdminUsername(cleanUsername))
             return WebAdminOperationResult.Fail(AppStrings.Get("Svc.WebAdmin.InvalidUsernameChars", Lang));
 
         var cleanDisplayName = SecurityValidator.SanitizeSingleLine(displayName);
@@ -138,8 +136,8 @@ public class WebAdminService : IWebAdminService
         if (string.IsNullOrWhiteSpace(cleanUsername))
             return WebAdminOperationResult.Fail("รูปแบบ Username ของ Active Directory ไม่ถูกต้อง");
 
-        if (!SafeAdminUsernameRegex.IsMatch(cleanUsername))
-            return WebAdminOperationResult.Fail("Username ของ Active Directory มีอักขระที่ไม่อนุญาต (อนุญาตเฉพาะ a-z, 0-9, _, -, .)");
+        if (!SecurityValidator.IsValidAdminUsername(cleanUsername, minLength: 1))
+            return WebAdminOperationResult.Fail("Username ของ Active Directory มีอักขระที่ไม่อนุญาต (อนุญาตเฉพาะ a-z, 0-9, _, -, . และความยาวไม่เกิน 50 ตัวอักษร)");
 
         var cleanDisplayName = SecurityValidator.SanitizeSingleLine(displayName);
         var cleanEmail = string.IsNullOrWhiteSpace(email) ? null : SecurityValidator.SanitizeSingleLine(email);
@@ -229,6 +227,11 @@ public class WebAdminService : IWebAdminService
             await db.SaveChangesAsync();
         }
 
+        if (!IsSameAccount(admin.Username, operatorUser))
+        {
+            UserSessionState.NotifyUserStatusChanged(admin.Username, false, admin.Role);
+        }
+
         await _auditService.LogAsync("RESET_WEB_ADMIN_PASSWORD", $"Reset password for local web admin '{admin.Username}'", true, operatorUser);
         _logger.LogInformation("Web admin {Admin} reset password for local user {User}", operatorUser, admin.Username);
 
@@ -307,14 +310,26 @@ public class WebAdminService : IWebAdminService
         }
 
         var deletedUsername = admin.Username;
+        var deletedType = admin.AccountType;
         db.WebAdminUsers.Remove(admin);
         await db.SaveChangesAsync();
 
         UserSessionState.NotifyUserStatusChanged(deletedUsername, false, WebAdminRole.Auditor);
 
-        await _auditService.LogAsync("DELETE_WEB_ADMIN", $"Deleted web admin '{deletedUsername}'", true, operatorUser);
+        bool hasAdFallbackRisk = deletedType == WebAdminType.ActiveDirectory &&
+                                 ldapConfig != null &&
+                                 ldapConfig.IsLdapEnabled &&
+                                 !string.IsNullOrWhiteSpace(ldapConfig.AdminGroup);
+
+        var auditDetail = hasAdFallbackRisk
+            ? $"Deleted AD web admin '{deletedUsername}' (Warning: user can still authenticate via fallback AD AdminGroup '{ldapConfig!.AdminGroup}' unless deactivated or removed from AD group)"
+            : $"Deleted web admin '{deletedUsername}'";
+        await _auditService.LogAsync("DELETE_WEB_ADMIN", auditDetail, true, operatorUser);
         _logger.LogInformation("Web admin {Admin} deleted web admin {User}", operatorUser, deletedUsername);
 
-        return WebAdminOperationResult.Ok($"ลบผู้ดูแลระบบ '{deletedUsername}' เรียบร้อยแล้ว");
+        var msg = hasAdFallbackRisk
+            ? $"ลบผู้ดูแลระบบ '{deletedUsername}' เรียบร้อยแล้ว (คำเตือน: หากบัญชียังอยู่ในกลุ่ม AD '{ldapConfig!.AdminGroup}' อาจยังล็อกอินแบบ Fallback ได้ — แนะนำให้ใช้วิธีระงับการใช้งานแทนหากต้องการปิดสิทธิ์ถาวร)"
+            : $"ลบผู้ดูแลระบบ '{deletedUsername}' เรียบร้อยแล้ว";
+        return WebAdminOperationResult.Ok(msg);
     }
 }

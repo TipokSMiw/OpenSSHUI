@@ -38,9 +38,12 @@ public class SecurityAndConverterTests
         // Exponent length: 3 (big endian)
         writer.Write(new byte[] { 0x00, 0x00, 0x00, 0x03 });
         writer.Write(new byte[] { 0x01, 0x00, 0x01 }); // 65537
-        // Modulus dummy length: 4 (big endian)
-        writer.Write(new byte[] { 0x00, 0x00, 0x00, 0x04 });
-        writer.Write(new byte[] { 0x12, 0x34, 0x56, 0x78 });
+        // Modulus 2048-bit test vector length: 257 (big endian unsigned mpint with leading 0x00 sign byte)
+        var modulus = new byte[257];
+        modulus[1] = 0x80;
+        modulus[256] = 0x01;
+        writer.Write(new byte[] { 0x00, 0x00, 0x01, 0x01 });
+        writer.Write(modulus);
 
         var validBase64 = Convert.ToBase64String(ms.ToArray());
 

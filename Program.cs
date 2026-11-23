@@ -47,7 +47,7 @@ builder.Services.AddDbContextFactory<AppDbContext>(options =>
 
 // Application Services
 builder.Services.AddSingleton<IProtectionService, ProtectionService>();
-builder.Services.AddScoped<IAuditService, AuditService>();
+builder.Services.AddSingleton<IAuditService, AuditService>();
 builder.Services.AddScoped<ILdapAuthService, LdapAuthService>();
 builder.Services.AddScoped<IWebAdminService, WebAdminService>();
 builder.Services.AddScoped<UserSessionState>();
@@ -55,12 +55,14 @@ builder.Services.AddScoped<ILocalizationService, LocalizationService>();
 
 // OpenSSH & Windows Host Services
 builder.Services.AddSingleton<ISshdConfigService, SshdConfigService>();
-builder.Services.AddSingleton<INtfsAclService, NtfsAclService>();
-builder.Services.AddSingleton<INativeAclProvisioner, NtfsAclService>();
+builder.Services.AddSingleton<NtfsAclService>();
+builder.Services.AddSingleton<INtfsAclService>(sp => sp.GetRequiredService<NtfsAclService>());
+builder.Services.AddSingleton<INativeAclProvisioner>(sp => sp.GetRequiredService<NtfsAclService>());
 builder.Services.AddSingleton<IWindowsUserManager, WindowsUserManager>();
 builder.Services.AddSingleton<IOpenSshServiceManager, OpenSshServiceManager>();
-builder.Services.AddSingleton<ISshEventLogService, SshEventLogService>();
-builder.Services.AddSingleton<IOpenSshLogService, SshEventLogService>();
+builder.Services.AddSingleton<SshEventLogService>();
+builder.Services.AddSingleton<ISshEventLogService>(sp => sp.GetRequiredService<SshEventLogService>());
+builder.Services.AddSingleton<IOpenSshLogService>(sp => sp.GetRequiredService<SshEventLogService>());
 builder.Services.AddSingleton<ISftpSessionService, SftpSessionService>();
 builder.Services.AddSingleton<ISshKeyGenerator, SshKeyGenerator>();
 builder.Services.AddSingleton<ISecureFileBrowserService, SecureFileBrowserService>(sp =>
@@ -76,9 +78,12 @@ builder.Services.AddScoped<ISftpUserService, SftpUserService>();
 
 var app = builder.Build();
 
-// Auto-create database & tables on startup
+// Auto-create database & tables on startup and harden app_data directory ACLs
 using (var scope = app.Services.CreateScope())
 {
+    var aclService = scope.ServiceProvider.GetRequiredService<INtfsAclService>();
+    aclService.SecureAppDataDirectory(dbDir);
+
     var dbFactory = scope.ServiceProvider.GetRequiredService<IDbContextFactory<AppDbContext>>();
     using var db = dbFactory.CreateDbContext();
     db.Database.EnsureCreated();
@@ -117,7 +122,7 @@ app.Use(async (context, next) =>
     context.Response.Headers.Append("Referrer-Policy", "strict-origin-when-cross-origin");
     context.Response.Headers.Append("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
     context.Response.Headers.Append("Content-Security-Policy",
-        "default-src 'self'; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; font-src 'self' https://cdn.jsdelivr.net data:; img-src 'self' https://cdn.jsdelivr.net data:; script-src 'self' 'unsafe-inline'; connect-src 'self' ws: wss:; frame-ancestors 'none';");
+        "default-src 'self'; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; font-src 'self' https://cdn.jsdelivr.net data:; img-src 'self' https://cdn.jsdelivr.net data:; script-src 'self'; connect-src 'self' ws: wss:; frame-ancestors 'none';");
     await next();
 });
 

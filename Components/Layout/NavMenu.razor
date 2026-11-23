@@ -11,9 +11,9 @@
     </div>
 </div>
 
-<input type="checkbox" title="Navigation menu" class="navbar-toggler" />
+<input type="checkbox" title="Navigation menu" class="navbar-toggler" @bind="isMobileMenuOpen" />
 
-<div class="nav-scrollable" onclick="document.querySelector('.navbar-toggler').click()">
+<div class="nav-scrollable" @onclick="CloseMobileMenu">
     <nav class="flex-column py-2">
         <div class="nav-section-title px-3">@L["Nav.SectionOverview"]</div>
         <div class="nav-item px-3">
@@ -94,6 +94,10 @@
 </div>
 
 @code {
+    private bool isMobileMenuOpen;
+
+    private void CloseMobileMenu() => isMobileMenuOpen = false;
+
     protected override void OnInitialized()
     {
         L.OnLanguageChanged += StateHasChanged;

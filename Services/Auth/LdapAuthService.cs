@@ -15,6 +15,7 @@ public class LdapAuthService : ILdapAuthService
     private const int MaxTrackedLoginUsers = 1000;
     private static readonly TimeSpan LockoutDuration = TimeSpan.FromMinutes(5);
     private static readonly ConcurrentDictionary<string, (int FailedCount, DateTime? LockoutUntilUtc, DateTime LastAttemptUtc)> LoginAttempts = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly object _loginAttemptsPruneLock = new();
 
     private readonly IDbContextFactory<AppDbContext> _dbFactory;
     private readonly IProtectionService _protectionService;
@@ -78,7 +79,7 @@ public class LdapAuthService : ILdapAuthService
                 Server = "127.0.0.1",
                 Port = 389,
                 UseSsl = false,
-                TrustSslCertificates = true,
+                TrustSslCertificates = false,
                 Domain = "corp.local",
                 BaseDn = "DC=corp,DC=local",
                 AdminGroup = "SFTP-Admins",
@@ -108,6 +109,10 @@ public class LdapAuthService : ILdapAuthService
         config.AdminGroup = SecurityValidator.SanitizeSingleLine(config.AdminGroup);
         var cleanFallbackUser = SecurityValidator.ExtractCanonicalUsername(SecurityValidator.SanitizeSingleLine(config.FallbackAdminUsername));
         config.FallbackAdminUsername = string.IsNullOrWhiteSpace(cleanFallbackUser) ? "admin" : cleanFallbackUser;
+        if (!SecurityValidator.IsValidAdminUsername(config.FallbackAdminUsername))
+        {
+            throw new ArgumentException("Fallback administrator username must be 3-50 characters and contain only letters, digits, '_', '-', or '.'.");
+        }
 
         if (config.IsLdapEnabled)
         {
@@ -119,7 +124,16 @@ public class LdapAuthService : ILdapAuthService
         }
 
         await using var db = await _dbFactory.CreateDbContextAsync();
+        var fallbackLower = config.FallbackAdminUsername.ToLowerInvariant();
+        bool collidesWithAd = await db.WebAdminUsers.AnyAsync(
+            u => u.AccountType == WebAdminType.ActiveDirectory && u.Username.ToLower() == fallbackLower);
+        if (collidesWithAd)
+        {
+            throw new ArgumentException($"Fallback administrator username '{config.FallbackAdminUsername}' conflicts with an existing Active Directory Web Admin.");
+        }
+
         var existing = await db.LdapConfigs.FirstOrDefaultAsync(c => c.Id == config.Id);
+        var oldFallbackUsername = existing?.FallbackAdminUsername;
         if (existing == null)
         {
             existing = config;
@@ -161,12 +175,47 @@ public class LdapAuthService : ILdapAuthService
         {
             existing.FallbackAdminPasswordHash = PasswordHasher.HashPassword(newFallbackAdminPassword);
 
-            var fallbackLower = existing.FallbackAdminUsername.ToLowerInvariant();
             var webAdmin = await db.WebAdminUsers.FirstOrDefaultAsync(
                 u => u.AccountType == WebAdminType.Local && u.Username.ToLower() == fallbackLower);
             if (webAdmin != null)
             {
                 webAdmin.PasswordHash = existing.FallbackAdminPasswordHash;
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(oldFallbackUsername) &&
+            !string.Equals(oldFallbackUsername, existing.FallbackAdminUsername, StringComparison.OrdinalIgnoreCase))
+        {
+            var oldLower = oldFallbackUsername.ToLowerInvariant();
+            var targetAdmin = await db.WebAdminUsers.FirstOrDefaultAsync(
+                u => u.AccountType == WebAdminType.Local && u.Username.ToLower() == fallbackLower);
+            if (targetAdmin == null)
+            {
+                var oldAdmin = await db.WebAdminUsers.FirstOrDefaultAsync(
+                    u => u.AccountType == WebAdminType.Local && u.Username.ToLower() == oldLower);
+                if (oldAdmin != null)
+                {
+                    oldAdmin.Username = existing.FallbackAdminUsername;
+                    if (!string.IsNullOrEmpty(existing.FallbackAdminPasswordHash))
+                    {
+                        oldAdmin.PasswordHash = existing.FallbackAdminPasswordHash;
+                    }
+                    UserSessionState.NotifyUserStatusChanged(oldFallbackUsername, false, WebAdminRole.Auditor);
+                }
+                else if (await db.WebAdminUsers.AnyAsync())
+                {
+                    db.WebAdminUsers.Add(new WebAdminUser
+                    {
+                        Username = existing.FallbackAdminUsername,
+                        DisplayName = "Local Administrator",
+                        AccountType = WebAdminType.Local,
+                        PasswordHash = existing.FallbackAdminPasswordHash,
+                        Role = WebAdminRole.SuperAdmin,
+                        IsActive = true,
+                        CreatedAt = DateTime.UtcNow,
+                        CreatedBy = "System"
+                    });
+                }
             }
         }
 
@@ -196,9 +245,12 @@ public class LdapAuthService : ILdapAuthService
 
     private static void RecordFailedAttemptCore(string username, DateTime nowUtc)
     {
-        if (LoginAttempts.Count >= MaxTrackedLoginUsers)
+        lock (_loginAttemptsPruneLock)
         {
-            PruneExpiredAttempts(nowUtc);
+            if (LoginAttempts.Count >= MaxTrackedLoginUsers)
+            {
+                PruneExpiredAttempts(nowUtc);
+            }
         }
 
         LoginAttempts.AddOrUpdate(
@@ -217,7 +269,8 @@ public class LdapAuthService : ILdapAuthService
     private static void PruneExpiredAttempts(DateTime nowUtc)
     {
         var expirationCutoff = nowUtc - LockoutDuration;
-        foreach (var kvp in LoginAttempts)
+        var snapshot = LoginAttempts.ToArray();
+        foreach (var kvp in snapshot)
         {
             var isExpiredLockout = kvp.Value.LockoutUntilUtc.HasValue && kvp.Value.LockoutUntilUtc.Value <= nowUtc;
             var isStaleAttempt = !kvp.Value.LockoutUntilUtc.HasValue && kvp.Value.LastAttemptUtc <= expirationCutoff;
@@ -230,7 +283,7 @@ public class LdapAuthService : ILdapAuthService
         // Hard cap safeguard if still above MaxTrackedLoginUsers during an active flood
         if (LoginAttempts.Count >= MaxTrackedLoginUsers)
         {
-            var oldestNonLocked = LoginAttempts
+            var oldestNonLocked = LoginAttempts.ToArray()
                 .Where(kvp => !kvp.Value.LockoutUntilUtc.HasValue || kvp.Value.LockoutUntilUtc.Value <= nowUtc)
                 .OrderBy(kvp => kvp.Value.LastAttemptUtc)
                 .Take(MaxTrackedLoginUsers / 4)
@@ -238,6 +291,21 @@ public class LdapAuthService : ILdapAuthService
                 .ToList();
 
             foreach (var key in oldestNonLocked)
+            {
+                LoginAttempts.TryRemove(key, out _);
+            }
+        }
+
+        // Evict oldest locked entries if a distributed flood locked out >= MaxTrackedLoginUsers accounts
+        if (LoginAttempts.Count >= MaxTrackedLoginUsers)
+        {
+            var oldestOverall = LoginAttempts.ToArray()
+                .OrderBy(kvp => kvp.Value.LastAttemptUtc)
+                .Take(MaxTrackedLoginUsers / 4)
+                .Select(kvp => kvp.Key)
+                .ToList();
+
+            foreach (var key in oldestOverall)
             {
                 LoginAttempts.TryRemove(key, out _);
             }
@@ -256,13 +324,14 @@ public class LdapAuthService : ILdapAuthService
         }
 
         var cleanUsername = username.Trim();
+        var safeLogUser = SecurityValidator.SanitizeSingleLine(cleanUsername);
         var canonicalUsername = SecurityValidator.ExtractCanonicalUsername(cleanUsername);
         var rateLimitKey = NormalizeRateLimitKey(cleanUsername);
 
         // Brute-force lockout check (normalized by canonical username so user@domain / DOMAIN\user share the same quota)
         if (IsLockedOut(rateLimitKey, out var remaining))
         {
-            _logger.LogWarning("Rejected login attempt for locked-out user {User}. Remaining lockout: {Seconds}s", cleanUsername, (int)remaining.TotalSeconds);
+            _logger.LogWarning("Rejected login attempt for locked-out user {User}. Remaining lockout: {Seconds}s", safeLogUser, (int)remaining.TotalSeconds);
             return new AuthResult
             {
                 IsSuccess = false,
@@ -284,7 +353,7 @@ public class LdapAuthService : ILdapAuthService
             {
                 if (!adminRecord.IsActive)
                 {
-                    _logger.LogWarning("Login attempt for deactivated web admin {User}", cleanUsername);
+                    _logger.LogWarning("Login attempt for deactivated web admin {User}", safeLogUser);
                     return new AuthResult
                     {
                         IsSuccess = false,
@@ -351,11 +420,18 @@ public class LdapAuthService : ILdapAuthService
             }
         }
 
-        // 2. Fallback Local Admin Login (Disaster recovery / backward compatibility)
+        // 2. Fallback Local Admin Login (Disaster recovery only when no active Local SuperAdmin exists in WebAdminUsers)
         if (string.Equals(cleanUsername, config.FallbackAdminUsername, StringComparison.OrdinalIgnoreCase) ||
             string.Equals(canonicalUsername, config.FallbackAdminUsername, StringComparison.OrdinalIgnoreCase))
         {
-            if (PasswordHasher.VerifyPassword(password, config.FallbackAdminPasswordHash))
+            bool hasActiveLocalSuperAdmin;
+            await using (var db = await _dbFactory.CreateDbContextAsync())
+            {
+                hasActiveLocalSuperAdmin = await db.WebAdminUsers.AnyAsync(
+                    u => u.AccountType == WebAdminType.Local && u.Role == WebAdminRole.SuperAdmin && u.IsActive);
+            }
+
+            if (!hasActiveLocalSuperAdmin && PasswordHasher.VerifyPassword(password, config.FallbackAdminPasswordHash))
             {
                 ResetLockoutForUser(rateLimitKey);
                 return new AuthResult
@@ -460,12 +536,12 @@ public class LdapAuthService : ILdapAuthService
         }
         catch (LdapException lex)
         {
-            _logger.LogWarning(lex, "LDAP authentication failed for user {User}", cleanUsername);
+            _logger.LogWarning(lex, "LDAP authentication failed for user {User}", SecurityValidator.SanitizeSingleLine(cleanUsername));
             return new AuthResult { IsSuccess = false, ErrorMessage = $"LDAP Error ({lex.ErrorCode}): {lex.Message}" };
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Unexpected error authenticating user {User}", cleanUsername);
+            _logger.LogError(ex, "Unexpected error authenticating user {User}", SecurityValidator.SanitizeSingleLine(cleanUsername));
             return new AuthResult { IsSuccess = false, ErrorMessage = ex.Message };
         }
     }
@@ -516,13 +592,24 @@ public class LdapAuthService : ILdapAuthService
             return result;
         }
 
+        var targetServer = config.Server?.Trim() ?? string.Empty;
+        bool allowStoredBindSecret = false;
+        if (string.IsNullOrEmpty(plainBindPassword) && !string.IsNullOrEmpty(config.EncryptedBindPassword))
+        {
+            await using var db = await _dbFactory.CreateDbContextAsync();
+            var saved = await db.LdapConfigs.AsNoTracking().FirstOrDefaultAsync(c => c.Id == config.Id);
+            allowStoredBindSecret = saved != null &&
+                string.Equals(saved.Server?.Trim(), targetServer, StringComparison.OrdinalIgnoreCase) &&
+                saved.Port == config.Port;
+        }
+
         return await Task.Run(() =>
         {
             // Step 1: TCP Socket Ping (Network Reachability)
             try
             {
                 using var tcp = new System.Net.Sockets.TcpClient();
-                var connectTask = tcp.ConnectAsync(config.Server.Trim(), config.Port);
+                var connectTask = tcp.ConnectAsync(targetServer, config.Port);
                 bool connected = connectTask.Wait(TimeSpan.FromSeconds(3));
                 if (connected && tcp.Connected)
                 {
@@ -550,7 +637,14 @@ public class LdapAuthService : ILdapAuthService
             string? bindPass = plainBindPassword;
             if (string.IsNullOrEmpty(bindPass) && !string.IsNullOrEmpty(config.EncryptedBindPassword))
             {
-                bindPass = _protectionService.Unprotect(config.EncryptedBindPassword);
+                if (allowStoredBindSecret)
+                {
+                    bindPass = _protectionService.Unprotect(config.EncryptedBindPassword);
+                }
+                else
+                {
+                    result.Details.Add("Server หรือ Port เปลี่ยนจากค่าที่บันทึกไว้ — งดส่ง Bind Password เดิมอัตโนมัติ (กรุณากรอกรหัสผ่านใหม่หากต้องการทดสอบ Bind)");
+                }
             }
 
             LdapConnection? connection = null;
@@ -602,7 +696,10 @@ public class LdapAuthService : ILdapAuthService
                             config.BaseDn.Trim(),
                             "(objectClass=*)",
                             SearchScope.Base,
-                            "namingContexts", "subschemaSubentry");
+                            "namingContexts", "subschemaSubentry")
+                        {
+                            SizeLimit = 1
+                        };
                         var baseResp = (SearchResponse)connection.SendRequest(baseReq);
                         result.BaseDnVerified = baseResp.Entries.Count > 0;
                         if (result.BaseDnVerified.Value)
@@ -627,7 +724,10 @@ public class LdapAuthService : ILdapAuthService
                             config.BaseDn.Trim(),
                             $"(&(objectCategory=group)(|(cn={targetGroup})(sAMAccountName={targetGroup})))",
                             SearchScope.Subtree,
-                            "cn", "distinguishedName");
+                            "cn", "distinguishedName")
+                        {
+                            SizeLimit = 5
+                        };
                         var grpResp = (SearchResponse)connection.SendRequest(grpReq);
                         result.AdminGroupVerified = grpResp.Entries.Count > 0;
                         if (result.AdminGroupVerified.Value)
@@ -802,7 +902,7 @@ public class LdapAuthService : ILdapAuthService
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Could not determine group membership for {User}", username);
+            _logger.LogWarning(ex, "Could not determine group membership for {User}", SecurityValidator.SanitizeSingleLine(username));
             return false;
         }
     }

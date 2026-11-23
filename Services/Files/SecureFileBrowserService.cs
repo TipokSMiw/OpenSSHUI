@@ -98,9 +98,10 @@ public class SecureFileBrowserService : ISecureFileBrowserService
             throw new SecurityException($"Access Denied: {usernameError}");
         }
 
-        // 2. Resolve safeBase for this user
-        var (safeBase, isDirectChroot) = ResolveUserDirectoryInfo(username);
-        var (isSafeBase, baseErr) = SecurityValidator.ValidateSafeCustomPath(safeBase);
+        // 2. Resolve safeBase for this user and normalize trailing separators
+        var (rawBase, isDirectChroot) = ResolveUserDirectoryInfo(username);
+        var safeBase = Path.GetFullPath(rawBase).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var (isSafeBase, baseErr) = SecurityValidator.ValidateSafeCustomPath(safeBase, GetEffectiveSftpRoot());
         if (!isSafeBase)
         {
             _logger.LogWarning("User directory safety check failed! User: {User}, Path: {Path} ({Error})", username, safeBase, baseErr);
@@ -109,7 +110,8 @@ public class SecureFileBrowserService : ISecureFileBrowserService
 
         // 3. Clean subPath and ensure target stays inside safeBase
         var cleanSubPath = (subPath ?? "").TrimStart('/', '\\').Replace('/', Path.DirectorySeparatorChar);
-        var target = Path.GetFullPath(Path.Combine(safeBase, cleanSubPath));
+        var target = Path.GetFullPath(Path.Combine(safeBase, cleanSubPath))
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
 
         if (!target.Equals(safeBase, StringComparison.OrdinalIgnoreCase) &&
             !target.StartsWith(safeBase + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
@@ -119,7 +121,7 @@ public class SecureFileBrowserService : ISecureFileBrowserService
         }
 
         // 4. ReparsePoint (Junction / Symlink) Escape Guard
-        ValidateReparsePointEscapes(safeBase, target, username);
+        ValidateReparsePointEscapes(safeBase, target, username.Trim(), isGroupMode: false);
 
         return (safeBase, target, isDirectChroot);
     }
@@ -134,9 +136,10 @@ public class SecureFileBrowserService : ISecureFileBrowserService
             throw new SecurityException($"Access Denied: {groupError}");
         }
 
-        // 2. Resolve safeBase for this group
-        var (safeBase, isDirectChroot) = ResolveGroupDirectoryInfo(groupName);
-        var (isSafeBase, baseErr) = SecurityValidator.ValidateSafeCustomPath(safeBase);
+        // 2. Resolve safeBase for this group and normalize trailing separators
+        var (rawBase, isDirectChroot) = ResolveGroupDirectoryInfo(groupName);
+        var safeBase = Path.GetFullPath(rawBase).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var (isSafeBase, baseErr) = SecurityValidator.ValidateSafeCustomPath(safeBase, GetEffectiveSftpRoot());
         if (!isSafeBase)
         {
             _logger.LogWarning("Group directory safety check failed! Group: {Group}, Path: {Path} ({Error})", groupName, safeBase, baseErr);
@@ -145,7 +148,8 @@ public class SecureFileBrowserService : ISecureFileBrowserService
 
         // 3. Clean subPath and ensure target stays inside safeBase
         var cleanSubPath = (subPath ?? "").TrimStart('/', '\\').Replace('/', Path.DirectorySeparatorChar);
-        var target = Path.GetFullPath(Path.Combine(safeBase, cleanSubPath));
+        var target = Path.GetFullPath(Path.Combine(safeBase, cleanSubPath))
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
 
         if (!target.Equals(safeBase, StringComparison.OrdinalIgnoreCase) &&
             !target.StartsWith(safeBase + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
@@ -154,32 +158,40 @@ public class SecureFileBrowserService : ISecureFileBrowserService
             throw new SecurityException("Access Denied: Path Traversal detected.");
         }
 
-        // 4. ReparsePoint Escape Guard
-        ValidateReparsePointEscapes(safeBase, target, groupName);
+        // 4. ReparsePoint Escape Guard (groups must never jump outside safeBase)
+        ValidateReparsePointEscapes(safeBase, target, groupName.Trim(), isGroupMode: true);
 
         return (safeBase, target, isDirectChroot);
     }
 
-    private void ValidateReparsePointEscapes(string safeBase, string target, string identifier)
+    private void ValidateReparsePointEscapes(string safeBase, string target, string identifier, bool isGroupMode)
     {
+        var normalizedBase = Path.GetFullPath(safeBase).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         var checkDir = new DirectoryInfo(target);
-        while (checkDir != null &&
-               !checkDir.FullName.TrimEnd(Path.DirectorySeparatorChar).Equals(safeBase.TrimEnd(Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase) &&
-               checkDir.FullName.StartsWith(safeBase + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+        while (checkDir != null)
         {
+            var currentFull = Path.GetFullPath(checkDir.FullName).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            bool isBase = currentFull.Equals(normalizedBase, StringComparison.OrdinalIgnoreCase);
+            bool isInsideBase = currentFull.StartsWith(normalizedBase + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+            if (!isBase && !isInsideBase)
+            {
+                break;
+            }
+
             if (checkDir.Exists && checkDir.Attributes.HasFlag(FileAttributes.ReparsePoint))
             {
                 var resolved = checkDir.ResolveLinkTarget(returnFinalTarget: true);
-                if (resolved != null)
+                if (resolved == null || !IsAuthorizedLinkDestination(normalizedBase, resolved.FullName, identifier, isGroupMode))
                 {
-                    var (isSafeLink, linkErr) = SecurityValidator.ValidateSafeCustomPath(resolved.FullName);
-                    if (!isSafeLink)
-                    {
-                        _logger.LogWarning("ReparsePoint escape attempt blocked! Identifier: {Id}, Link: {Link} -> {Target} ({Error})",
-                            identifier, checkDir.FullName, resolved.FullName, linkErr);
-                        throw new SecurityException("Access Denied: Symbolic link or junction targets a restricted directory.");
-                    }
+                    _logger.LogWarning("ReparsePoint escape or unauthorized link blocked! Identifier: {Id}, Link: {Link} -> {Target}",
+                        identifier, checkDir.FullName, resolved?.FullName ?? "<unresolvable>");
+                    throw new SecurityException("Access Denied: Symbolic link or junction targets a restricted or unauthorized directory.");
                 }
+            }
+
+            if (isBase)
+            {
+                break;
             }
             checkDir = checkDir.Parent;
         }
@@ -188,27 +200,91 @@ public class SecureFileBrowserService : ISecureFileBrowserService
         if (fileInfo.Exists && fileInfo.Attributes.HasFlag(FileAttributes.ReparsePoint))
         {
             var resolvedFile = fileInfo.ResolveLinkTarget(returnFinalTarget: true);
-            if (resolvedFile != null)
+            var parentDir = resolvedFile != null ? Path.GetDirectoryName(resolvedFile.FullName) : null;
+            if (resolvedFile == null || string.IsNullOrEmpty(parentDir) ||
+                !IsAuthorizedLinkDestination(normalizedBase, resolvedFile.FullName, identifier, isGroupMode) ||
+                !IsAuthorizedLinkDestination(normalizedBase, parentDir, identifier, isGroupMode))
             {
-                var parentDir = Path.GetDirectoryName(resolvedFile.FullName);
-                var (isSafeTarget, _) = SecurityValidator.ValidateSafeCustomPath(parentDir);
-                if (!isSafeTarget)
-                {
-                    throw new SecurityException("Access Denied: File symbolic link targets a restricted directory.");
-                }
+                throw new SecurityException("Access Denied: File symbolic link targets a restricted or unauthorized directory.");
             }
+        }
+    }
+
+    private bool IsAuthorizedLinkDestination(string normalizedBase, string destinationFullPath, string identifier, bool isGroupMode)
+    {
+        var normalizedDest = Path.GetFullPath(destinationFullPath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var (isSafeLink, _) = SecurityValidator.ValidateSafeCustomPath(normalizedDest, GetEffectiveSftpRoot());
+        if (!isSafeLink)
+        {
+            return false;
+        }
+
+        if (normalizedDest.Equals(normalizedBase, StringComparison.OrdinalIgnoreCase) ||
+            normalizedDest.StartsWith(normalizedBase + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (isGroupMode || _dbFactory == null)
+        {
+            return false;
+        }
+
+        try
+        {
+            using var db = _dbFactory.CreateDbContext();
+            var user = db.SftpUsers.AsNoTracking()
+                .Include(u => u.UserGroups)
+                .ThenInclude(ug => ug.Group)
+                .FirstOrDefault(u => u.Username == identifier);
+
+            if (user == null)
+            {
+                return false;
+            }
+
+            var authorizedRoots = new List<string>();
+            if (!string.IsNullOrWhiteSpace(user.CustomRootPath))
+            {
+                authorizedRoots.Add(Path.GetFullPath(user.CustomRootPath.Trim())
+                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+            }
+
+            foreach (var ug in user.UserGroups)
+            {
+                if (ug.Group == null || ug.Group.AccessMode != SftpAccessMode.VirtualFolder)
+                {
+                    continue;
+                }
+
+                var grpPath = !string.IsNullOrWhiteSpace(ug.Group.RootPath)
+                    ? ug.Group.RootPath.Trim()
+                    : Path.Combine(GetEffectiveSftpRoot(), "groups", ug.Group.Name);
+                authorizedRoots.Add(Path.GetFullPath(grpPath)
+                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+            }
+
+            return authorizedRoots.Any(root =>
+                normalizedDest.Equals(root, StringComparison.OrdinalIgnoreCase) ||
+                normalizedDest.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed resolving DB-authorized link targets for {User}", identifier);
+            return false;
         }
     }
 
     private static List<FileItemInfo> ListItemsInternal(string safeBase, string targetDir, bool isDirectChroot = false)
     {
+        if (isDirectChroot && !Directory.Exists(safeBase))
+        {
+            throw new DirectoryNotFoundException($"DirectChroot root directory '{safeBase}' does not exist. Refuse to create unprovisioned Chroot root without Administrator ACL ownership.");
+        }
+
         if (!Directory.Exists(targetDir))
         {
-            if (isDirectChroot && targetDir.Equals(safeBase, StringComparison.OrdinalIgnoreCase))
-            {
-                throw new DirectoryNotFoundException($"DirectChroot root directory '{targetDir}' does not exist. Refuse to create unprovisioned Chroot root without Administrator ACL ownership.");
-            }
-            Directory.CreateDirectory(targetDir);
+            return new List<FileItemInfo>();
         }
 
         var list = new List<FileItemInfo>();
@@ -253,12 +329,19 @@ public class SecureFileBrowserService : ISecureFileBrowserService
             throw new SecurityException($"Access Denied: {nameErr}");
         }
 
+        var normalizedBase = Path.GetFullPath(safeBase).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         var safeFileName = Path.GetFileName(fileName.Trim());
-        var targetFile = Path.Combine(targetDir, safeFileName);
+        var targetFile = Path.GetFullPath(Path.Combine(targetDir, safeFileName));
 
-        if (!targetFile.StartsWith(safeBase + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+        if (!targetFile.StartsWith(normalizedBase + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
         {
             throw new SecurityException("Access Denied: Path Traversal detected in filename.");
+        }
+
+        if (Directory.Exists(targetFile) ||
+            (File.Exists(targetFile) && File.GetAttributes(targetFile).HasFlag(FileAttributes.ReparsePoint)))
+        {
+            throw new SecurityException("Access Denied: Cannot overwrite a directory or reparse point target.");
         }
 
         using var destination = new FileStream(targetFile, FileMode.Create, FileAccess.Write, FileShare.None);
@@ -281,32 +364,62 @@ public class SecureFileBrowserService : ISecureFileBrowserService
 
     private static void DeleteItemInternal(string safeBase, string target, bool isDirectChroot = false)
     {
-        if (target.Equals(safeBase, StringComparison.OrdinalIgnoreCase))
+        var normalizedBase = Path.GetFullPath(safeBase).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var normalizedTarget = Path.GetFullPath(target).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+        if (normalizedTarget.Equals(normalizedBase, StringComparison.OrdinalIgnoreCase))
         {
             throw new InvalidOperationException("Cannot delete the root files folder.");
         }
 
         if (isDirectChroot)
         {
-            var protectedFilesDir = Path.Combine(safeBase, "files");
-            if (target.Equals(protectedFilesDir, StringComparison.OrdinalIgnoreCase))
+            var protectedFilesDir = Path.Combine(normalizedBase, "files");
+            if (normalizedTarget.Equals(protectedFilesDir, StringComparison.OrdinalIgnoreCase))
             {
                 throw new InvalidOperationException("Cannot delete the protected 'files' subdirectory inside a DirectChroot root folder.");
             }
         }
 
-        if (File.Exists(target))
+        if (File.Exists(normalizedTarget))
         {
-            File.Delete(target);
+            if (File.GetAttributes(normalizedTarget).HasFlag(FileAttributes.ReparsePoint))
+            {
+                throw new InvalidOperationException("Cannot delete a symbolic link file from the file browser.");
+            }
+            File.Delete(normalizedTarget);
         }
-        else if (Directory.Exists(target))
+        else if (Directory.Exists(normalizedTarget))
         {
-            var dirInfo = new DirectoryInfo(target);
+            var dirInfo = new DirectoryInfo(normalizedTarget);
             if (dirInfo.Attributes.HasFlag(FileAttributes.ReparsePoint))
             {
                 throw new InvalidOperationException("Cannot delete a shared group or custom root junction folder from the file browser.");
             }
-            Directory.Delete(target, true);
+
+            // Refuse deleting a directory that contains nested junctions or symbolic links (non-descending walk)
+            var dirStack = new Stack<DirectoryInfo>();
+            dirStack.Push(dirInfo);
+            var enumOpts = new EnumerationOptions
+            {
+                IgnoreInaccessible = true,
+                RecurseSubdirectories = false,
+                AttributesToSkip = 0
+            };
+            while (dirStack.Count > 0)
+            {
+                var current = dirStack.Pop();
+                foreach (var sub in current.EnumerateDirectories("*", enumOpts))
+                {
+                    if (sub.Attributes.HasFlag(FileAttributes.ReparsePoint))
+                    {
+                        throw new InvalidOperationException("Cannot delete a directory that contains a shared group or custom root junction folder.");
+                    }
+                    dirStack.Push(sub);
+                }
+            }
+
+            Directory.Delete(normalizedTarget, true);
         }
     }
 
@@ -318,12 +431,24 @@ public class SecureFileBrowserService : ISecureFileBrowserService
             throw new SecurityException($"Access Denied: {nameErr}");
         }
 
+        var normalizedBase = Path.GetFullPath(safeBase).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         var safeDirName = Path.GetFileName(directoryName.Trim());
-        var targetPath = Path.Combine(targetParent, safeDirName);
+        var targetPath = Path.GetFullPath(Path.Combine(targetParent, safeDirName))
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
 
-        if (!targetPath.StartsWith(safeBase + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+        if (!targetPath.StartsWith(normalizedBase + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
         {
             throw new SecurityException("Access Denied: Path Traversal detected in folder name.");
+        }
+
+        if (!Directory.Exists(normalizedBase))
+        {
+            throw new DirectoryNotFoundException($"Base directory '{normalizedBase}' does not exist.");
+        }
+
+        if (Directory.Exists(targetPath) && new DirectoryInfo(targetPath).Attributes.HasFlag(FileAttributes.ReparsePoint))
+        {
+            throw new SecurityException("Access Denied: Target path is an existing symbolic link or junction.");
         }
 
         Directory.CreateDirectory(targetPath);
@@ -389,7 +514,7 @@ public class SecureFileBrowserService : ISecureFileBrowserService
             if (!isValid) return 0;
 
             var userDir = ResolveUserBaseDirectory(username);
-            var (isSafe, _) = SecurityValidator.ValidateSafeCustomPath(userDir);
+            var (isSafe, _) = SecurityValidator.ValidateSafeCustomPath(userDir, GetEffectiveSftpRoot());
             if (!isSafe || !Directory.Exists(userDir)) return 0;
 
             return CalculateDirectorySizeExcludingReparsePoints(new DirectoryInfo(userDir), cancellationToken);
@@ -486,7 +611,7 @@ public class SecureFileBrowserService : ISecureFileBrowserService
             if (!isValid) return 0;
 
             var groupDir = ResolveGroupBaseDirectory(groupName);
-            var (isSafe, _) = SecurityValidator.ValidateSafeCustomPath(groupDir);
+            var (isSafe, _) = SecurityValidator.ValidateSafeCustomPath(groupDir, GetEffectiveSftpRoot());
             if (!isSafe || !Directory.Exists(groupDir)) return 0;
 
             return CalculateDirectorySizeExcludingReparsePoints(new DirectoryInfo(groupDir), cancellationToken);

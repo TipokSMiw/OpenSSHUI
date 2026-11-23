@@ -1,5 +1,7 @@
 using System.Diagnostics;
 using System.Runtime.Versioning;
+using System.Security.AccessControl;
+using System.Security.Principal;
 using OpensshUI.Services.Security;
 
 namespace OpensshUI.Services.OpenSsh;
@@ -58,6 +60,7 @@ public class SshKeyGenerator : ISshKeyGenerator
         try
         {
             Directory.CreateDirectory(tempDir);
+            RestrictTempDirectoryAcl(tempDir);
 
             var psi = new ProcessStartInfo
             {
@@ -181,10 +184,10 @@ public class SshKeyGenerator : ISshKeyGenerator
         }
         finally
         {
-            // Immediate security cleanup: wipe and remove temporary files and directory
+            // Immediate security cleanup: zero-wipe private key and remove temporary files and directory
             try
             {
-                if (File.Exists(keyFilePath)) File.Delete(keyFilePath);
+                SecureDeleteFile(keyFilePath);
                 if (File.Exists(pubFilePath)) File.Delete(pubFilePath);
                 if (Directory.Exists(tempDir)) Directory.Delete(tempDir, recursive: true);
             }
@@ -193,6 +196,79 @@ public class SshKeyGenerator : ISshKeyGenerator
                 _logger.LogWarning(ex, "Could not delete temporary key generation folder {TempDir}", tempDir);
             }
         }
+    }
+
+    private void RestrictTempDirectoryAcl(string dirPath)
+    {
+        try
+        {
+            var dirInfo = new DirectoryInfo(dirPath);
+            var security = new DirectorySecurity();
+            security.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
+
+            var adminSid = new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null);
+            var systemSid = new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null);
+
+            security.AddAccessRule(new FileSystemAccessRule(
+                adminSid,
+                FileSystemRights.FullControl,
+                InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit,
+                PropagationFlags.None,
+                AccessControlType.Allow));
+
+            security.AddAccessRule(new FileSystemAccessRule(
+                systemSid,
+                FileSystemRights.FullControl,
+                InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit,
+                PropagationFlags.None,
+                AccessControlType.Allow));
+
+            var currentIdentitySid = WindowsIdentity.GetCurrent().User;
+            if (currentIdentitySid != null && currentIdentitySid != adminSid && currentIdentitySid != systemSid)
+            {
+                security.AddAccessRule(new FileSystemAccessRule(
+                    currentIdentitySid,
+                    FileSystemRights.FullControl,
+                    InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit,
+                    PropagationFlags.None,
+                    AccessControlType.Allow));
+            }
+
+            dirInfo.SetAccessControl(security);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Could not restrict ACL on temporary key generation directory {Dir}", dirPath);
+        }
+    }
+
+    private static void SecureDeleteFile(string filePath)
+    {
+        if (!File.Exists(filePath)) return;
+
+        try
+        {
+            var length = new FileInfo(filePath).Length;
+            if (length > 0)
+            {
+                using var fs = new FileStream(filePath, FileMode.Open, FileAccess.Write, FileShare.None);
+                var zeros = new byte[Math.Min(length, 4096)];
+                long remaining = length;
+                while (remaining > 0)
+                {
+                    int toWrite = (int)Math.Min(remaining, zeros.Length);
+                    fs.Write(zeros, 0, toWrite);
+                    remaining -= toWrite;
+                }
+                fs.Flush(flushToDisk: true);
+            }
+        }
+        catch
+        {
+            // Fall through to File.Delete even if overwrite failed
+        }
+
+        File.Delete(filePath);
     }
 
     private async Task<string?> ExtractPublicKeyFromPrivateKeyAsync(string keyFilePath, string? passphrase)

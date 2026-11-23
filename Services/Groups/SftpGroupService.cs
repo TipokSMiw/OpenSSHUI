@@ -271,20 +271,23 @@ public class SftpGroupService : ISftpGroupService
     public async Task<(bool Success, string Message)> DeleteGroupAsync(string id, string op = "admin")
     {
         await using var db = await _dbFactory.CreateDbContextAsync();
-        var group = await db.SftpGroups.Include(g => g.Members).FirstOrDefaultAsync(g => g.Id == id);
+        var group = await db.SftpGroups
+            .Include(g => g.Members)
+                .ThenInclude(m => m.User)
+            .FirstOrDefaultAsync(g => g.Id == id);
         if (group == null) return (false, "Group not found.");
 
         var groupName = group.Name;
         var osGroupName = WindowsUserManager.ToOsGroupName(groupName);
-        var memberUsernames = group.Members.Select(m => m.Username).ToList();
+        var members = group.Members.Select(m => (m.Username, m.User)).ToList();
         bool wasDirectChroot = group.AccessMode == SftpAccessMode.DirectChroot;
 
         try
         {
             // 1. Remove junction links inside each member's home directory (files & folders remain safe!)
-            foreach (var username in memberUsernames)
+            foreach (var (username, memberUser) in members)
             {
-                var userJunction = Path.Combine(_sshServiceManager.SftpRoot, username, "files", groupName);
+                var userJunction = Path.Combine(ResolveUserFilesDir(memberUser, username), groupName);
                 _aclProvisioner.RemoveDirectoryJunction(userJunction);
             }
 
@@ -361,7 +364,10 @@ public class SftpGroupService : ISftpGroupService
     public async Task<(bool Success, string Message)> RemoveUserFromGroupAsync(string groupId, string username, string op = "admin")
     {
         await using var db = await _dbFactory.CreateDbContextAsync();
-        var group = await db.SftpGroups.Include(g => g.Members).FirstOrDefaultAsync(g => g.Id == groupId);
+        var group = await db.SftpGroups
+            .Include(g => g.Members)
+                .ThenInclude(m => m.User)
+            .FirstOrDefaultAsync(g => g.Id == groupId);
         if (group == null) return (false, "Group not found.");
 
         var member = group.Members.FirstOrDefault(m => m.Username == username);
@@ -376,7 +382,7 @@ public class SftpGroupService : ISftpGroupService
             await db.SaveChangesAsync();
 
             // Remove junction in user directory
-            var junctionPath = Path.Combine(_sshServiceManager.SftpRoot, username, "files", group.Name);
+            var junctionPath = Path.Combine(ResolveUserFilesDir(member.User, username), group.Name);
             _aclProvisioner.RemoveDirectoryJunction(junctionPath);
 
             await _auditService.LogAsync("GROUP_REMOVE_MEMBER", $"Removed user '{username}' from group '{group.Name}'", true, op);
@@ -401,7 +407,7 @@ public class SftpGroupService : ISftpGroupService
 
             if (user == null) return;
 
-            var userFilesDir = Path.Combine(_sshServiceManager.SftpRoot, username, "files");
+            var userFilesDir = ResolveUserFilesDir(user, username);
             if (!Directory.Exists(userFilesDir))
             {
                 Directory.CreateDirectory(userFilesDir);
@@ -466,9 +472,9 @@ public class SftpGroupService : ISftpGroupService
             await using var db = await _dbFactory.CreateDbContextAsync();
             var rules = new List<DirectChrootRule>();
 
-            // DirectChroot Users
+            // DirectChroot Users (active accounts only)
             var directUsers = await db.SftpUsers
-                .Where(u => u.AccessMode == SftpAccessMode.DirectChroot && !string.IsNullOrWhiteSpace(u.CustomRootPath))
+                .Where(u => u.IsActive && u.AccessMode == SftpAccessMode.DirectChroot && !string.IsNullOrWhiteSpace(u.CustomRootPath))
                 .ToListAsync();
 
             foreach (var u in directUsers)
@@ -502,5 +508,13 @@ public class SftpGroupService : ISftpGroupService
         {
             _logger.LogError(ex, "Error syncing DirectChroot sshd_config rules");
         }
+    }
+
+    private string ResolveUserFilesDir(SftpUser? user, string username)
+    {
+        var userHome = !string.IsNullOrWhiteSpace(user?.HomeDirectory)
+            ? Path.GetFullPath(user.HomeDirectory.Trim())
+            : Path.Combine(_sshServiceManager.SftpRoot, username.Trim());
+        return Path.Combine(userHome, "files");
     }
 }

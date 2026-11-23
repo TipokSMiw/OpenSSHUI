@@ -140,7 +140,7 @@ public class AppDbContext : DbContext
         await AddColumnIfNotExistsAsync("SftpUsers", "AccessMode", "INTEGER NOT NULL DEFAULT 0");
 
         // Add columns to LdapConfigs if missing
-        await AddColumnIfNotExistsAsync("LdapConfigs", "TrustSslCertificates", "INTEGER NOT NULL DEFAULT 1");
+        await AddColumnIfNotExistsAsync("LdapConfigs", "TrustSslCertificates", "INTEGER NOT NULL DEFAULT 0");
 
         // 4. Performance Indexes on SshPublicKeys, AuditLogs, and SftpUserGroups
         await Database.ExecuteSqlRawAsync(@"

@@ -1,3 +1,5 @@
+using System.Buffers.Binary;
+using System.Numerics;
 using System.Security.Cryptography;
 using System.Text;
 using OpensshUI.Services.Security;
@@ -83,6 +85,16 @@ public static class SshKeyConverter
                             };
                         }
 
+                        var (isMaterialValid, materialError) = ValidateWireKeyMaterial(type, keyBytes);
+                        if (!isMaterialValid)
+                        {
+                            return new SshKeyParseResult
+                            {
+                                IsSuccess = false,
+                                ErrorMessage = materialError ?? "Invalid or weak SSH public key material."
+                            };
+                        }
+
                         var fingerprint = ComputeSha256Fingerprint(keyBytes);
 
                         var rawKey = $"{type} {base64}" + (string.IsNullOrWhiteSpace(cleanComment) ? "" : $" {cleanComment}");
@@ -126,6 +138,101 @@ public static class SshKeyConverter
         }
 
         return string.Empty;
+    }
+
+    private static bool TryReadRfc4251Field(ReadOnlySpan<byte> data, ref int offset, out ReadOnlySpan<byte> value)
+    {
+        value = default;
+        if (offset < 0 || data.Length - offset < 4)
+        {
+            return false;
+        }
+
+        uint len = BinaryPrimitives.ReadUInt32BigEndian(data.Slice(offset, 4));
+        offset += 4;
+
+        if (len > (uint)(data.Length - offset))
+        {
+            return false;
+        }
+
+        value = data.Slice(offset, (int)len);
+        offset += (int)len;
+        return true;
+    }
+
+    private static (bool IsValid, string? ErrorMessage) ValidateWireKeyMaterial(string expectedKeyType, byte[] keyBytes)
+    {
+        var span = keyBytes.AsSpan();
+        int offset = 0;
+
+        if (!TryReadRfc4251Field(span, ref offset, out var wireTypeBytes))
+        {
+            return (false, "Malformed RFC 4251 SSH public key header.");
+        }
+
+        var wireType = Encoding.ASCII.GetString(wireTypeBytes).ToLowerInvariant();
+        if (!string.Equals(wireType, expectedKeyType, StringComparison.OrdinalIgnoreCase))
+        {
+            return (false, $"SSH key binary header ('{wireType}') does not match declared key type ('{expectedKeyType}').");
+        }
+
+        switch (wireType)
+        {
+            case "ssh-ed25519":
+                if (!TryReadRfc4251Field(span, ref offset, out var edPub) || edPub.Length != 32)
+                {
+                    return (false, "Invalid Ed25519 SSH key: public key payload must be exactly 32 bytes.");
+                }
+                return (true, null);
+
+            case "ssh-rsa":
+                if (!TryReadRfc4251Field(span, ref offset, out var rsaExp) || rsaExp.Length < 1 ||
+                    !TryReadRfc4251Field(span, ref offset, out var rsaMod) || rsaMod.Length < 1)
+                {
+                    return (false, "Malformed RSA SSH public key payload.");
+                }
+
+                // Strip leading 0x00 sign bytes from mpint modulus before computing key bit length
+                int nonZeroIdx = 0;
+                while (nonZeroIdx < rsaMod.Length && rsaMod[nonZeroIdx] == 0)
+                {
+                    nonZeroIdx++;
+                }
+
+                var significantMod = rsaMod.Slice(nonZeroIdx);
+                if (significantMod.Length == 0)
+                {
+                    return (false, "Invalid RSA SSH public key: modulus is zero.");
+                }
+
+                int modBits = (significantMod.Length - 1) * 8 + BitOperations.Log2(significantMod[0]) + 1;
+                if (modBits < 2048)
+                {
+                    return (false, $"RSA key strength ({modBits}-bit) is below the minimum 2048-bit security requirement.");
+                }
+                return (true, null);
+
+            case "ecdsa-sha2-nistp256":
+            case "ecdsa-sha2-nistp384":
+            case "ecdsa-sha2-nistp521":
+                if (!TryReadRfc4251Field(span, ref offset, out var curveBytes) ||
+                    !TryReadRfc4251Field(span, ref offset, out var ecPoint) || ecPoint.Length < 33)
+                {
+                    return (false, "Malformed ECDSA SSH public key payload.");
+                }
+
+                var curveName = Encoding.ASCII.GetString(curveBytes).ToLowerInvariant();
+                var expectedCurve = wireType.Substring("ecdsa-sha2-".Length);
+                if (!string.Equals(curveName, expectedCurve, StringComparison.OrdinalIgnoreCase))
+                {
+                    return (false, $"ECDSA curve identifier ('{curveName}') does not match '{expectedCurve}'.");
+                }
+                return (true, null);
+
+            default:
+                return (false, "Unsupported SSH key type.");
+        }
     }
 
     private static SshKeyParseResult ParseRfc4716PuTTY(string content)
@@ -178,6 +285,16 @@ public static class SshKeyConverter
                 {
                     IsSuccess = false,
                     ErrorMessage = "Unsupported or invalid SSH key type inside RFC 4716 public key payload."
+                };
+            }
+
+            var (isMaterialValid, materialError) = ValidateWireKeyMaterial(keyType, keyBytes);
+            if (!isMaterialValid)
+            {
+                return new SshKeyParseResult
+                {
+                    IsSuccess = false,
+                    ErrorMessage = materialError ?? "Invalid or weak SSH key material inside RFC 4716 public key payload."
                 };
             }
 

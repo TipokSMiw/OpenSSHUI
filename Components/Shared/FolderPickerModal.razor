@@ -1,4 +1,5 @@
 @inject INativeAclProvisioner AclProvisioner
+@inject IOpenSshServiceManager SshManager
 @inject OpensshUI.Services.Auth.UserSessionState SessionState
 @inject ILocalizationService L
 @implements IDisposable
@@ -52,7 +53,7 @@
                     <nav aria-label="breadcrumb">
                         <ol class="breadcrumb bg-light border p-2 rounded small mb-2 align-items-center">
                             <li class="breadcrumb-item">
-                                <a href="javascript:void(0)" class="text-decoration-none d-inline-flex align-items-center gap-1" @onclick="() => LoadDrives()">
+                                <a href="#" @onclick:preventDefault="true" class="text-decoration-none d-inline-flex align-items-center gap-1" @onclick="() => LoadDrives()">
                                     <i class="bi bi-pc-display"></i>
                                     <span>Computer</span>
                                 </a>
@@ -62,7 +63,7 @@
                                 <li class="breadcrumb-item @(crumb.IsLast ? "active fw-semibold" : "")">
                                     @if (!crumb.IsLast)
                                     {
-                                        <a href="javascript:void(0)" class="text-decoration-none" @onclick="() => NavigateTo(crumb.Path)">@crumb.Name</a>
+                                        <a href="#" @onclick:preventDefault="true" class="text-decoration-none" @onclick="() => NavigateTo(crumb.Path)">@crumb.Name</a>
                                     }
                                     else
                                     {
@@ -184,7 +185,9 @@
             _wasOpen = true;
             _errorMessage = null;
             LoadDrives();
-            if (!string.IsNullOrWhiteSpace(CurrentPath) && AclProvisioner.DirectoryExists(CurrentPath))
+            if (!string.IsNullOrWhiteSpace(CurrentPath) &&
+                ValidateBrowsePath(CurrentPath, out _) &&
+                AclProvisioner.DirectoryExists(CurrentPath))
             {
                 NavigateTo(CurrentPath);
             }
@@ -197,6 +200,32 @@
         {
             _wasOpen = false;
         }
+    }
+
+    private bool ValidateBrowsePath(string? path, out string? errorMessage)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            errorMessage = "Path cannot be empty.";
+            return false;
+        }
+
+        var trimmed = path.Trim();
+        if (trimmed.StartsWith(@"\\") || trimmed.StartsWith("//"))
+        {
+            errorMessage = "UNC and Win32 device paths are forbidden.";
+            return false;
+        }
+
+        if (System.Text.RegularExpressions.Regex.IsMatch(trimmed, @"^[a-zA-Z]:\\?$"))
+        {
+            errorMessage = null;
+            return true;
+        }
+
+        var (okPath, pathErr) = OpensshUI.Services.Security.SecurityValidator.ValidateSafeCustomPath(trimmed, SshManager.SftpRoot);
+        errorMessage = pathErr;
+        return okPath;
     }
 
     private void LoadDrives()
@@ -216,6 +245,12 @@
         try
         {
             _errorMessage = null;
+            if (!ValidateBrowsePath(path, out var browseErr))
+            {
+                _errorMessage = L.Get("FolderPicker.UnsafePath", browseErr ?? string.Empty);
+                return;
+            }
+
             if (!AclProvisioner.DirectoryExists(path))
             {
                 _errorMessage = L.Get("FolderPicker.NotFound", path);
@@ -301,7 +336,7 @@
         if (!SessionState.CanManageSftp) return;
         if (!string.IsNullOrWhiteSpace(CurrentPath))
         {
-            var (okPath, pathErr) = OpensshUI.Services.Security.SecurityValidator.ValidateSafeCustomPath(CurrentPath);
+            var (okPath, pathErr) = OpensshUI.Services.Security.SecurityValidator.ValidateSafeCustomPath(CurrentPath, SshManager.SftpRoot);
             if (!okPath)
             {
                 _errorMessage = L.Get("FolderPicker.UnsafePath", pathErr ?? string.Empty);

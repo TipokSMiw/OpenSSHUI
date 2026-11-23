@@ -6,7 +6,7 @@ public class LdapConfig
     public string Server { get; set; } = "127.0.0.1";
     public int Port { get; set; } = 389;
     public bool UseSsl { get; set; } = false;
-    public bool TrustSslCertificates { get; set; } = true;
+    public bool TrustSslCertificates { get; set; } = false;
     public string Domain { get; set; } = "domain.local";
     public string BaseDn { get; set; } = "DC=domain,DC=local";
     public string? EncryptedBindDn { get; set; }

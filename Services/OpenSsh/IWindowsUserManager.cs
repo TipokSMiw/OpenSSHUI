@@ -8,6 +8,8 @@ public interface IWindowsUserManager
     bool AddUserToLocalGroup(string groupName, string username);
     bool RemoveUserFromLocalGroup(string groupName, string username);
     List<string> GetGroupMembers(string groupName);
+    bool LocalUserExists(string username);
+    bool IsPrivilegedLocalAccount(string username);
     bool CreateOrUpdateLocalUser(string username, string password, bool isActive = true);
     bool DeleteLocalUser(string username);
 }

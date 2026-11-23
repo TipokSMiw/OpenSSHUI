@@ -1,3 +1,7 @@
+using System.Net;
+using System.Net.Sockets;
+using System.Reflection;
+using System.Security;
 using System.Text;
 using FluentAssertions;
 using Microsoft.Data.Sqlite;
@@ -493,5 +497,536 @@ public class EvilUserSecurityTests : IDisposable
 
         success.Should().BeTrue();
         File.Exists(importantSharedFile).Should().BeTrue("when detaching a junction fails and the directory still exists, recursive Directory.Delete must be aborted to protect shared group files.");
+    }
+
+    // =========================================================================
+    // Domain G: Comprehensive Audit Remediation Regression Suite
+    // =========================================================================
+
+    private static void WriteRfc4251Field(BinaryWriter writer, byte[] payload)
+    {
+        var len = BitConverter.GetBytes(payload.Length);
+        if (BitConverter.IsLittleEndian) Array.Reverse(len);
+        writer.Write(len);
+        writer.Write(payload);
+    }
+
+    private static string BuildWireRsaOpenSshKey(int modulusBytesLength)
+    {
+        using var ms = new MemoryStream();
+        using var writer = new BinaryWriter(ms);
+        WriteRfc4251Field(writer, Encoding.ASCII.GetBytes("ssh-rsa"));
+        WriteRfc4251Field(writer, new byte[] { 0x01, 0x00, 0x01 });
+
+        var mod = new byte[modulusBytesLength + 1];
+        mod[1] = 0x80;
+        mod[^1] = 0x01;
+        WriteRfc4251Field(writer, mod);
+
+        return $"ssh-rsa {Convert.ToBase64String(ms.ToArray())} test@rsa";
+    }
+
+    [Fact]
+    public void SshKeyConverter_ShouldEnforceKeyStrengthAndWireMaterial()
+    {
+        // Weak 1024-bit RSA must be rejected
+        var weakRsa = BuildWireRsaOpenSshKey(128);
+        var weakRes = SshKeyConverter.ParseAndNormalizeKey(weakRsa);
+        weakRes.IsSuccess.Should().BeFalse();
+        weakRes.ErrorMessage.Should().Contain("2048-bit");
+
+        // Strong 2048-bit RSA must be accepted
+        var strongRsa = BuildWireRsaOpenSshKey(256);
+        var strongRes = SshKeyConverter.ParseAndNormalizeKey(strongRsa);
+        strongRes.IsSuccess.Should().BeTrue();
+
+        // Truncated Ed25519 payload (!= 32 bytes) must be rejected
+        using (var ms = new MemoryStream())
+        using (var w = new BinaryWriter(ms))
+        {
+            WriteRfc4251Field(w, Encoding.ASCII.GetBytes("ssh-ed25519"));
+            WriteRfc4251Field(w, new byte[16]);
+            var truncEd = $"ssh-ed25519 {Convert.ToBase64String(ms.ToArray())} trunc@ed";
+            SshKeyConverter.ParseAndNormalizeKey(truncEd).IsSuccess.Should().BeFalse();
+        }
+
+        // Valid 32-byte Ed25519 must succeed
+        using (var ms = new MemoryStream())
+        using (var w = new BinaryWriter(ms))
+        {
+            WriteRfc4251Field(w, Encoding.ASCII.GetBytes("ssh-ed25519"));
+            var pub = new byte[32];
+            pub[0] = 0xAB;
+            pub[31] = 0xCD;
+            WriteRfc4251Field(w, pub);
+            var validEd = $"ssh-ed25519 {Convert.ToBase64String(ms.ToArray())} ok@ed";
+            SshKeyConverter.ParseAndNormalizeKey(validEd).IsSuccess.Should().BeTrue();
+        }
+
+        // Mismatched ECDSA inner curve identifier must be rejected
+        using (var ms = new MemoryStream())
+        using (var w = new BinaryWriter(ms))
+        {
+            WriteRfc4251Field(w, Encoding.ASCII.GetBytes("ecdsa-sha2-nistp256"));
+            WriteRfc4251Field(w, Encoding.ASCII.GetBytes("nistp384"));
+            WriteRfc4251Field(w, new byte[49]);
+            var mismatchEc = $"ecdsa-sha2-nistp256 {Convert.ToBase64String(ms.ToArray())} bad@ec";
+            SshKeyConverter.ParseAndNormalizeKey(mismatchEc).IsSuccess.Should().BeFalse();
+        }
+    }
+
+    [Fact]
+    public void SecurityValidator_CanonicalAdminAndLdapHost_ShouldRejectBypassPatterns()
+    {
+        SecurityValidator.ExtractCanonicalUsername(@"CORP\alice\").Should().Be("alice");
+        SecurityValidator.ExtractCanonicalUsername("@bob@corp.local").Should().Be("bob");
+        SecurityValidator.ExtractCanonicalUsername(@"CORP\\charlie").Should().Be("charlie");
+
+        SecurityValidator.IsValidAdminUsername("ab").Should().BeFalse();
+        SecurityValidator.IsValidAdminUsername("bad admin").Should().BeFalse();
+        SecurityValidator.IsValidAdminUsername("bad/admin").Should().BeFalse();
+        SecurityValidator.IsValidAdminUsername(new string('a', 65)).Should().BeFalse();
+        SecurityValidator.IsValidAdminUsername("sec.admin_01").Should().BeTrue();
+
+        SecurityValidator.ValidateLdapHost("169.254.169.254", 389).IsValid.Should().BeFalse();
+        SecurityValidator.ValidateLdapHost("dc01.corp.local\n", 389).IsValid.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task LdapAuthService_TestConnectionAsync_WhenHostOrPortDiffersFromDb_ShouldNotDecryptStoredBindPassword()
+    {
+        var protection = Substitute.For<IProtectionService>();
+        protection.Unprotect("ENC_SECRET").Returns("PlainBindSecret!");
+
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        int openPort = ((IPEndPoint)listener.LocalEndpoint).Port;
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var acceptLoop = Task.Run(async () =>
+        {
+            try
+            {
+                while (!cts.IsCancellationRequested)
+                {
+                    using var client = await listener.AcceptTcpClientAsync(cts.Token);
+                    await Task.Delay(30, cts.Token);
+                }
+            }
+            catch (OperationCanceledException) { }
+            catch (ObjectDisposedException) { }
+            catch (SocketException) { }
+        });
+
+        try
+        {
+            await using (var db = new AppDbContext(_dbOptions))
+            {
+                db.LdapConfigs.Add(new LdapConfig
+                {
+                    Id = 1,
+                    Server = "127.0.0.1",
+                    Port = openPort + 1, // Different port stored in DB than probed target
+                    Domain = "corp.local",
+                    BaseDn = "DC=corp,DC=local",
+                    EncryptedBindDn = "cn=bind,dc=corp,dc=local",
+                    EncryptedBindPassword = "ENC_SECRET"
+                });
+                await db.SaveChangesAsync();
+            }
+
+            var ldapSvc = new LdapAuthService(_dbFactory, protection, NullLogger<LdapAuthService>.Instance);
+
+            var probeConfig = new LdapConfig
+            {
+                Id = 1,
+                Server = "127.0.0.1",
+                Port = openPort,
+                Domain = "corp.local",
+                BaseDn = "DC=corp,DC=local",
+                EncryptedBindDn = "cn=bind,dc=corp,dc=local",
+                EncryptedBindPassword = "ENC_SECRET"
+            };
+
+            await ldapSvc.TestConnectionAsync(probeConfig, plainBindPassword: null);
+
+            protection.DidNotReceive().Unprotect("ENC_SECRET");
+        }
+        finally
+        {
+            cts.Cancel();
+            listener.Stop();
+            try { await acceptLoop; } catch { }
+        }
+    }
+
+    [Fact]
+    public async Task LdapAuthService_Step2Fallback_WhenActiveLocalSuperAdminExists_ShouldBeBlocked()
+    {
+        const string recoveryUser = "recovery_super";
+        LdapAuthService.ResetLockoutForUser(recoveryUser);
+        try
+        {
+            await using (var db = new AppDbContext(_dbOptions))
+            {
+                db.LdapConfigs.Add(new LdapConfig
+                {
+                    Id = 1,
+                    IsLdapEnabled = false,
+                    FallbackAdminUsername = recoveryUser,
+                    FallbackAdminPasswordHash = PasswordHasher.HashPassword("RecoveryPass@2026")
+                });
+                db.WebAdminUsers.Add(new WebAdminUser
+                {
+                    Username = "primary_super",
+                    AccountType = WebAdminType.Local,
+                    Role = WebAdminRole.SuperAdmin,
+                    IsActive = true,
+                    PasswordHash = PasswordHasher.HashPassword("PrimarySuper@2026")
+                });
+                await db.SaveChangesAsync();
+            }
+
+            var ldapSvc = new LdapAuthService(_dbFactory, Substitute.For<IProtectionService>(), NullLogger<LdapAuthService>.Instance);
+            var auth = await ldapSvc.AuthenticateAsync(recoveryUser, "RecoveryPass@2026");
+
+            auth.IsSuccess.Should().BeFalse("disaster recovery fallback must be blocked when an active local SuperAdmin already exists.");
+        }
+        finally
+        {
+            LdapAuthService.ResetLockoutForUser(recoveryUser);
+        }
+    }
+
+    [Fact]
+    public async Task LdapAuthService_SaveConfigAsync_ShouldValidateFallbackUsernameAndRejectAdCollision()
+    {
+        await using (var db = new AppDbContext(_dbOptions))
+        {
+            db.WebAdminUsers.Add(new WebAdminUser
+            {
+                Username = "ad_collide",
+                AccountType = WebAdminType.ActiveDirectory,
+                Role = WebAdminRole.Operator,
+                IsActive = true
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var ldapSvc = new LdapAuthService(_dbFactory, Substitute.For<IProtectionService>(), NullLogger<LdapAuthService>.Instance);
+
+        var badNameCfg = new LdapConfig { FallbackAdminUsername = "bad/name" };
+        var badNameErr = await Assert.ThrowsAsync<ArgumentException>(() => ldapSvc.SaveConfigAsync(badNameCfg));
+        badNameErr.Message.Should().Contain("3-50 characters");
+
+        var collideCfg = new LdapConfig { FallbackAdminUsername = @"CORP\ad_collide" };
+        var collideErr = await Assert.ThrowsAsync<ArgumentException>(() => ldapSvc.SaveConfigAsync(collideCfg));
+        collideErr.Message.Should().Contain("conflicts with an existing Active Directory Web Admin");
+    }
+
+    [Fact]
+    public async Task WebAdminService_ResetPasswordAsync_ShouldRevokeTargetActiveSessions()
+    {
+        UserSessionState.ClearAllOverrides();
+        try
+        {
+            await using (var db = new AppDbContext(_dbOptions))
+            {
+                db.WebAdminUsers.Add(new WebAdminUser
+                {
+                    Id = 42,
+                    Username = "op_target",
+                    AccountType = WebAdminType.Local,
+                    Role = WebAdminRole.Operator,
+                    IsActive = true,
+                    PasswordHash = PasswordHasher.HashPassword("OldPass!123")
+                });
+                await db.SaveChangesAsync();
+            }
+
+            var targetSession = new UserSessionState();
+            targetSession.SetUser("op_target", "Target Operator", true, WebAdminRole.Operator);
+            targetSession.EnsureAuthenticated().Should().BeTrue();
+
+            var webAdminSvc = new WebAdminService(
+                _dbFactory,
+                Substitute.For<IAuditService>(),
+                NullLogger<WebAdminService>.Instance);
+
+            var res = await webAdminSvc.ResetPasswordAsync(42, "NewStrongPass!99", "super_admin");
+            res.Success.Should().BeTrue();
+
+            targetSession.EnsureAuthenticated().Should().BeFalse("resetting another admin's password must revoke their active UI sessions.");
+        }
+        finally
+        {
+            UserSessionState.ClearAllOverrides();
+        }
+    }
+
+    [Fact]
+    public void BoundedConcurrentCaches_UnderParallelLoad_ShouldStayBoundedWithoutThrowing()
+    {
+        UserSessionState.ClearAllOverrides();
+        LdapAuthService.ClearAllLoginAttempts();
+        try
+        {
+            var sessionSvc = new SftpSessionService(NullLogger<SftpSessionService>.Instance, Substitute.For<IAuditService>());
+            var setCacheMethod = typeof(SftpSessionService).GetMethod("SetSessionCacheEntry", BindingFlags.NonPublic | BindingFlags.Instance);
+            setCacheMethod.Should().NotBeNull();
+
+            Parallel.For(0, 1500, i =>
+            {
+                UserSessionState.NotifyUserStatusChanged($"par_u_{i}", i % 2 == 0, WebAdminRole.Auditor);
+                LdapAuthService.RecordFailedAttemptForTesting($"par_l_{i}", DateTime.UtcNow.AddSeconds(-i));
+                setCacheMethod!.Invoke(sessionSvc, new object[]
+                {
+                    ($"10.1.{i / 256}.{i % 256}", 20000 + i),
+                    ($"sftp_{i}", DateTime.UtcNow.AddSeconds(-i))
+                });
+            });
+
+            UserSessionState.GetTrackedOverrideCount().Should().BeLessThanOrEqualTo(1000);
+            LdapAuthService.GetTrackedAttemptCount().Should().BeLessThanOrEqualTo(1000);
+            sessionSvc.SessionUserCache.Count.Should().BeLessThanOrEqualTo(1000);
+        }
+        finally
+        {
+            UserSessionState.ClearAllOverrides();
+            LdapAuthService.ClearAllLoginAttempts();
+        }
+    }
+
+    [Fact]
+    public async Task SecureFileBrowserService_DirectChrootSubpath_AndJunctionContainment_ShouldBlockEscapes()
+    {
+        var missingRoot = Path.Combine(_tempDir, "MissingDirectRoot2");
+        var userRoot = Path.Combine(_tempDir, "sftproot", "alice");
+        var userFiles = Path.Combine(userRoot, "files");
+        Directory.CreateDirectory(userFiles);
+
+        var authGroupDir = Path.Combine(_tempDir, "Shares", "Finance");
+        Directory.CreateDirectory(authGroupDir);
+        await File.WriteAllTextAsync(Path.Combine(authGroupDir, "q1.txt"), "approved");
+
+        var forbiddenOutsideDir = Path.Combine(_tempDir, "OutsideSecret");
+        Directory.CreateDirectory(forbiddenOutsideDir);
+        await File.WriteAllTextAsync(Path.Combine(forbiddenOutsideDir, "secret.txt"), "top-secret");
+
+        await using (var db = new AppDbContext(_dbOptions))
+        {
+            var grp = new SftpGroup
+            {
+                Id = "grp-fin-2",
+                Name = "Finance",
+                RootPath = authGroupDir,
+                AccessMode = SftpAccessMode.VirtualFolder
+            };
+            var alice = new SftpUser
+            {
+                Username = "alice",
+                HomeDirectory = userRoot,
+                AccessMode = SftpAccessMode.VirtualFolder
+            };
+            alice.UserGroups.Add(new SftpUserGroup { Username = "alice", GroupId = "grp-fin-2", Group = grp });
+
+            db.SftpGroups.Add(grp);
+            db.SftpUsers.Add(alice);
+            db.SftpUsers.Add(new SftpUser
+            {
+                Username = "missing_dc",
+                AccessMode = SftpAccessMode.DirectChroot,
+                CustomRootPath = missingRoot
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var acl = new NtfsAclService(NullLogger<NtfsAclService>.Instance);
+        var browser = new SecureFileBrowserService(NullLogger<SecureFileBrowserService>.Instance, Path.Combine(_tempDir, "sftproot"), _dbFactory);
+
+        // 1. Subpath under missing DirectChroot root must throw and create nothing
+        await Assert.ThrowsAsync<DirectoryNotFoundException>(() => browser.ListItemsAsync("missing_dc", "nested/sub"));
+        Directory.Exists(missingRoot).Should().BeFalse();
+
+        // 2. Missing VirtualFolder subfolder returns empty without creating a directory
+        var missingVirtual = await browser.ListItemsAsync("alice", "nonexistent_sub");
+        missingVirtual.Should().BeEmpty();
+        Directory.Exists(Path.Combine(userFiles, "nonexistent_sub")).Should().BeFalse();
+
+        // 3. Deterministic link-target authorization matrix (blocks cross-tenant/external escapes in user & group modes)
+        var authLinkMethod = typeof(SecureFileBrowserService).GetMethod("IsAuthorizedLinkDestination", BindingFlags.NonPublic | BindingFlags.Instance);
+        authLinkMethod.Should().NotBeNull();
+
+        ((bool)authLinkMethod!.Invoke(browser, new object[] { userFiles, forbiddenOutsideDir, "alice", false })!).Should().BeFalse();
+        ((bool)authLinkMethod.Invoke(browser, new object[] { userFiles, authGroupDir, "alice", false })!).Should().BeTrue();
+        ((bool)authLinkMethod.Invoke(browser, new object[] { userFiles, Path.Combine(userFiles, "sub"), "alice", false })!).Should().BeTrue();
+        ((bool)authLinkMethod.Invoke(browser, new object[] { authGroupDir, forbiddenOutsideDir, "Finance", true })!).Should().BeFalse();
+        ((bool)authLinkMethod.Invoke(browser, new object[] { authGroupDir, userFiles, "Finance", true })!).Should().BeFalse();
+        ((bool)authLinkMethod.Invoke(browser, new object[] { authGroupDir, Path.Combine(authGroupDir, "sub"), "Finance", true })!).Should().BeTrue();
+
+        // 4. Real on-disk NTFS junction containment when host/token permits mklink /J
+        var evilUserJunction = Path.Combine(userFiles, "EvilLink");
+        var validGroupJunction = Path.Combine(userFiles, "Finance");
+        var groupEscapeJunction = Path.Combine(authGroupDir, "EscapeLink");
+        var folderWithNestedJunction = Path.Combine(userFiles, "WrapperFolder");
+        Directory.CreateDirectory(folderWithNestedJunction);
+        var nestedJunction = Path.Combine(folderWithNestedJunction, "NestedFinance");
+
+        try
+        {
+            if (acl.CreateDirectoryJunction(evilUserJunction, forbiddenOutsideDir))
+            {
+                acl.CreateDirectoryJunction(validGroupJunction, authGroupDir).Should().BeTrue();
+                acl.CreateDirectoryJunction(groupEscapeJunction, forbiddenOutsideDir).Should().BeTrue();
+                acl.CreateDirectoryJunction(nestedJunction, authGroupDir).Should().BeTrue();
+
+                await Assert.ThrowsAsync<SecurityException>(() => browser.ListItemsAsync("alice", "EvilLink"));
+                var financeItems = await browser.ListItemsAsync("alice", "Finance");
+                financeItems.Should().Contain(i => i.Name == "q1.txt");
+
+                await Assert.ThrowsAsync<SecurityException>(() => browser.ListGroupItemsAsync("Finance", "EscapeLink"));
+
+                await Assert.ThrowsAsync<InvalidOperationException>(() => browser.DeleteItemAsync("alice", "WrapperFolder"));
+                File.Exists(Path.Combine(authGroupDir, "q1.txt")).Should().BeTrue();
+            }
+        }
+        finally
+        {
+            acl.RemoveDirectoryJunction(evilUserJunction);
+            acl.RemoveDirectoryJunction(validGroupJunction);
+            acl.RemoveDirectoryJunction(groupEscapeJunction);
+            acl.RemoveDirectoryJunction(nestedJunction);
+        }
+    }
+
+    [Fact]
+    public async Task SftpUserService_And_SftpGroupService_ShouldEnforceKeyValidation_PrivilegedBlocks_AndAdDisable()
+    {
+        var acl = Substitute.For<INativeAclProvisioner>();
+        var winMgr = Substitute.For<IWindowsUserManager>();
+        var sshMgr = Substitute.For<IOpenSshServiceManager>();
+        var audit = Substitute.For<IAuditService>();
+        var keyGen = Substitute.For<ISshKeyGenerator>();
+        var sessionSvc = Substitute.For<ISftpSessionService>();
+
+        var sftpRoot = Path.Combine(_tempDir, "sftproot_lifecycle");
+        var keysRoot = Path.Combine(_tempDir, "keys_lifecycle");
+        var customDcRoot = Path.Combine(_tempDir, "dc_partner_root");
+        sshMgr.SftpRoot.Returns(sftpRoot);
+        sshMgr.KeysPath.Returns(keysRoot);
+
+        var groupService = new SftpGroupService(_dbFactory, winMgr, acl, sshMgr, audit, NullLogger<SftpGroupService>.Instance);
+        var userService = new SftpUserService(_dbFactory, acl, winMgr, sshMgr, groupService, audit, keyGen, NullLogger<SftpUserService>.Instance, sessionSvc);
+
+        // 1. Invalid initial SSH key must reject upfront before OS user or directory provisioning
+        var badKeyRes = await userService.CreateUserAsync(new CreateUserRequest
+        {
+            Username = "badkey_user",
+            AccountType = SftpAccountType.LocalWindows,
+            Password = "Password!123",
+            SshPublicKey = "ssh-ed25519 invalid_payload!"
+        });
+        badKeyRes.Success.Should().BeFalse();
+        winMgr.DidNotReceiveWithAnyArgs().CreateOrUpdateLocalUser(default!, default!, default);
+
+        // 2. Privileged local account / pre-existing Windows account must be blocked
+        winMgr.IsPrivilegedLocalAccount("Administrator").Returns(true);
+        var privRes = await userService.CreateUserAsync(new CreateUserRequest
+        {
+            Username = "Administrator",
+            AccountType = SftpAccountType.LocalWindows,
+            Password = "Password!123"
+        });
+        privRes.Success.Should().BeFalse();
+
+        winMgr.IsPrivilegedLocalAccount("existing_os").Returns(false);
+        winMgr.LocalUserExists("existing_os").Returns(true);
+        var hijackRes = await userService.CreateUserAsync(new CreateUserRequest
+        {
+            Username = "existing_os",
+            AccountType = SftpAccountType.LocalWindows,
+            Password = "Password!123"
+        });
+        hijackRes.Success.Should().BeFalse();
+
+        // 3. Seed active AD DirectChroot user in a group with a key, then disable and verify full lifecycle
+        await using (var db = new AppDbContext(_dbOptions))
+        {
+            var grp = new SftpGroup { Id = "grp-ad", Name = "Partners", RootPath = Path.Combine(_tempDir, "partners_share"), AccessMode = SftpAccessMode.VirtualFolder };
+            var u = new SftpUser
+            {
+                Username = "ad_partner",
+                AccountType = SftpAccountType.ActiveDirectory,
+                AccessMode = SftpAccessMode.DirectChroot,
+                CustomRootPath = customDcRoot,
+                IsActive = true
+            };
+            u.UserGroups.Add(new SftpUserGroup { Username = "ad_partner", GroupId = "grp-ad", Group = grp });
+            u.PublicKeys.Add(new SshPublicKey
+            {
+                Username = "ad_partner",
+                KeyType = "ssh-rsa",
+                FingerprintSha256 = "SHA256:dummy1",
+                RawPublicKey = BuildWireRsaOpenSshKey(256)
+            });
+            db.SftpGroups.Add(grp);
+            db.SftpUsers.Add(u);
+            await db.SaveChangesAsync();
+        }
+
+        var disableRes = await userService.UpdateUserStatusAsync("ad_partner", isActive: false, "super_admin");
+        disableRes.Success.Should().BeTrue();
+
+        winMgr.Received(1).RemoveUserFromLocalGroup("SFTP-Users", "ad_partner");
+        winMgr.Received(1).RemoveUserFromLocalGroup("SFTP-Partners", "ad_partner");
+        acl.Received().WriteUserKeysFile(keysRoot, "ad_partner", Arg.Is<IEnumerable<string>>(k => !k.Any()));
+        await sessionSvc.Received(1).TerminateUserSessionsAsync("ad_partner", "super_admin");
+        await sshMgr.Received().SyncManagedConfigAsync(
+            Arg.Is<IEnumerable<DirectChrootRule>>(r => !r.Any(rule => rule.Identifier == "ad_partner")),
+            Arg.Any<bool>());
+
+        // 4. Adding a public key while disabled saves to DB but skips writing active key to disk
+        acl.ClearReceivedCalls();
+        string secondKey;
+        using (var ms = new MemoryStream())
+        using (var w = new BinaryWriter(ms))
+        {
+            WriteRfc4251Field(w, Encoding.ASCII.GetBytes("ssh-ed25519"));
+            var pub = new byte[32];
+            pub[0] = 0x55;
+            WriteRfc4251Field(w, pub);
+            secondKey = $"ssh-ed25519 {Convert.ToBase64String(ms.ToArray())} second@ed";
+        }
+        var addDisabledKey = await userService.AddPublicKeyAsync("ad_partner", secondKey);
+        addDisabledKey.Success.Should().BeTrue();
+        acl.DidNotReceiveWithAnyArgs().WriteUserKeysFile(default!, default!, default!);
+    }
+
+    [Fact]
+    public async Task SshdHardeningAndCsvTests_ShouldEnforceServiceAllowlist_Directives_AndCsvEscaping()
+    {
+        // 1. Service name allowlist blocks arbitrary Windows services
+        var svcMgr = new OpenSshServiceManager(NullLogger<OpenSshServiceManager>.Instance);
+        var (okStart, startMsg) = await svcMgr.StartServiceAsync("Spooler");
+        okStart.Should().BeFalse();
+        startMsg.Should().Contain("not permitted");
+
+        // 2. Managed sshd block disables Tunnel, AgentForwarding, and TTY
+        var block = svcMgr.GenerateManagedBlock(new List<DirectChrootRule>(), @"C:\SFTPRoot", @"C:\ProgramData\ssh\keys");
+        block.Should().Contain("PermitTunnel no");
+        block.Should().Contain("AllowAgentForwarding no");
+        block.Should().Contain("PermitTTY no");
+
+        // 3. GlobalOnlyDirectives extracts LoginGraceTime out of Match blocks into GlobalLines
+        var configSvc = new SshdConfigService(NullLogger<SshdConfigService>.Instance);
+        var parsed = configSvc.Parse("Port 22\nMatch Group SFTP-Users\n    LoginGraceTime 30\n    ChrootDirectory C:\\SFTPRoot\\%u\n");
+        parsed.GlobalLines.Should().Contain(l => l.Contains("LoginGraceTime 30"));
+        parsed.MatchBlocks.Should().ContainSingle();
+        parsed.MatchBlocks[0].Directives.Should().NotContain(d => d.Key.Equals("LoginGraceTime", StringComparison.OrdinalIgnoreCase));
+
+        // 4. CSV Escaping handles pipe, vertical tab, form feed, and leading newline
+        SshEventLogService.EscapeCsv("|calc").Should().StartWith("\"'");
+        SshEventLogService.EscapeCsv("\v=1+1").Should().StartWith("\"'");
+        SshEventLogService.EscapeCsv("\f+2").Should().StartWith("\"'");
+        SshEventLogService.EscapeCsv("\n=cmd").Should().StartWith("\"'");
     }
 }

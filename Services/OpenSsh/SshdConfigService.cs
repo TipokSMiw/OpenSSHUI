@@ -18,7 +18,7 @@ public class SshdConfigService : ISshdConfigService
     {
         "Port", "ListenAddress", "HostKey", "AddressFamily", "PidFile",
         "Subsystem", "SyslogFacility", "Protocol", "AcceptEnv", "UsePAM",
-        "MaxStartups"
+        "MaxStartups", "LoginGraceTime"
     };
 
     private static readonly Regex LineErrorRegex = new(@"line\s+\d+:", RegexOptions.Compiled | RegexOptions.IgnoreCase);
@@ -50,6 +50,20 @@ public class SshdConfigService : ISshdConfigService
         foreach (var path in candidates)
         {
             if (File.Exists(path)) return path;
+        }
+
+        var pathEnv = Environment.GetEnvironmentVariable("PATH");
+        if (!string.IsNullOrWhiteSpace(pathEnv))
+        {
+            foreach (var dir in pathEnv.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
+            {
+                try
+                {
+                    var candidate = Path.Combine(dir.Trim(), "sshd.exe");
+                    if (File.Exists(candidate)) return candidate;
+                }
+                catch { }
+            }
         }
 
         return "sshd.exe"; // Fallback to PATH
@@ -511,6 +525,9 @@ public class SshdConfigService : ISshdConfigService
                         new() { Key = "ForceCommand", Value = "internal-sftp" },
                         new() { Key = "AllowTcpForwarding", Value = "no" },
                         new() { Key = "X11Forwarding", Value = "no" },
+                        new() { Key = "PermitTunnel", Value = "no" },
+                        new() { Key = "AllowAgentForwarding", Value = "no" },
+                        new() { Key = "PermitTTY", Value = "no" },
                         new() { Key = "AuthorizedKeysFile", Value = normalizedKeys }
                     }
                 });
@@ -541,6 +558,9 @@ public class SshdConfigService : ISshdConfigService
                         new() { Key = "ForceCommand", Value = "internal-sftp" },
                         new() { Key = "AllowTcpForwarding", Value = "no" },
                         new() { Key = "X11Forwarding", Value = "no" },
+                        new() { Key = "PermitTunnel", Value = "no" },
+                        new() { Key = "AllowAgentForwarding", Value = "no" },
+                        new() { Key = "PermitTTY", Value = "no" },
                         new() { Key = "AuthorizedKeysFile", Value = normalizedKeys }
                     }
                 });
@@ -558,6 +578,9 @@ public class SshdConfigService : ISshdConfigService
                     new() { Key = "ForceCommand", Value = "internal-sftp" },
                     new() { Key = "AllowTcpForwarding", Value = "no" },
                     new() { Key = "X11Forwarding", Value = "no" },
+                    new() { Key = "PermitTunnel", Value = "no" },
+                    new() { Key = "AllowAgentForwarding", Value = "no" },
+                    new() { Key = "PermitTTY", Value = "no" },
                     new() { Key = "AuthorizedKeysFile", Value = normalizedKeys }
                 }
             });
@@ -686,7 +709,13 @@ public class SshdConfigService : ISshdConfigService
             configFile.GlobalLines.RemoveAll(line =>
             {
                 var trimmed = line.Trim();
-                if (string.IsNullOrWhiteSpace(trimmed) || trimmed.StartsWith("#", StringComparison.Ordinal)) return false;
+                if (string.IsNullOrWhiteSpace(trimmed)) return false;
+                if (trimmed.Equals("# --- Concurrency & Connection Limits (Managed by OpensshUI) ---", StringComparison.Ordinal) ||
+                    trimmed.Equals("# -----------------------------------------------------------------", StringComparison.Ordinal))
+                {
+                    return true;
+                }
+                if (trimmed.StartsWith("#", StringComparison.Ordinal)) return false;
                 var key = trimmed.Split(new[] { ' ', '\t' }, 2, StringSplitOptions.RemoveEmptyEntries)[0];
                 return concurrencyDirectives.ContainsKey(key);
             });

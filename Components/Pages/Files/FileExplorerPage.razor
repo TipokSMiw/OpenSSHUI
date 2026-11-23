@@ -82,7 +82,7 @@
                     <nav aria-label="breadcrumb">
                         <ol class="breadcrumb mb-0 align-items-center">
                             <li class="breadcrumb-item">
-                                <a href="javascript:void(0)" class="text-decoration-none fw-bold d-inline-flex align-items-center gap-1" @onclick='() => NavigateToPath("")'>
+                                <a href="#" @onclick:preventDefault="true" class="text-decoration-none fw-bold d-inline-flex align-items-center gap-1" @onclick='() => NavigateToPath("")'>
                                     <i class="bi @(IsGroupMode ? "bi-collection-fill text-primary" : "bi-house-door-fill text-primary")"></i>
                                     <span>@(IsGroupMode ? L.Get("Files.RootGroup", SelectedGroupName ?? "") : L.Get("Files.RootUser", SelectedUsername ?? "")) (Root)</span>
                                 </a>
@@ -104,7 +104,7 @@
                                     else
                                     {
                                         <li class="breadcrumb-item">
-                                            <a href="javascript:void(0)" class="text-decoration-none" @onclick="() => NavigateToPath(target)">@part</a>
+                                            <a href="#" @onclick:preventDefault="true" class="text-decoration-none" @onclick="() => NavigateToPath(target)">@part</a>
                                         </li>
                                     }
                                 }
@@ -209,7 +209,7 @@
                                         <td class="ps-3">
                                             @if (item.IsDirectory)
                                             {
-                                                <a href="javascript:void(0)" class="text-decoration-none text-dark fw-bold d-inline-flex align-items-center gap-2" @onclick="() => NavigateToPath(item.RelativePath)">
+                                                <a href="#" @onclick:preventDefault="true" class="text-decoration-none text-dark fw-bold d-inline-flex align-items-center gap-2" @onclick="() => NavigateToPath(item.RelativePath)">
                                                     <i class="bi bi-folder-fill text-primary fs-5"></i>
                                                     <span>@item.Name</span>
                                                 </a>
@@ -346,6 +346,7 @@
 
     private async Task LoadDropdownData()
     {
+        if (!SessionState.EnsureAuthenticated()) return;
         users = await UserService.GetAllUsersAsync();
         groups = await GroupService.GetAllGroupsAsync();
     }
@@ -414,6 +415,7 @@
 
     private async Task LoadDirectoryContents()
     {
+        if (!SessionState.EnsureAuthenticated()) return;
         if (string.IsNullOrWhiteSpace(CurrentTargetName)) return;
 
         isLoadingFiles = true;
@@ -549,6 +551,7 @@
 
     private async Task DownloadFile(FileItemInfo item)
     {
+        if (!SessionState.EnsureAuthenticated()) return;
         if (string.IsNullOrWhiteSpace(CurrentTargetName)) return;
 
         var op = string.IsNullOrEmpty(SessionState.CurrentUsername) ? "admin" : SessionState.CurrentUsername;

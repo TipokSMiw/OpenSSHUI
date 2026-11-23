@@ -28,6 +28,8 @@ public interface INtfsAclService
     bool CreateDirectoryJunction(string linkPath, string targetPath);
     bool RemoveDirectoryJunction(string linkPath);
     bool ValidatePathSafety(string basePath, string relativeOrSubPath);
+    (bool IsSafe, string? ErrorMessage) ValidateResolvedPathSafety(string path, string? sftpRootPath = null);
+    void SecureAppDataDirectory(string appDataPath);
     List<DriveFolderItem> ListAvailableDrives();
     List<DriveFolderItem> ListDirectories(string parentPath);
     bool DirectoryExists(string path);

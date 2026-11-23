@@ -1,6 +1,7 @@
 @page "/ssh-logs"
 @rendermode InteractiveServer
 @inject IOpenSshLogService SshLogService
+@inject UserSessionState SessionState
 @inject IJSRuntime JS
 @inject ILocalizationService L
 @implements IDisposable
@@ -418,6 +419,7 @@
 
     private async Task LoadLogs()
     {
+        if (!SessionState.EnsureAuthenticated()) return;
         isLoading = true;
         try
         {
@@ -485,6 +487,14 @@
             {
                 await InvokeAsync(async () =>
                 {
+                    if (!SessionState.EnsureAuthenticated())
+                    {
+                        autoRefreshTimer?.Dispose();
+                        autoRefreshTimer = null;
+                        StateHasChanged();
+                        return;
+                    }
+
                     if (!isLoading)
                     {
                         await LoadLogs();
@@ -497,6 +507,7 @@
 
     private async Task ExportCsv()
     {
+        if (!SessionState.EnsureAuthenticated()) return;
         if (queryResult?.Entries == null || queryResult.Entries.Count == 0) return;
 
         var bytes = SshLogService.ExportCsv(queryResult.Entries);

@@ -20,6 +20,7 @@ public class SftpSessionService : ISftpSessionService
     private readonly int _sshPort;
 
     private readonly object _mockLock = new();
+    private readonly object _cachePruneLock = new();
     private readonly List<SftpSessionInfo> _mockSessions = new();
     private readonly ConcurrentDictionary<(string Ip, int Port), (string Username, DateTime Timestamp)> _sessionUserCache = new();
     internal ConcurrentDictionary<(string Ip, int Port), (string Username, DateTime Timestamp)> SessionUserCache => _sessionUserCache;
@@ -29,15 +30,21 @@ public class SftpSessionService : ISftpSessionService
     {
         if (!_sessionUserCache.ContainsKey(key) && _sessionUserCache.Count >= MaxSessionCacheEntries)
         {
-            var oldestKeys = _sessionUserCache
-                .OrderBy(kvp => kvp.Value.Timestamp)
-                .Take(MaxSessionCacheEntries / 4)
-                .Select(kvp => kvp.Key)
-                .ToList();
-
-            foreach (var oldKey in oldestKeys)
+            lock (_cachePruneLock)
             {
-                _sessionUserCache.TryRemove(oldKey, out _);
+                if (_sessionUserCache.Count >= MaxSessionCacheEntries)
+                {
+                    var oldestKeys = _sessionUserCache.ToArray()
+                        .OrderBy(kvp => kvp.Value.Timestamp)
+                        .Take(MaxSessionCacheEntries / 4)
+                        .Select(kvp => kvp.Key)
+                        .ToList();
+
+                    foreach (var oldKey in oldestKeys)
+                    {
+                        _sessionUserCache.TryRemove(oldKey, out _);
+                    }
+                }
             }
         }
 
@@ -281,6 +288,11 @@ public class SftpSessionService : ISftpSessionService
             return await TerminateSessionAsync(session.ProcessId, operatorUsername);
         }
 
+        if (session.SessionId.StartsWith("demo-sess-", StringComparison.OrdinalIgnoreCase))
+        {
+            return (false, "ไม่สามารถตัดเซสชันจำลอง (Demo Session) ขณะอยู่ในโหมด Live ได้");
+        }
+
         var masterPid = GetSshdServicePid();
         bool isMaster = (masterPid > 0 && session.ProcessId == masterPid) || session.IsMasterServiceProcess;
 
@@ -291,14 +303,38 @@ public class SftpSessionService : ISftpSessionService
             tcpClosed = CloseTcpConnectionWin32(session.RawLocalAddr, session.RawLocalPort, session.RawRemoteAddr, session.RawRemotePort);
         }
 
-        // 2. Kill Child Process if exists and NOT master service
+        // 2. Kill Child Process ONLY if it is a verified OpenSSH process belonging to this session and NOT master service
         if (session.ChildProcessId.HasValue && session.ChildProcessId.Value > 0 && session.ChildProcessId.Value != masterPid)
         {
             try
             {
                 var childProc = Process.GetProcessById(session.ChildProcessId.Value);
-                childProc.Kill(entireProcessTree: true);
-                _logger.LogInformation("Terminated child SFTP process PID {ChildPid}", session.ChildProcessId.Value);
+                var childProcName = childProc.ProcessName.ToLowerInvariant();
+                if (childProcName != "sshd" && childProcName != "sftp-server")
+                {
+                    _logger.LogWarning("Safety Guard: skipped terminating child PID {ChildPid} ({ProcessName}) because it is not an OpenSSH process.",
+                        session.ChildProcessId.Value, childProc.ProcessName);
+                }
+                else
+                {
+                    var childOwner = SecurityValidator.ExtractCanonicalUsername(ResolveProcessUsername(childProc));
+                    var sessionOwner = SecurityValidator.ExtractCanonicalUsername(session.Username);
+                    bool ownerKnown = !string.IsNullOrWhiteSpace(childOwner) &&
+                                      !childOwner.Equals("Unknown", StringComparison.OrdinalIgnoreCase) &&
+                                      !childOwner.Equals("SYSTEM", StringComparison.OrdinalIgnoreCase);
+
+                    if (!session.IsAuthenticating && ownerKnown &&
+                        !string.Equals(childOwner, sessionOwner, StringComparison.OrdinalIgnoreCase))
+                    {
+                        _logger.LogWarning("Safety Guard: skipped terminating child PID {ChildPid} owned by '{Owner}' while terminating session for '{SessionUser}'.",
+                            session.ChildProcessId.Value, childOwner, sessionOwner);
+                    }
+                    else
+                    {
+                        childProc.Kill(entireProcessTree: true);
+                        _logger.LogInformation("Terminated child SFTP process PID {ChildPid}", session.ChildProcessId.Value);
+                    }
+                }
             }
             catch (Exception ex)
             {
@@ -325,13 +361,19 @@ public class SftpSessionService : ISftpSessionService
     {
         if (_isDemoMode)
         {
+            int? targetPid = null;
             lock (_mockLock)
             {
                 var target = _mockSessions.FirstOrDefault(s => s.SessionId == sessionId);
                 if (target != null)
                 {
-                    return TerminateSessionAsync(target.ProcessId, operatorUsername).Result;
+                    targetPid = target.ProcessId;
                 }
+            }
+
+            if (targetPid.HasValue)
+            {
+                return await TerminateSessionAsync(targetPid.Value, operatorUsername);
             }
             return (false, $"ไม่พบเซสชัน {sessionId}");
         }
@@ -589,15 +631,11 @@ public class SftpSessionService : ISftpSessionService
                     }
                 }
 
-                // 3. Fallback: Global process scan of sshd / sftp-server running under non-SYSTEM identities
+                // 3. Fallback: Global process scan of sshd / sftp-server running under non-SYSTEM identities (only unambiguous 1:1 case)
                 if (string.IsNullOrWhiteSpace(detectedChildUser))
                 {
                     runningSessionUsers ??= FindRunningSessionUsers(masterSshdPid);
-                    if (runningSessionUsers.Count == 1)
-                    {
-                        detectedChildUser = runningSessionUsers[0].Username;
-                    }
-                    else if (runningSessionUsers.Count > 1)
+                    if (runningSessionUsers.Count == 1 && sshConnections.Count == 1)
                     {
                         detectedChildUser = runningSessionUsers[0].Username;
                     }
@@ -629,7 +667,27 @@ public class SftpSessionService : ISftpSessionService
                 }
             }
 
-            int? matchedChildPid = childProcesses.Count > 0 ? childProcesses[0].Pid : null;
+            int? matchedChildPid = null;
+            if (isMaster && childProcesses.Count > 0)
+            {
+                if (!isAuthenticating && !string.IsNullOrWhiteSpace(cleanUser))
+                {
+                    foreach (var (cPid, _) in childProcesses)
+                    {
+                        var cOwner = SecurityValidator.ExtractCanonicalUsername(GetProcessUsername(cPid));
+                        if (string.Equals(cOwner, cleanUser, StringComparison.OrdinalIgnoreCase))
+                        {
+                            matchedChildPid = cPid;
+                            break;
+                        }
+                    }
+                }
+
+                if (!matchedChildPid.HasValue && childProcesses.Count == 1 && sshConnections.Count == 1)
+                {
+                    matchedChildPid = childProcesses[0].Pid;
+                }
+            }
 
             result.Add(new SftpSessionInfo
             {

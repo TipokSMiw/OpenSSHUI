@@ -40,11 +40,20 @@ public class SshEventLogService : ISshEventLogService, IOpenSshLogService
                 using var reader = new EventLogReader(eventQuery);
                 var parsedEntries = new List<OpenSshLogEntry>();
                 int maxToFetch = Math.Clamp(filter.MaxRecords, 10, 2000);
+                const int maxScannedEvents = 20_000;
+                int scannedCount = 0;
+                var deadlineUtc = DateTime.UtcNow.AddSeconds(10);
 
                 for (var eventRecord = reader.ReadEvent(); eventRecord != null; eventRecord = reader.ReadEvent())
                 {
                     using (eventRecord)
                     {
+                        if (++scannedCount > maxScannedEvents || DateTime.UtcNow > deadlineUtc)
+                        {
+                            _logger.LogWarning("Event log query terminated early after scanning {Count} events (safety limit/timeout).", scannedCount - 1);
+                            break;
+                        }
+
                         var time = eventRecord.TimeCreated?.ToUniversalTime() ?? DateTime.UtcNow;
 
                         // Because query direction is reversed (newest to oldest):
@@ -222,9 +231,10 @@ public class SshEventLogService : ISshEventLogService, IOpenSshLogService
         if (string.IsNullOrEmpty(value)) return "\"\"";
 
         // Formula injection mitigation (CSV / DDE Injection defense - OWASP A03:2021)
-        var trimmedStart = value.TrimStart(' ', '\t', '\r', '\n');
-        if (trimmedStart.StartsWith("=") || trimmedStart.StartsWith("+") || trimmedStart.StartsWith("-") || trimmedStart.StartsWith("@")
-            || value.StartsWith("\t") || value.StartsWith("\r"))
+        var trimmedStart = value.TrimStart(' ', '\t', '\r', '\n', '\v', '\f');
+        if (trimmedStart.StartsWith("=") || trimmedStart.StartsWith("+") || trimmedStart.StartsWith("-") ||
+            trimmedStart.StartsWith("@") || trimmedStart.StartsWith("|") ||
+            value.StartsWith("\t") || value.StartsWith("\r") || value.StartsWith("\n"))
         {
             value = "'" + value;
         }

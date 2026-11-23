@@ -7,6 +7,17 @@ namespace OpensshUI.Services.OpenSsh;
 [SupportedOSPlatform("windows")]
 public class WindowsUserManager : IWindowsUserManager
 {
+    private static readonly string[] PrivilegedLocalGroups =
+    {
+        "Administrators",
+        "Backup Operators",
+        "Remote Desktop Users",
+        "Power Users",
+        "Hyper-V Administrators",
+        "Account Operators",
+        "Server Operators"
+    };
+
     private readonly ILogger<WindowsUserManager> _logger;
 
     public WindowsUserManager(ILogger<WindowsUserManager> logger)
@@ -181,7 +192,7 @@ public class WindowsUserManager : IWindowsUserManager
 
             res = RunProcess("net.exe", new[] { "localgroup", groupName, username, "/add" });
             // Return true if exit code is 0 or member already exists (1378)
-            return res.ExitCode == 0 || res.ExitCode == 2;
+            return res.ExitCode == 0 || (res.ExitCode == 2 && res.StandardError.Contains("1378", StringComparison.OrdinalIgnoreCase));
         }
         catch (Exception ex)
         {
@@ -248,12 +259,58 @@ public class WindowsUserManager : IWindowsUserManager
         return members;
     }
 
+    public bool LocalUserExists(string username)
+    {
+        var (okUser, _) = SecurityValidator.ValidateUsername(username);
+        if (!okUser) return false;
+
+        try
+        {
+            var res = RunProcess("net.exe", new[] { "user", username.Trim() });
+            return res.ExitCode == 0;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to check local user existence for {Username}", SecurityValidator.SanitizeSingleLine(username));
+            return false;
+        }
+    }
+
+    public bool IsPrivilegedLocalAccount(string username)
+    {
+        var (okUser, _) = SecurityValidator.ValidateUsername(username);
+        if (!okUser) return false;
+
+        var targetCanonical = SecurityValidator.ExtractCanonicalUsername(username);
+        if (string.IsNullOrEmpty(targetCanonical)) return false;
+
+        foreach (var group in PrivilegedLocalGroups)
+        {
+            foreach (var member in GetGroupMembers(group))
+            {
+                var memberCanonical = SecurityValidator.ExtractCanonicalUsername(member);
+                if (string.Equals(memberCanonical, targetCanonical, StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
     public bool CreateOrUpdateLocalUser(string username, string password, bool isActive = true)
     {
         var (okUser, errUser) = SecurityValidator.ValidateUsername(username);
         if (!okUser)
         {
-            _logger.LogError("Invalid username {Username}: {Error}", username, errUser);
+            _logger.LogError("Invalid username {Username}: {Error}", SecurityValidator.SanitizeSingleLine(username), errUser);
+            return false;
+        }
+
+        if (IsPrivilegedLocalAccount(username))
+        {
+            _logger.LogWarning("Refused to create or modify privileged local OS account {Username}.", SecurityValidator.SanitizeSingleLine(username));
             return false;
         }
 
@@ -328,6 +385,12 @@ public class WindowsUserManager : IWindowsUserManager
     {
         var (okUser, _) = SecurityValidator.ValidateUsername(username);
         if (!okUser) return false;
+
+        if (IsPrivilegedLocalAccount(username))
+        {
+            _logger.LogWarning("Refused to delete privileged local OS account {Username}.", SecurityValidator.SanitizeSingleLine(username));
+            return false;
+        }
 
         try
         {

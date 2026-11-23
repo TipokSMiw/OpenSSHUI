@@ -433,6 +433,7 @@
 
     private void RefreshStatus()
     {
+        if (!SessionState.EnsureAuthenticated()) return;
         serviceInfo = SshManager.GetStatus();
         agentInfo = SshManager.GetAgentStatus();
     }

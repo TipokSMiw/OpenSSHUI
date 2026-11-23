@@ -21,7 +21,7 @@ public class WebAdminUser
     public string? Email { get; set; }
     public WebAdminType AccountType { get; set; } = WebAdminType.Local;
     public string? PasswordHash { get; set; }
-    public WebAdminRole Role { get; set; } = WebAdminRole.SuperAdmin;
+    public WebAdminRole Role { get; set; } = WebAdminRole.Auditor;
     public bool IsActive { get; set; } = true;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? LastLoginAt { get; set; }

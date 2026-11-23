@@ -73,6 +73,98 @@ public class NtfsAclService : INtfsAclService, INativeAclProvisioner
         _resolvedAccountCache[key] = account;
     }
 
+    public (bool IsSafe, string? ErrorMessage) ValidateResolvedPathSafety(string path, string? sftpRootPath = null)
+    {
+        var (isSafe, err) = SecurityValidator.ValidateSafeCustomPath(path, sftpRootPath);
+        if (!isSafe)
+        {
+            return (false, err);
+        }
+
+        try
+        {
+            var fullPath = Path.GetFullPath(path.Trim()).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            var root = Path.GetPathRoot(fullPath)?.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            var current = new DirectoryInfo(fullPath);
+
+            while (current != null &&
+                   !string.Equals(current.FullName.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar), root, StringComparison.OrdinalIgnoreCase))
+            {
+                if (current.Exists && current.Attributes.HasFlag(FileAttributes.ReparsePoint))
+                {
+                    var resolved = current.ResolveLinkTarget(returnFinalTarget: true);
+                    if (resolved == null)
+                    {
+                        return (false, $"Unresolvable symbolic link or junction detected at '{current.FullName}'.");
+                    }
+
+                    var (isTargetSafe, targetErr) = SecurityValidator.ValidateSafeCustomPath(resolved.FullName, sftpRootPath);
+                    if (!isTargetSafe)
+                    {
+                        return (false, $"Symbolic link or junction at '{current.FullName}' resolves to restricted path: {targetErr}");
+                    }
+                }
+
+                current = current.Parent;
+            }
+
+            return (true, null);
+        }
+        catch (Exception ex)
+        {
+            return (false, $"Invalid path resolution: {ex.Message}");
+        }
+    }
+
+    public void SecureAppDataDirectory(string appDataPath)
+    {
+        if (string.IsNullOrWhiteSpace(appDataPath)) return;
+
+        try
+        {
+            var fullAppData = Path.GetFullPath(appDataPath.Trim());
+            Directory.CreateDirectory(fullAppData);
+
+            var dirInfo = new DirectoryInfo(fullAppData);
+            var security = new DirectorySecurity();
+            security.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
+
+            var adminSid = new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null);
+            var systemSid = new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null);
+
+            security.AddAccessRule(new FileSystemAccessRule(
+                adminSid,
+                FileSystemRights.FullControl,
+                InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit,
+                PropagationFlags.None,
+                AccessControlType.Allow));
+
+            security.AddAccessRule(new FileSystemAccessRule(
+                systemSid,
+                FileSystemRights.FullControl,
+                InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit,
+                PropagationFlags.None,
+                AccessControlType.Allow));
+
+            var currentIdentitySid = WindowsIdentity.GetCurrent().User;
+            if (currentIdentitySid != null && currentIdentitySid != adminSid && currentIdentitySid != systemSid)
+            {
+                security.AddAccessRule(new FileSystemAccessRule(
+                    currentIdentitySid,
+                    FileSystemRights.FullControl,
+                    InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit,
+                    PropagationFlags.None,
+                    AccessControlType.Allow));
+            }
+
+            dirInfo.SetAccessControl(security);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not lock down NTFS ACL on application data directory {Path}. Ensure the process runs with Administrator privileges in production.", appDataPath);
+        }
+    }
+
     /// <summary>
     /// Configures the root of an OpenSSH Chroot jail with strict Windows OpenSSH security rules:
     /// 1. Ownership: Must be BUILTIN\Administrators or NT AUTHORITY\SYSTEM.
@@ -84,6 +176,12 @@ public class NtfsAclService : INtfsAclService, INativeAclProvisioner
     {
         if (string.IsNullOrWhiteSpace(chrootRootPath))
             throw new ArgumentException("Chroot root path cannot be empty.", nameof(chrootRootPath));
+
+        var (isSafePath, pathErr) = ValidateResolvedPathSafety(chrootRootPath);
+        if (!isSafePath)
+        {
+            throw new SecurityException($"Unsafe chroot root path: {pathErr}");
+        }
 
         var canonicalRoot = Path.GetFullPath(chrootRootPath);
         if (!Directory.Exists(canonicalRoot))
@@ -101,6 +199,27 @@ public class NtfsAclService : INtfsAclService, INativeAclProvisioner
 
             // 1. Break inheritance from parent drives (e.g. D:\ or C:\) and strip all inherited ACEs
             security.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
+
+            // Remove any prior explicit write/modify/ownership ACEs granted to non-Admin / non-SYSTEM principals
+            const FileSystemRights writeRightsMask =
+                FileSystemRights.Write | FileSystemRights.Modify | FileSystemRights.FullControl |
+                FileSystemRights.ChangePermissions | FileSystemRights.TakeOwnership |
+                FileSystemRights.WriteData | FileSystemRights.AppendData |
+                FileSystemRights.WriteAttributes | FileSystemRights.WriteExtendedAttributes |
+                FileSystemRights.Delete | FileSystemRights.DeleteSubdirectoriesAndFiles;
+
+            var existingRules = security.GetAccessRules(includeExplicit: true, includeInherited: false, typeof(SecurityIdentifier));
+            foreach (AuthorizationRule rule in existingRules)
+            {
+                if (rule is FileSystemAccessRule fsRule &&
+                    fsRule.AccessControlType == AccessControlType.Allow &&
+                    fsRule.IdentityReference is SecurityIdentifier sid &&
+                    sid != adminSid && sid != systemSid &&
+                    (fsRule.FileSystemRights & writeRightsMask) != 0)
+                {
+                    security.RemoveAccessRuleSpecific(fsRule);
+                }
+            }
 
             // 2. Grant Full Control to Administrators and SYSTEM
             security.AddAccessRule(new FileSystemAccessRule(
@@ -287,6 +406,12 @@ public class NtfsAclService : INtfsAclService, INativeAclProvisioner
     /// </summary>
     public void ProvisionPathAcl(string folderPath, string accountName, SftpPermissionType permission, bool isDirectChroot = false)
     {
+        var (isSafePath, pathErr) = ValidateResolvedPathSafety(folderPath);
+        if (!isSafePath)
+        {
+            throw new SecurityException($"Unsafe target path '{folderPath}': {pathErr}");
+        }
+
         var canonicalPath = Path.GetFullPath(folderPath);
         if (!Directory.Exists(canonicalPath))
         {
@@ -353,6 +478,10 @@ public class NtfsAclService : INtfsAclService, INativeAclProvisioner
                 }
             }
         }
+        catch (SecurityException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Could not set ACL on {Path} for {Account}", folderPath, accountName);
@@ -374,6 +503,19 @@ public class NtfsAclService : INtfsAclService, INativeAclProvisioner
             security.PurgeAccessRules(targetAccount);
             dirInfo.SetAccessControl(security);
             _logger.LogInformation("Purged ACLs on {Path} for {Account}", folderPath, accountName);
+
+            var subFilesPath = Path.Combine(folderPath, "files");
+            if (Directory.Exists(subFilesPath))
+            {
+                var subInfo = new DirectoryInfo(subFilesPath);
+                if (!subInfo.Attributes.HasFlag(FileAttributes.ReparsePoint))
+                {
+                    var subSecurity = subInfo.GetAccessControl();
+                    subSecurity.PurgeAccessRules(targetAccount);
+                    subInfo.SetAccessControl(subSecurity);
+                    _logger.LogInformation("Purged ACLs on DirectChroot subdirectory {Path} for {Account}", subFilesPath, accountName);
+                }
+            }
         }
         catch (Exception ex)
         {
@@ -391,21 +533,69 @@ public class NtfsAclService : INtfsAclService, INativeAclProvisioner
             if (string.IsNullOrWhiteSpace(basePath) || string.IsNullOrWhiteSpace(relativeOrSubPath))
                 return false;
 
+            var trimmedSub = relativeOrSubPath.Trim();
+            if (trimmedSub.Contains('~'))
+                return false;
+
+            if (Path.IsPathRooted(trimmedSub) ? trimmedSub.IndexOf(':', 2) >= 0 : trimmedSub.Contains(':'))
+                return false;
+
             var fullBase = Path.GetFullPath(basePath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
             string fullTarget;
 
-            if (Path.IsPathRooted(relativeOrSubPath))
+            if (Path.IsPathRooted(trimmedSub))
             {
                 // Absolute path: must directly reside inside fullBase
-                fullTarget = Path.GetFullPath(relativeOrSubPath);
+                fullTarget = Path.GetFullPath(trimmedSub).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
             }
             else
             {
-                fullTarget = Path.GetFullPath(Path.Combine(fullBase, relativeOrSubPath));
+                fullTarget = Path.GetFullPath(Path.Combine(fullBase, trimmedSub)).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
             }
 
-            return fullTarget.Equals(fullBase, StringComparison.OrdinalIgnoreCase) ||
-                   fullTarget.StartsWith(fullBase + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+            bool withinBase = fullTarget.Equals(fullBase, StringComparison.OrdinalIgnoreCase) ||
+                              fullTarget.StartsWith(fullBase + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+            if (!withinBase)
+            {
+                return false;
+            }
+
+            // ReparsePoint / Junction escape check across segments inside fullBase
+            var checkDir = new DirectoryInfo(fullTarget);
+            while (checkDir != null &&
+                   !checkDir.FullName.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar).Equals(fullBase, StringComparison.OrdinalIgnoreCase) &&
+                   checkDir.FullName.StartsWith(fullBase + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            {
+                if (checkDir.Exists && checkDir.Attributes.HasFlag(FileAttributes.ReparsePoint))
+                {
+                    var resolved = checkDir.ResolveLinkTarget(returnFinalTarget: true);
+                    if (resolved == null) return false;
+
+                    var resolvedFull = Path.GetFullPath(resolved.FullName).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                    if (!resolvedFull.Equals(fullBase, StringComparison.OrdinalIgnoreCase) &&
+                        !resolvedFull.StartsWith(fullBase + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return false;
+                    }
+                }
+                checkDir = checkDir.Parent;
+            }
+
+            var targetFile = new FileInfo(fullTarget);
+            if (targetFile.Exists && targetFile.Attributes.HasFlag(FileAttributes.ReparsePoint))
+            {
+                var resolvedFile = targetFile.ResolveLinkTarget(returnFinalTarget: true);
+                if (resolvedFile == null) return false;
+
+                var resolvedFull = Path.GetFullPath(resolvedFile.FullName).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                if (!resolvedFull.Equals(fullBase, StringComparison.OrdinalIgnoreCase) &&
+                    !resolvedFull.StartsWith(fullBase + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+                {
+                    return false;
+                }
+            }
+
+            return true;
         }
         catch
         {
@@ -418,8 +608,8 @@ public class NtfsAclService : INtfsAclService, INativeAclProvisioner
     /// </summary>
     public bool CreateDirectoryJunction(string linkPath, string targetPath)
     {
-        var (okLink, errLink) = SecurityValidator.ValidateSafeCustomPath(linkPath);
-        var (okTarget, errTarget) = SecurityValidator.ValidateSafeCustomPath(targetPath);
+        var (okLink, errLink) = ValidateResolvedPathSafety(linkPath);
+        var (okTarget, errTarget) = ValidateResolvedPathSafety(targetPath);
         if (!okLink || !okTarget)
         {
             _logger.LogWarning("Rejected unsafe directory junction from {Link} ({ErrLink}) to {Target} ({ErrTarget})", linkPath, errLink, targetPath, errTarget);
@@ -581,7 +771,7 @@ public class NtfsAclService : INtfsAclService, INativeAclProvisioner
 
             if (!isDriveRoot)
             {
-                var (isSafeParent, _) = SecurityValidator.ValidateSafeCustomPath(fullParent);
+                var (isSafeParent, _) = ValidateResolvedPathSafety(fullParent);
                 if (!isSafeParent)
                 {
                     return items;
@@ -598,7 +788,7 @@ public class NtfsAclService : INtfsAclService, INativeAclProvisioner
 
             foreach (var sub in dir.EnumerateDirectories("*", enumOptions))
             {
-                var (isSafeSub, _) = SecurityValidator.ValidateSafeCustomPath(sub.FullName);
+                var (isSafeSub, _) = ValidateResolvedPathSafety(sub.FullName);
                 if (!isSafeSub)
                 {
                     continue;
@@ -622,12 +812,20 @@ public class NtfsAclService : INtfsAclService, INativeAclProvisioner
     public bool DirectoryExists(string path)
     {
         if (string.IsNullOrWhiteSpace(path)) return false;
-        try { return Directory.Exists(path); } catch { return false; }
+
+        var trimmed = path.Trim();
+        // Block UNC and Win32 device paths before OS probe to prevent outbound NTLM credential leaks
+        if (trimmed.StartsWith(@"\\") || trimmed.StartsWith("//"))
+        {
+            return false;
+        }
+
+        try { return Directory.Exists(trimmed); } catch { return false; }
     }
 
     public bool CreateDirectory(string fullPath)
     {
-        var (isSafe, err) = SecurityValidator.ValidateSafeCustomPath(fullPath);
+        var (isSafe, err) = ValidateResolvedPathSafety(fullPath);
         if (!isSafe)
         {
             _logger.LogWarning("Rejected directory creation at unsafe path {Path}: {Error}", fullPath, err);

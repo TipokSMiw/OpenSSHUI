@@ -1,3 +1,5 @@
+using System.Net;
+using System.Net.Sockets;
 using System.Text.RegularExpressions;
 
 namespace OpensshUI.Services.Security;
@@ -5,6 +7,7 @@ namespace OpensshUI.Services.Security;
 public static class SecurityValidator
 {
     private static readonly Regex SafeUsernameRegex = new(@"^[a-zA-Z0-9_\-\.]{1,32}$", RegexOptions.Compiled);
+    private static readonly Regex SafeAdminUsernameRegex = new(@"^[a-zA-Z0-9_\-\.]{1,50}$", RegexOptions.Compiled);
     private static readonly Regex SafeGroupNameRegex = new(@"^[a-zA-Z0-9_\-\. ]{1,32}$", RegexOptions.Compiled);
     private static readonly Regex LocalDrivePathRegex = new(@"^[a-zA-Z]:[\\/]", RegexOptions.Compiled);
     private static readonly Regex ControlCharsRegex = new(@"[\r\n\t\x00-\x1F\x7F]", RegexOptions.Compiled);
@@ -205,6 +208,16 @@ public static class SecurityValidator
     }
 
     /// <summary>
+    /// Validates a Web Admin username (alphanumeric, underscore, hyphen, or period characters).
+    /// </summary>
+    public static bool IsValidAdminUsername(string? username, int minLength = 3)
+    {
+        if (string.IsNullOrWhiteSpace(username)) return false;
+        var trimmed = username.Trim();
+        return trimmed.Length >= minLength && trimmed.Length <= 50 && SafeAdminUsernameRegex.IsMatch(trimmed);
+    }
+
+    /// <summary>
     /// Extracts the canonical account name by stripping any DOMAIN\ prefix or @domain UPN suffix.
     /// Prevents RBAC, Self-Lockout, and Brute-Force Lockout bypasses via username format variations.
     /// </summary>
@@ -215,9 +228,9 @@ public static class SecurityValidator
             return string.Empty;
         }
 
-        var clean = rawUsername.Trim();
+        var clean = rawUsername.Trim().TrimEnd('\\').TrimStart('@');
 
-        int backslashIdx = clean.IndexOf('\\');
+        int backslashIdx = clean.LastIndexOf('\\');
         if (backslashIdx >= 0 && backslashIdx < clean.Length - 1)
         {
             clean = clean[(backslashIdx + 1)..];
@@ -494,15 +507,29 @@ public static class SecurityValidator
             return (false, "กรุณาระบุ LDAP Server / Host (LDAP Server/Host cannot be empty).");
         }
 
+        if (host.Any(char.IsControl))
+        {
+            return (false, "LDAP Server/Host contains invalid control characters.");
+        }
+
         var trimmed = host.Trim();
         if (trimmed.Contains("://") || trimmed.Contains('/') || trimmed.Contains('\\'))
         {
             return (false, "LDAP Server/Host must be a hostname or IP address without URL scheme or path.");
         }
 
-        if (trimmed.IndexOfAny(InvalidLdapHostChars) >= 0)
+        if (trimmed.IndexOfAny(InvalidLdapHostChars) >= 0 || trimmed.Any(char.IsControl))
         {
             return (false, "LDAP Server/Host contains invalid characters.");
+        }
+
+        if (IPAddress.TryParse(trimmed, out var ip) && ip.AddressFamily == AddressFamily.InterNetwork)
+        {
+            var bytes = ip.GetAddressBytes();
+            if (bytes[0] == 169 && bytes[1] == 254)
+            {
+                return (false, "LDAP Server/Host cannot target link-local or cloud metadata IPv4 addresses (169.254.0.0/16).");
+            }
         }
 
         if (port < 1 || port > 65535)
